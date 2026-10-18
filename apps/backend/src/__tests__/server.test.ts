@@ -381,6 +381,78 @@ describe("HTTP routes", () => {
     expect((await fetch(`${r.base}/api/session/no-such-session/report`)).status).toBe(404);
   });
 
+  describe("DELETE /api/session/:sessionId", () => {
+    async function seedSession(id: string, owner: string, status: "complete" | "failed" | "abandoned" = "complete") {
+      await persistence.persistSessionCreate(id, owner, TOPIC, "intro");
+      await persistence.persistTurn({
+        id: `${id}-t1`,
+        sessionId: id,
+        role: "user",
+        content: "private",
+        phase: "intro",
+        timestamp: new Date(),
+      });
+      await persistence.persistSessionStatus(id, status);
+    }
+
+    it("deletes the caller's own session with 204, then transcript and report are 404", async () => {
+      const r = await start();
+      await seedSession("del-own", "local");
+      expect((await fetch(`${r.base}/api/session/del-own/transcript`)).status).toBe(200);
+      const res = await fetch(`${r.base}/api/session/del-own`, { method: "DELETE" });
+      expect(res.status).toBe(204);
+      expect((await fetch(`${r.base}/api/session/del-own/transcript`)).status).toBe(404);
+      expect((await fetch(`${r.base}/api/session/del-own/report`)).status).toBe(404);
+      expect(await prisma.session.count({ where: { id: "del-own" } })).toBe(0);
+    });
+
+    it("allows deleting failed and abandoned sessions", async () => {
+      const r = await start();
+      await seedSession("del-failed", "local", "failed");
+      await seedSession("del-abandoned", "local", "abandoned");
+      expect((await fetch(`${r.base}/api/session/del-failed`, { method: "DELETE" })).status).toBe(204);
+      expect((await fetch(`${r.base}/api/session/del-abandoned`, { method: "DELETE" })).status).toBe(204);
+    });
+
+    it("returns 404 for a foreign or unknown session and leaves the foreign session intact", async () => {
+      const r = await start();
+      await seedSession("del-foreign", "someone-else");
+      const foreign = await fetch(`${r.base}/api/session/del-foreign`, { method: "DELETE" });
+      const unknown = await fetch(`${r.base}/api/session/no-such-session`, { method: "DELETE" });
+      expect(foreign.status).toBe(404);
+      expect(unknown.status).toBe(404);
+      expect(await foreign.json()).toEqual(await unknown.json());
+      expect(await prisma.session.count({ where: { id: "del-foreign" } })).toBe(1);
+      expect(await persistence.readTurnsFromDb("del-foreign", "someone-else")).not.toBeNull();
+    });
+
+    it("refuses with 409 while the session is live, and keeps it", async () => {
+      const r = await start();
+      const c = connect(r);
+      const id = await c.startSession();
+      await c.assistantFinal();
+      const res = await fetch(`${r.base}/api/session/${id}`, { method: "DELETE" });
+      expect(res.status).toBe(409);
+      expect(await res.json()).toEqual({ error: "session is active" });
+      expect(await prisma.session.count({ where: { id } })).toBe(1);
+      c.ws.close();
+      await c.closed;
+    });
+
+    it("runs the authenticator (403 foreign origin, 401 no token) and deletes nothing", async () => {
+      await seedSession("del-auth", "local");
+      const r = await start();
+      const bad = await fetch(`${r.base}/api/session/del-auth`, {
+        method: "DELETE",
+        headers: { Origin: "http://evil.example" },
+      });
+      expect(bad.status).toBe(403);
+      const t = await start({ config: makeConfig({ AUTH_TOKEN: "another-token" }) });
+      expect((await fetch(`${t.base}/api/session/del-auth`, { method: "DELETE" })).status).toBe(401);
+      expect(await prisma.session.count({ where: { id: "del-auth" } })).toBe(1);
+    });
+  });
+
   it("returns 202 generating for an active session's report", async () => {
     const r = await start();
     await persistence.persistSessionCreate("active-1", "local", TOPIC, "intro");

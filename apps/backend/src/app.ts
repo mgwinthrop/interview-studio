@@ -179,6 +179,26 @@ export function createApp(deps: AppDeps): App {
   app.get("/report/:sessionId", reportHandler);
   app.get("/api/session/:sessionId/report", reportHandler);
 
+  app.delete(
+    "/api/session/:sessionId",
+    route("delete-session", async (req, res) => {
+      const { sessionId } = req.params;
+      const ownerId = ownerOf(res);
+      // Only the owner's own live session is reported as active; a foreign one is a plain 404.
+      if (registry.get(sessionId)?.ownerId === ownerId) {
+        res.status(409).json({ error: "session is active" });
+        return;
+      }
+      const deleted = await persist.deleteSessionFromDb(sessionId, ownerId);
+      if (!deleted) {
+        res.status(404).json({ error: "Session not found" });
+        return;
+      }
+      console.log(`[http] deleted session ${sessionId} (204)`);
+      res.status(204).end();
+    }),
+  );
+
   app.get(
     "/api/sessions",
     route("sessions", async (_req, res) => {

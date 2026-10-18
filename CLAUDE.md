@@ -34,6 +34,7 @@ Backend:
 - `sessionController.ts` — one controller per connection: turn queue, interrupt and abort flow, idle timeout, end and report; `sessionRegistry.ts` tracks live controllers. `orchestrator.ts` holds the pure turn helpers. Phase transitions (`intro` → `share_work` → `deep_dive` → `wrap_up`) are driven by user-turn counts, never decided by the LLM. `buildSystemPrompt(phase, topic)` injects per-phase instructions.
 - `topic.ts` — the three preset interviewers (topic IDs and prompts).
 - `persistence.ts` + `prisma/schema.prisma` write to SQLite as turns complete, on phase changes and when the session ends (`complete`, `failed` or `abandoned`). `reportGenerator.ts` builds the post-session feedback.
+- Data lifecycle: `DELETE /api/session/:sessionId` (owner-scoped; 204, 404 for unknown or foreign, 409 while the session is live) removes a session with its turns and report; the dashboard has a delete button. Set `RETENTION_DAYS` to have `retention.ts` purge ended sessions older than that once at startup (a failure is logged and does not block startup).
 
 Frontend: `app/session/page.tsx` is the live conversation, built on `hooks/useWebSocket.ts`, `hooks/useVAD.ts` and `lib/audioQueue.ts`. `app/components/InterviewerAvatar.tsx` is an inline SVG animated by CSS in `globals.css`. `app/lib/topics.ts` mirrors the backend topic IDs. Report and history pages are `app/report/[sessionId]` and `app/dashboard`.
 

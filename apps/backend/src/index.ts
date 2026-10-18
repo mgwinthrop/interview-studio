@@ -33,6 +33,13 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  try {
+    const { runRetention } = await import("./retention");
+    await runRetention(config);
+  } catch (err) {
+    console.error(`Retention purge failed: ${errName(err)}`);
+  }
+
   const { createProviders } = await import("./providers");
   const { createApp } = await import("./app");
   const { default: prisma } = await import("./db");
