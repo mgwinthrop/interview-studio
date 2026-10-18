@@ -61,6 +61,7 @@ All client messages are JSON strings except `audio` frames which are **raw binar
 | `session_end` | `{ type }` | Ends the session: cancels any in-flight reply as `interrupt` does (no further audio, no final transcript or `tts_end`, and the reply is not stored), generates the report from the committed turns, then the server sends `session_complete` or `session_failed`. |
 | `interrupt` | `{ type }` | Cancels in-flight STT, LLM and TTS and drops queued utterances. Server resets for next user turn. |
 | `text_input` | `{ type, content: string }` | Text fallback — bypasses STT. Treated identically to a completed voice turn. Empty or whitespace-only content is ignored. Content over 8192 UTF-8 bytes is ignored and answered with `stt_error` reason `too_long`. |
+| `turn_timing` | `{ type, responseGapMs: number }` | Optional, sent immediately before the `audio` frame it belongs to. `responseGapMs` is the time in milliseconds between the end of the interviewer's playback and the start of the user's speech, measured by the client. Omitted when not applicable (for example the first answer with no playback before it, a `text_input` turn, or when the user spoke over the interviewer). Only accepted after `session_start`. Must be a finite number from 0 to 600000; any other value is ignored and the socket stays open. The server attaches it to the next `audio` frame only: it is never applied to a `text_input` turn, a later note replaces an earlier one, and `interrupt` or `session_end` discards one still waiting. It is stored only as a number on that turn's delivery metrics and is never logged. |
 
 ## Server → Client
 
@@ -119,6 +120,7 @@ Client                          Server
   │◀─ transcript (assistant, final) │
   │◀─ tts_end ──────────────────────│
   │
+  │── turn_timing { responseGapMs } ▶│  (optional, just before the audio it belongs to)
   │── audio (binary, PCM) ─────────▶│  (one utterance)
   │◀─ transcript (user) ────────────│
   │◀─ transcript (assistant, partial: true) ──│  (per sentence)

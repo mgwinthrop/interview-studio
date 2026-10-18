@@ -38,7 +38,7 @@ const MAX_TEXT_INPUT_BYTES = 8192;
 const STATUS_TEXT: Record<number, string> = { 401: "Unauthorized", 403: "Forbidden" };
 
 /** Client message types we name in logs; anything else is logged as "unknown". */
-const KNOWN_TYPES = new Set(["session_start", "session_end", "interrupt", "text_input"]);
+const KNOWN_TYPES = new Set(["session_start", "session_end", "interrupt", "text_input", "turn_timing"]);
 
 type ClientMessage = { type: string; [key: string]: unknown };
 
@@ -460,6 +460,11 @@ export function createApp(deps: AppDeps): App {
           if (!msg.content.trim()) return;
           console.log(`${tag()} text_input ${Buffer.byteLength(msg.content)} bytes`);
           c.handleText(msg.content);
+          return;
+        case "turn_timing":
+          // Validated by the controller (invalid values are ignored). Not logged: the gap is
+          // a delivery measure of the participant and never reaches the logs.
+          c.noteResponseGap(msg.responseGapMs);
           return;
         case "interrupt":
           console.log(`${tag()} interrupt`);

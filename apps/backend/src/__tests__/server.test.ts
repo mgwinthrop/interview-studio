@@ -1126,3 +1126,106 @@ describe("logging", () => {
     expect(allLogText()).toContain("zebra-marmalade");
   });
 });
+
+describe("turn_timing", () => {
+  const GAP = 4321;
+
+  /** The stored user turns of a session, once `count` of them have landed. */
+  async function storedUserTurns(sessionId: string, count: number) {
+    let users: import("../types").ConversationTurn[] = [];
+    await vi.waitFor(async () => {
+      const turns = (await persistence.readTurnsFromDb(sessionId, "local")) ?? [];
+      users = turns.filter((t) => t.role === "user");
+      expect(users).toHaveLength(count);
+    });
+    return users;
+  }
+
+  /** Sends one audio utterance and waits for its reply to finish. */
+  async function audioTurn(c: Client): Promise<void> {
+    const mark = c.messages.length;
+    c.ws.send(Buffer.alloc(3200));
+    await c.next((m) => m.type === "transcript" && m.role === "user", mark);
+    await c.assistantFinal(mark);
+  }
+
+  it("closes 1008 on turn_timing before session_start", async () => {
+    const r = await start();
+    const c = connect(r);
+    await c.opened;
+    c.send({ type: "turn_timing", responseGapMs: GAP });
+    const closed = await c.closed;
+    expect(closed.code).toBe(1008);
+    expect(closed.reason).toBe("session_start required");
+    expect(allLogText()).toContain("message turn_timing before session_start");
+  });
+
+  it("a valid turn_timing before an audio frame is stored as the turn's responseGapMs", async () => {
+    const r = await start();
+    const c = connect(r);
+    const id = await c.startSession();
+    await c.assistantFinal();
+    c.send({ type: "turn_timing", responseGapMs: GAP });
+    await audioTurn(c);
+    const [turn] = await storedUserTurns(id, 1);
+    expect(turn.content).toBe(STT_TEXT);
+    expect(turn.metrics).toMatchObject({ responseGapMs: GAP, wordCount: STT_TEXT.split(" ").length });
+    c.ws.close();
+    await c.closed;
+  });
+
+  it("an invalid turn_timing is ignored without closing the socket", async () => {
+    const r = await start();
+    const c = connect(r);
+    const id = await c.startSession();
+    await c.assistantFinal();
+    for (const responseGapMs of [-5, "12", 1e9, null, { ms: 1 }]) c.send({ type: "turn_timing", responseGapMs });
+    c.send({ type: "turn_timing" });
+    await audioTurn(c);
+    expect(c.ws.readyState).toBe(WebSocket.OPEN);
+    const [turn] = await storedUserTurns(id, 1);
+    expect(turn.metrics).toMatchObject({ responseGapMs: null });
+    expect(allLogText()).not.toContain("ignored message type");
+    c.ws.close();
+    await c.closed;
+  });
+
+  it("a text turn stores no metrics and does not take a pending gap", async () => {
+    const r = await start();
+    const c = connect(r);
+    const id = await c.startSession();
+    await c.assistantFinal();
+    c.send({ type: "turn_timing", responseGapMs: GAP });
+    await textTurn(c);
+    c.send({ type: "interrupt" });
+    await audioTurn(c);
+    const turns = await storedUserTurns(id, 2);
+    expect(turns[0].content).toBe(USER_TEXT);
+    expect(turns[0].metrics ?? null).toBeNull();
+    // The interrupt discarded the pending gap.
+    expect(turns[1].metrics).toMatchObject({ responseGapMs: null });
+    c.ws.close();
+    await c.closed;
+  });
+
+  it("never logs the gap value during a conversation", async () => {
+    const r = await start();
+    const c = connect(r);
+    const id = await c.startSession();
+    await c.assistantFinal();
+    await textTurn(c);
+    c.send({ type: "turn_timing", responseGapMs: GAP });
+    await audioTurn(c);
+    c.send({ type: "turn_timing", responseGapMs: GAP + 1 });
+    c.send({ type: "interrupt" });
+    c.send({ type: "turn_timing", responseGapMs: -GAP });
+    await storedUserTurns(id, 2);
+    c.ws.close();
+    await c.closed;
+    // Session ids are random hex and could contain the digits by chance.
+    const logs = allLogText().replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, "<id>");
+    expect(logs.length).toBeGreaterThan(0);
+    expect(logs).not.toContain(String(GAP));
+    expect(logs).not.toContain(String(GAP + 1));
+  });
+});
