@@ -226,4 +226,25 @@ describe("keyless conversation", () => {
       await app.close();
     }
   });
+
+  it("the providers PROFILE=mock builds produce a report that passes the report schema", async () => {
+    const { createProviders } = await import("../providers");
+    const { generateReport } = await import("../reportGenerator");
+    const config = configMod.loadConfig({ PROFILE: "mock", DATABASE_URL: dbUrl });
+    const turn = (role: "user" | "assistant", content: string) => ({
+      id: `t-${role}`,
+      sessionId: "s1",
+      role,
+      content,
+      phase: "intro" as const,
+      timestamp: new Date(),
+    });
+    const report = await generateReport(
+      [turn("assistant", REPLY), turn("user", TEXT_1)],
+      TOPIC,
+      createProviders(config).llm,
+      new AbortController().signal,
+    );
+    expect(report.summary).toContain("Mock report");
+  });
 });
