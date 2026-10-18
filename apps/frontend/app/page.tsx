@@ -56,7 +56,7 @@ export default function HomePage() {
             marginBottom: 16,
           }}
         >
-          Voice-first interview practice
+          Find your voice
         </div>
         <h1
           style={{
@@ -68,7 +68,7 @@ export default function HomePage() {
             color: "#FFFFFF",
           }}
         >
-          MG Interview Studio
+          Interview Studio
         </h1>
         <p
           style={{
@@ -80,8 +80,8 @@ export default function HomePage() {
             fontWeight: 400,
           }}
         >
-          Choose your interview focus to begin. Each session is voice-first and takes
-          8–12 minutes.
+          Explore what you want to say through conversation and helpful feedback.
+          Choose one of the available interviewers to begin.
         </p>
 
         {/* Phase flow strip */}

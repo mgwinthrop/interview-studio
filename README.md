@@ -1,24 +1,32 @@
-# MG Interview Studio
+# Interview Studio
 
-MG Interview Studio is a voice-first interview practice tool for explaining your work, reflecting on your use of AI, and receiving structured feedback. An animated AI interviewer guides the conversation, asks follow-up questions, and produces a transcript and written assessment.
+Interview Studio helps you find your voice through guided conversation and helpful feedback. An AI interviewer asks questions, explores your answers and gives you space to develop what you want to say. After the conversation, review the transcript and feedback to reflect on what came across and what you want to explore further.
 
-Designed for practitioners in engineering, experience design and product strategy who want to rehearse examples from their work and identify where their explanations could be clearer or more specific.
+The broader goal is to support different kinds of conversations: exploring an idea, telling a story, rehearsing an interview or working through a point of view. The tool is evolving toward letting you create different types of interviewers to suit the conversation and feedback you need.
+
+## Available today
+
+The current prototype includes three preset interviewers focused on AI use in engineering, experience design and product strategy. It supports:
+
+- Voice conversations with follow-up questions and interrupt handling.
+- An animated interviewer with listening, thinking, speaking and connection states.
+- Transcripts, written feedback and session history stored in a local SQLite database.
+- Responsive layouts, accessible state labels and reduced-motion support.
+
+Animation follows actual audio playback; it does not provide phoneme-level lip sync.
 
 ## How to use it
 
-1. Check your microphone and choose an interview focus.
-2. Talk through concrete examples of how you use AI in your work. Sessions typically take 8–12 minutes.
-3. Respond to follow-up questions, or interrupt to clarify a point.
-4. Review the transcript and feedback, then use them to refine your examples.
+1. Check your microphone and choose one of the available interviewers.
+2. Explore the topic in conversation. Current sessions typically take 8–12 minutes.
+3. Respond to follow-up questions, take your time, or interrupt to clarify a point.
+4. Review the transcript and feedback to decide what you want to express differently or explore next.
 
-## What it does
+## Planned: create your own interviewers
 
-- Structured interviews across AI-enabled engineering, experience design, and product strategy.
-- Speech recognition, streamed LLM responses, synthesized speech and interrupt handling.
-- A local animated character with listening, thinking, speaking, interruption and connection states.
-- Speech animation follows actual audio playback; it does not provide phoneme-level lip sync.
-- Written reports and session history stored in a local SQLite database.
-- Responsive layout, accessible state labels and reduced-motion support.
+Interviewer creation is a planned capability, not yet available in the application. The direction is to let you shape an interviewer's purpose, topic, conversational style and feedback focus. Different interviewers could help you explore ideas, practise telling a story or prepare for a challenging conversation.
+
+The goal is to help you find your own voice and receive useful feedback on the conversation, rather than prescribe one correct way to speak.
 
 ## Quick start
 

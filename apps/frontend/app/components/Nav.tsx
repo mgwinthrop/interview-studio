@@ -20,9 +20,9 @@ export function Nav({ demo }: NavProps) {
         flexShrink: 0,
       }}
     >
-      {/* Left: Product monogram + wordmark + product label */}
+      {/* Left: Conversation icon + product name */}
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <Link href="/" aria-label="MG Interview Studio home" style={{width: 32, height: 32, borderRadius: 10, background: "#087E8B", color: "white", display: "grid", placeItems: "center", fontWeight: 800, fontSize: 12, textDecoration: "none"}}>MG</Link>
+        <Link href="/" aria-label="Interview Studio home" style={{width: 32, height: 32, borderRadius: 10, background: "#087E8B", color: "white", display: "grid", placeItems: "center", fontWeight: 800, fontSize: 12, textDecoration: "none"}}><svg viewBox="0 0 24 24" width="22" height="22" fill="none" aria-hidden="true"><path d="M5 4h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-8l-6 4v-4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"/><path d="M7 9h10M7 13h6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg></Link>
 
         <span
           style={{
@@ -34,10 +34,6 @@ export function Nav({ demo }: NavProps) {
             textTransform: "uppercase",
           }}
         >
-          MG STUDIO
-        </span>
-        <span style={{ fontSize: 13, color: "#6B7A8D", fontWeight: 400 }}>/</span>
-        <span style={{ fontSize: 13, color: "#6B7A8D", fontWeight: 400 }}>
           Interview Studio
         </span>
       </div>

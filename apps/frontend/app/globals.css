@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── MG Studio Color Tokens ─────────────────────────────────────────── */
+/* ── Interview Studio Color Tokens ─────────────────────────────────────────── */
 :root {
   /* Primary */
   --studio-blue:           #087E8B;
@@ -40,7 +40,7 @@ body {
   }
 }
 
-/* ── Orb Ring Pulse Animations — MG palette (spec §7 Agent Panel) ── */
+/* ── Orb Ring Pulse Animations — Studio palette (spec §7 Agent Panel) ── */
 
 /* Ring pulse — generic, delay applied per-ring via inline style */
 @keyframes ring-pulse {

@@ -319,7 +319,7 @@ function SessionPageInner() {
 
         {/* Session ID — hidden on mobile */}
         <span className="session-id-label" style={{ fontSize: 11, color: "#6B7A8D", fontFamily: "monospace" }}>
-          {`mg_interview_${sessionId.slice(0, 11)}`}
+          {`interview_${sessionId.slice(0, 11)}`}
         </span>
 
         {/* Right cluster: signal + timer + demo badge */}

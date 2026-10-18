@@ -9,8 +9,8 @@ const manrope = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "MG Interview Studio",
-  description: "Voice-first interview practice with an animated AI interviewer, transcripts and structured feedback",
+  title: "Interview Studio",
+  description: "Find your voice through guided conversations with AI interviewers and helpful feedback.",
 };
 
 export default function RootLayout({

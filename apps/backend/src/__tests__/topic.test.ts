@@ -20,9 +20,9 @@ describe("getTopicConfig", () => {
           expect(ctx).not.toMatch(/\n\s+/);
         });
 
-        it("systemPromptContext identifies as MG Interview Studio interviewer", () => {
+        it("systemPromptContext identifies as Interview Studio interviewer", () => {
           const ctx = getTopicConfig(id).systemPromptContext.toLowerCase();
-          expect(ctx).toContain("mg interview studio");
+          expect(ctx).toContain("interview studio");
           expect(ctx).toContain("interviewer");
         });
 

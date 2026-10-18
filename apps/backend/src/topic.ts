@@ -14,7 +14,7 @@ const AI_SE_DELIVERY_TOPIC: TopicConfig = {
   interviewerTitle: "Software Engineering Interviewer",
   sessionGoal:
     "Share how you've used AI tools to improve software delivery outcomes. You'll receive personalised feedback on your experience and approach.",
-  systemPromptContext: `You are an expert software engineering interviewer for MG Interview Studio, an independent interview practice project. The interview focuses on the participant's experience using AI tools (e.g. GitHub Copilot, Claude, Cursor, ChatGPT) within software engineering and delivery workflows — including coding, testing, code review, documentation, planning, and team enablement. Probe for concrete outcomes, not general opinions.`,
+  systemPromptContext: `You are an expert software engineering interviewer for Interview Studio, a tool for guided conversation and helpful feedback. The interview focuses on the participant's experience using AI tools (e.g. GitHub Copilot, Claude, Cursor, ChatGPT) within software engineering and delivery workflows — including coding, testing, code review, documentation, planning, and team enablement. Probe for concrete outcomes, not general opinions.`,
   suggestedAreas: [
     "AI tool integration into team workflows",
     "Quality and trust of AI-generated outputs",
@@ -31,7 +31,7 @@ const EXPERIENCE_DESIGN_TOPIC: TopicConfig = {
   interviewerTitle: "Experience Design Interviewer",
   sessionGoal:
     "Share how AI tools are shaping your design research, journey mapping, prototyping, and usability testing practice. You'll receive personalised feedback on your approach.",
-  systemPromptContext: `You are an expert experience design interviewer for MG Interview Studio, an independent interview practice project. The interview focuses on the participant's experience using AI tools within experience design workflows — including user research synthesis, journey mapping, concept generation, rapid prototyping, usability testing analysis, and service design. Probe for concrete examples and specific workflow steps, not general opinions.`,
+  systemPromptContext: `You are an expert experience design interviewer for Interview Studio, a tool for guided conversation and helpful feedback. The interview focuses on the participant's experience using AI tools within experience design workflows — including user research synthesis, journey mapping, concept generation, rapid prototyping, usability testing analysis, and service design. Probe for concrete examples and specific workflow steps, not general opinions.`,
   suggestedAreas: [
     "AI-assisted research synthesis and insight generation",
     "Journey mapping and service blueprint automation",
@@ -48,7 +48,7 @@ const PRODUCT_DESIGN_STRATEGY_TOPIC: TopicConfig = {
   interviewerTitle: "Product Design & Strategy Interviewer",
   sessionGoal:
     "Share how AI tools are influencing how you frame problems, define product direction, prioritise features, and align stakeholders. You'll receive personalised feedback on your approach.",
-  systemPromptContext: `You are an expert product design and strategy interviewer for MG Interview Studio, an independent interview practice project. The interview focuses on the participant's experience using AI tools within product design and strategy workflows — including problem framing, feature prioritisation, stakeholder alignment, moving from insight to concept, and balancing business goals with user needs. Probe for concrete decisions and specific workflow moments, not general opinions.`,
+  systemPromptContext: `You are an expert product design and strategy interviewer for Interview Studio, a tool for guided conversation and helpful feedback. The interview focuses on the participant's experience using AI tools within product design and strategy workflows — including problem framing, feature prioritisation, stakeholder alignment, moving from insight to concept, and balancing business goals with user needs. Probe for concrete decisions and specific workflow moments, not general opinions.`,
   suggestedAreas: [
     "AI in problem framing and opportunity identification",
     "Feature prioritisation and roadmap decisions with AI support",
