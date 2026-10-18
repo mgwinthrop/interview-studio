@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionController, type ControllerDeps } from "../sessionController";
 import { createMockProviders, type MockScript } from "../providers/mock";
+import type { Providers } from "../providers/types";
 import { loadConfig, type Config } from "../config";
 import type {
   ConversationTurn,
@@ -30,16 +31,63 @@ function makePersist() {
   };
 }
 
+function abortError(): Error {
+  const e = new Error("Aborted");
+  e.name = "AbortError";
+  return e;
+}
+
+/**
+ * Mock TTS that, once armed, blocks after the first chunk of the sentence `blockOn` until
+ * released (or aborted, unless ignoreAbort). `reached` resolves when it is blocked, so a
+ * test can act at a guaranteed point mid-turn instead of racing real timers.
+ */
+function gateTts(providers: Providers, blockOn: string, opts: { ignoreAbort?: boolean } = {}) {
+  let armed = false;
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  let reached!: () => void;
+  const reachedP = new Promise<void>((r) => (reached = r));
+  let lastSignal: AbortSignal | undefined;
+  providers.tts = {
+    async *synthesize(sentence, signal) {
+      if (signal.aborted) throw abortError();
+      yield new Uint8Array([0xff, 0xfb, 0, 0]);
+      if (armed && sentence === blockOn) {
+        lastSignal = signal;
+        reached();
+        await new Promise<void>((res, rej) => {
+          if (!opts.ignoreAbort) signal.addEventListener("abort", () => rej(abortError()), { once: true });
+          void gate.then(res);
+        });
+      }
+      if (signal.aborted) throw abortError();
+      yield new Uint8Array([0xff, 0xfb, 1, 0]);
+    },
+  };
+  return {
+    arm: () => (armed = true),
+    release: () => release(),
+    reached: reachedP,
+    signal: () => lastSignal,
+  };
+}
+
+const SENTENCE_1 = "Thanks for sharing that with me.";
+const SENTENCE_2 = "Could you tell me a little more about it?";
+
 function setup(
   opts: {
     script?: MockScript;
     demo?: boolean;
     limits?: Partial<Config["limits"]>;
     providers?: ControllerDeps["providers"];
+    onEnded?: ControllerDeps["onEnded"];
   } = {},
 ) {
   const events: Event[] = [];
   const persist = makePersist();
+  const onEnded = vi.fn(opts.onEnded ?? (() => {}));
   const ctl = new SessionController({
     sessionId: "s-1",
     ownerId: "owner-1",
@@ -50,12 +98,22 @@ function setup(
     sendJson: (msg) => events.push({ kind: "json", msg }),
     sendAudio: (chunk) => events.push({ kind: "audio", bytes: chunk.length }),
     persist,
+    onEnded,
   });
   const types = () => events.map((e) => (e.kind === "audio" ? "audio" : e.msg.type));
   const json = () =>
     events.flatMap((e) => (e.kind === "json" ? [e.msg] : [])) as ServerToClientMessage[];
   const storedTurns = () => persist.persistTurn.mock.calls.map((c) => c[0]);
-  return { ctl, events, persist, types, json, storedTurns };
+  return { ctl, events, persist, types, json, storedTurns, onEnded };
+}
+
+/** Assistant transcripts (partial or final) among the given events. */
+function assistantFinals(events: Event[]): string[] {
+  return events.flatMap((e) =>
+    e.kind === "json" && e.msg.type === "transcript" && e.msg.role === "assistant" && !e.msg.partial
+      ? [e.msg.text]
+      : [],
+  );
 }
 
 const REPORT = {
@@ -253,11 +311,15 @@ describe("SessionController turns", () => {
 
 describe("SessionController interrupt", () => {
   it("interrupt during streaming sends no tts_end and ends in listening", async () => {
-    const { ctl, types, storedTurns } = setup({ script: { ttsDelayMs: 20 } });
+    const providers = createMockProviders({ llmReplies: [LONG_REPLY] });
+    const gate = gateTts(providers, SENTENCE_1);
+    const { ctl, types, storedTurns } = setup({ providers });
     await ctl.start();
+    gate.arm();
     const before = types().length;
     ctl.handleText("tell me more");
-    await vi.waitFor(() => expect(types().slice(before)).toContain("audio"));
+    await gate.reached;
+    expect(ctl.state).toBe("speaking");
     await ctl.interrupt();
     expect(ctl.state).toBe("listening");
     await ctl.settled();
@@ -437,11 +499,14 @@ describe("SessionController end and abandon", () => {
   });
 
   it("abandon() aborts the in-flight turn and persists abandoned", async () => {
-    const { ctl, persist, types, storedTurns } = setup({ script: { ttsDelayMs: 20 } });
+    const providers = createMockProviders({ llmReplies: [LONG_REPLY] });
+    const gate = gateTts(providers, SENTENCE_1);
+    const { ctl, persist, types, storedTurns, onEnded } = setup({ providers });
     await ctl.start();
+    gate.arm();
     const before = types().length;
     ctl.handleText("going away");
-    await vi.waitFor(() => expect(types().slice(before)).toContain("audio"));
+    await gate.reached;
     ctl.abandon();
     ctl.abandon();
     await ctl.settled();
@@ -451,6 +516,7 @@ describe("SessionController end and abandon", () => {
     expect(ctl.state).toBe("idle");
     await expect(ctl.end()).resolves.toBe("failed");
     expect(persist.persistSessionStatus.mock.calls).toEqual([["s-1", "abandoned"]]);
+    expect(onEnded.mock.calls).toEqual([["abandoned"]]);
   });
 
   it("abandon() during end() aborts report generation", async () => {
@@ -527,5 +593,211 @@ describe("SessionController limits", () => {
     expect(vi.getTimerCount()).toBe(1);
     b.ctl.abandon();
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("SessionController final transcript commits", () => {
+  it("completed turn: final after the last partial, before tts_end, and equal to the stored turn", async () => {
+    const { ctl, events, storedTurns } = setup();
+    await ctl.start();
+    const before = events.length;
+    ctl.handleText("hello");
+    await ctl.settled();
+    const turn = events.slice(before);
+    const idx = (pred: (e: Event) => boolean) => turn.findIndex(pred);
+    const lastIdx = (pred: (e: Event) => boolean) => turn.map(pred).lastIndexOf(true);
+    const isAssistant = (e: Event, partial: boolean) =>
+      e.kind === "json" &&
+      e.msg.type === "transcript" &&
+      e.msg.role === "assistant" &&
+      !!e.msg.partial === partial;
+    const lastPartial = lastIdx((e) => isAssistant(e, true));
+    const final = idx((e) => isAssistant(e, false));
+    const ttsEnd = idx((e) => e.kind === "json" && e.msg.type === "tts_end");
+    const lastAudio = lastIdx((e) => e.kind === "audio");
+    expect(final).toBeGreaterThan(lastPartial);
+    expect(final).toBeGreaterThan(lastAudio);
+    expect(final).toBeLessThan(ttsEnd);
+    expect(assistantFinals(turn)).toEqual([LONG_REPLY]);
+    expect(storedTurns().at(-1)).toMatchObject({ role: "assistant", content: LONG_REPLY });
+  });
+
+  it("interrupt during the last sentence's TTS: no final transcript, nothing stored", async () => {
+    const providers = createMockProviders({ llmReplies: [LONG_REPLY] });
+    const gate = gateTts(providers, SENTENCE_2);
+    const { ctl, events, storedTurns } = setup({ providers });
+    await ctl.start();
+    gate.arm();
+    const before = events.length;
+    ctl.handleText("tell me more");
+    await gate.reached;
+    await ctl.interrupt();
+    await ctl.settled();
+    const turn = events.slice(before);
+    // Both partials were sent (the LLM had finished), but nothing became final.
+    expect(
+      turn.filter((e) => e.kind === "json" && e.msg.type === "transcript" && e.msg.partial),
+    ).toHaveLength(2);
+    expect(assistantFinals(turn)).toEqual([]);
+    expect(turn.some((e) => e.kind === "json" && e.msg.type === "tts_end")).toBe(false);
+    expect(storedTurns().map((t) => t.role)).toEqual(["assistant", "user"]);
+  });
+
+  it("LLM failing mid-stream after one sentence: final and stored turn are that sentence", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const providers = createMockProviders({ llmReplies: [LONG_REPLY] });
+    const gate = gateTts(providers, SENTENCE_1);
+    const { ctl, events, storedTurns } = setup({ providers });
+    await ctl.start();
+    gate.arm();
+    vi.spyOn(providers.llm, "stream").mockImplementationOnce(async function* () {
+      yield `${SENTENCE_1} Could`;
+      await gate.reached; // audio for the first sentence has started
+      throw new Error("stream dropped");
+    });
+    const before = events.length;
+    ctl.handleText("hello");
+    await ctl.settled();
+    const turn = events.slice(before);
+    expect(assistantFinals(turn)).toEqual([SENTENCE_1]);
+    expect(storedTurns().at(-1)).toMatchObject({ role: "assistant", content: SENTENCE_1 });
+    expect(turn.filter((e) => e.kind === "json" && e.msg.type === "tts_end")).toHaveLength(1);
+    expect(ctl.state).toBe("listening");
+  });
+
+  it("provider failure then interrupt before the TTS chain drains: no tts_end, nothing final", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const providers = createMockProviders({ llmReplies: [LONG_REPLY] });
+    const gate = gateTts(providers, SENTENCE_1, { ignoreAbort: true });
+    const { ctl, events, storedTurns } = setup({ providers });
+    await ctl.start();
+    gate.arm();
+    let failLlm!: () => void;
+    const llmGate = new Promise<void>((r) => (failLlm = r));
+    vi.spyOn(providers.llm, "stream").mockImplementationOnce(async function* () {
+      yield `${SENTENCE_1} Could`;
+      await llmGate;
+      throw new Error("stream dropped");
+    });
+    const before = events.length;
+    ctl.handleText("hello");
+    await gate.reached; // tts_start sent, first chunk out, TTS held
+    failLlm();
+    await vi.waitFor(() => expect(gate.signal()?.aborted).toBe(true), { interval: 1 });
+    const interrupting = ctl.interrupt();
+    gate.release();
+    await interrupting;
+    await ctl.settled();
+    const turn = events.slice(before);
+    expect(turn.some((e) => e.kind === "json" && e.msg.type === "tts_start")).toBe(true);
+    expect(turn.some((e) => e.kind === "json" && e.msg.type === "tts_end")).toBe(false);
+    expect(assistantFinals(turn)).toEqual([]);
+    expect(storedTurns().map((t) => t.role)).toEqual(["assistant", "user"]);
+  });
+
+  it("an AbortError from STT that we did not cause is a provider failure", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const providers = createMockProviders({ llmReplies: [LONG_REPLY] });
+    vi.spyOn(providers.stt, "transcribe").mockRejectedValueOnce(abortError());
+    const { ctl, json } = setup({ providers });
+    await ctl.start();
+    ctl.handleAudio(Buffer.alloc(320));
+    await ctl.settled();
+    expect(json()).toContainEqual({ type: "stt_error", reason: "stt_failed" });
+    expect(ctl.state).toBe("listening");
+  });
+});
+
+describe("SessionController onEnded", () => {
+  it("turn-limit auto-end fires onEnded('complete') once", async () => {
+    const { ctl, onEnded } = setup({
+      script: { structured: REPORT },
+      limits: { maxTurnsPerSession: 1 },
+    });
+    await ctl.start();
+    ctl.handleText(LONG_TEXT);
+    ctl.handleText("queued and dropped");
+    await ctl.settled();
+    expect(onEnded.mock.calls).toEqual([["complete"]]);
+  });
+
+  it("idle timeout fires onEnded('abandoned') once", async () => {
+    vi.useFakeTimers();
+    const { ctl, onEnded } = setup({ limits: { idleTimeoutMs: 1000 } });
+    await ctl.start();
+    await vi.advanceTimersByTimeAsync(1000);
+    await ctl.settled();
+    expect(onEnded.mock.calls).toEqual([["abandoned"]]);
+    await vi.advanceTimersByTimeAsync(5000);
+    ctl.abandon();
+    await ctl.settled();
+    expect(onEnded).toHaveBeenCalledTimes(1);
+  });
+
+  it("explicit end() then abandon() fires once with complete", async () => {
+    const { ctl, onEnded } = setup({ script: { structured: REPORT } });
+    await ctl.start();
+    ctl.handleText(LONG_TEXT);
+    await ctl.end();
+    ctl.abandon();
+    await ctl.end();
+    await ctl.settled();
+    expect(onEnded.mock.calls).toEqual([["complete"]]);
+  });
+
+  it("a failing report fires onEnded('failed')", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { ctl, onEnded } = setup({ script: { structured: { nope: 1 } } });
+    await ctl.start();
+    ctl.handleText(LONG_TEXT);
+    await ctl.end();
+    expect(onEnded.mock.calls).toEqual([["failed"]]);
+  });
+
+  it("a refused complete write reports failed, not complete", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { ctl, persist, onEnded } = setup({ script: { structured: REPORT } });
+    persist.persistSessionStatus.mockResolvedValueOnce(false);
+    await ctl.start();
+    ctl.handleText(LONG_TEXT);
+    await expect(ctl.end()).resolves.toBe("failed");
+    expect(onEnded.mock.calls).toEqual([["failed"]]);
+  });
+
+  it("abandon() during end() fires onEnded('abandoned') once", async () => {
+    const providers = createMockProviders({ llmReplies: [LONG_REPLY] });
+    vi.spyOn(providers.llm, "structured").mockImplementation(
+      (_req, signal) =>
+        new Promise((_res, rej) => signal.addEventListener("abort", () => rej(abortError()))),
+    );
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { ctl, onEnded } = setup({ providers });
+    await ctl.start();
+    ctl.handleText(LONG_TEXT);
+    await ctl.settled();
+    const ending = ctl.end();
+    await vi.waitFor(() => expect(providers.llm.structured).toHaveBeenCalled(), { interval: 1 });
+    ctl.abandon();
+    await ending;
+    await ctl.settled();
+    expect(onEnded.mock.calls).toEqual([["abandoned"]]);
+  });
+
+  it("a throwing onEnded does not break end()", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { ctl, onEnded } = setup({
+      script: { structured: REPORT },
+      onEnded: () => {
+        throw new RangeError("transport gone");
+      },
+    });
+    await ctl.start();
+    ctl.handleText(LONG_TEXT);
+    await expect(ctl.end()).resolves.toBe("complete");
+    expect(onEnded).toHaveBeenCalledTimes(1);
+    const logged = err.mock.calls.flat().join(" ");
+    expect(logged).toContain("onEnded error");
+    expect(logged).toContain("RangeError");
+    expect(logged).not.toContain("transport gone");
   });
 });

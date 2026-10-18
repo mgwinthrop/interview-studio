@@ -8,6 +8,7 @@ import { SentenceChunker } from "./sentenceChunker";
 import type { ConversationTurn, Phase, ServerToClientMessage } from "./types";
 
 export type ControllerState = "idle" | "listening" | "thinking" | "speaking";
+export type EndedStatus = "complete" | "failed" | "abandoned";
 
 export interface ControllerDeps {
   sessionId: string;
@@ -22,6 +23,12 @@ export interface ControllerDeps {
     typeof Persistence,
     "persistTurn" | "persistPhaseTransition" | "persistSessionStatus" | "persistReport"
   >;
+  /**
+   * Fires exactly once when the session reaches a terminal state by any path (end(), the
+   * turn-limit auto-end, idle timeout, abandon()), after the status write was attempted,
+   * with the status actually reached. Errors it throws are logged, never rethrown.
+   */
+  onEnded?(status: EndedStatus): void;
 }
 
 /** A user utterance waiting for its turn. receivedAt is the latency_metric origin. */
@@ -30,16 +37,18 @@ type Utterance =
   | { kind: "audio"; pcm: Buffer; receivedAt: number };
 type Item = Utterance | { kind: "greeting" };
 
+/** The in-flight item. interrupted is set by interrupt()/abandon() before they abort. */
+interface TurnCtx {
+  abort: AbortController;
+  interrupted: boolean;
+}
+
 const QUEUE_CAP = 5;
 /** Locked decision: conversational replies use max_tokens 300. */
 const MAX_TOKENS = 300;
 
 function errName(err: unknown): string {
   return err instanceof Error ? err.name : typeof err;
-}
-
-function isAbort(err: unknown): boolean {
-  return err instanceof Error && err.name === "AbortError";
 }
 
 /**
@@ -59,7 +68,7 @@ export class SessionController {
   private readonly writes = new Set<Promise<void>>();
 
   private active: Promise<void> | null = null;
-  private turnAbort: AbortController | null = null;
+  private turn: TurnCtx | null = null;
   private chunker: SentenceChunker | null = null;
   private reportAbort: AbortController | null = null;
   private ending: Promise<"complete" | "failed"> | null = null;
@@ -70,6 +79,7 @@ export class SessionController {
   private closed = false;
   private abandoned = false;
   private finished = false;
+  private endedReported = false;
 
   constructor(private readonly deps: ControllerDeps) {
     this.sessionId = deps.sessionId;
@@ -111,14 +121,17 @@ export class SessionController {
     if (this.closed) return;
     this.touch();
     this.queue.length = 0;
-    this.turnAbort?.abort();
-    this.chunker?.reset();
+    this.cancelTurn();
     const current = this.active;
     if (current) await current;
     if (this.started && !this.active) this.setState("listening");
   }
 
-  /** Waits for the in-flight turn, generates and stores the report. Idempotent. */
+  /**
+   * Waits for the in-flight turn, generates and stores the report. Idempotent.
+   * Utterances still queued are dropped deliberately: the session is over, and the
+   * outcome reaches the transport through onEnded.
+   */
   end(): Promise<"complete" | "failed"> {
     if (this.ending) return this.ending;
     if (this.closed) return Promise.resolve("failed");
@@ -136,11 +149,25 @@ export class SessionController {
     this.closed = true;
     this.clearIdle();
     this.queue.length = 0;
-    this.turnAbort?.abort();
+    this.cancelTurn();
     this.reportAbort?.abort();
-    this.chunker?.reset();
     this._state = "idle";
-    this.track(this.deps.persist.persistSessionStatus(this.sessionId, "abandoned"), "persistSessionStatus");
+    const ending = this.ending;
+    const written = this.deps.persist.persistSessionStatus(this.sessionId, "abandoned").then(
+      (ok) => ok,
+      (err) => {
+        this.log("persistSessionStatus error", err);
+        return false;
+      },
+    );
+    // If end() got its status in first, the session ended the way end() reports. This
+    // chain awaits end(), so it is not tracked (finish() awaits tracked writes); it is
+    // registered before the tracked one so notification precedes settled().
+    void written.then(async (ok) => {
+      if (ok || !ending) this.notifyEnded("abandoned");
+      else this.notifyEnded(await ending);
+    });
+    this.trackDone(written.then(() => undefined));
   }
 
   /** Resolves once no turn is running or queued, any end() has finished and writes have landed. */
@@ -187,31 +214,39 @@ export class SessionController {
     if (next) this.run(next);
   }
 
+  private cancelTurn(): void {
+    if (this.turn) {
+      this.turn.interrupted = true;
+      this.turn.abort.abort();
+    }
+    this.chunker?.reset();
+  }
+
   // ── One item: optional STT, user turn, reply ───────────────────────────────
 
   private async runItem(item: Item): Promise<void> {
-    const abort = new AbortController();
-    this.turnAbort = abort;
+    const ctx: TurnCtx = { abort: new AbortController(), interrupted: false };
+    this.turn = ctx;
     this.setState("thinking");
     try {
       let userText: string | null = null;
       if (item.kind === "audio") {
-        userText = await this.transcribe(item.pcm, abort.signal);
+        userText = await this.transcribe(item.pcm, ctx.abort.signal);
         if (userText === null) return;
       } else if (item.kind === "text") {
         userText = item.text;
       }
-      if (abort.signal.aborted) return;
+      if (ctx.abort.signal.aborted) return;
 
       if (userText !== null) {
         this.addTurn("user", userText);
         this.deps.sendJson({ type: "transcript", text: userText, role: "user" });
       }
-      await this.respond(abort, item.kind === "greeting" ? undefined : item.receivedAt);
+      await this.respond(ctx, item.kind === "greeting" ? undefined : item.receivedAt);
 
       if (userText !== null && !this.abandoned) this.maybeAdvancePhase();
     } finally {
-      if (this.turnAbort === abort) this.turnAbort = null;
+      if (this.turn === ctx) this.turn = null;
     }
   }
 
@@ -226,7 +261,8 @@ export class SessionController {
       }
       return text.trim();
     } catch (err) {
-      if (signal.aborted || isAbort(err)) return null;
+      // Only our own abort is silent; an AbortError we did not cause is a provider failure.
+      if (signal.aborted) return null;
       this.log("stt error", err);
       this.deps.sendJson({ type: "stt_error", reason: "stt_failed" });
       return null;
@@ -235,10 +271,14 @@ export class SessionController {
 
   /**
    * Streams the LLM reply into the chunker and speaks it sentence by sentence on one
-   * promise chain. A provider error aborts the rest of the turn; an interrupt is silent.
-   * Only a reply that ran to completion is stored.
+   * promise chain. Whatever the client is told is final is stored, and vice versa:
+   * - completed: final transcript, tts_end, then the turn is stored;
+   * - provider failure: the sentences already sent as partials become the final and the
+   *   stored turn (nothing if none were sent);
+   * - interrupted/abandoned: no final, no tts_end, nothing stored.
    */
-  private async respond(abort: AbortController, receivedAt: number | undefined): Promise<void> {
+  private async respond(ctx: TurnCtx, receivedAt: number | undefined): Promise<void> {
+    const { abort } = ctx;
     const { signal } = abort;
     const { system, messages } = buildTurnRequest(this.view());
     const chunker = new SentenceChunker();
@@ -278,18 +318,13 @@ export class SessionController {
         });
     });
 
-    let full = "";
     try {
       const stream = this.deps.providers.llm.stream({ system, messages, maxTokens: MAX_TOKENS }, signal);
       for await (const piece of stream) {
         if (signal.aborted) break;
-        full += piece;
         chunker.push(piece);
       }
-      if (!signal.aborted) {
-        chunker.flush();
-        if (full.trim()) this.deps.sendJson({ type: "transcript", text: full, role: "assistant" });
-      }
+      if (!signal.aborted) chunker.flush();
     } catch (err) {
       if (!signal.aborted) fail(err);
     }
@@ -298,14 +333,13 @@ export class SessionController {
     chunker.reset();
     if (this.chunker === chunker) this.chunker = null;
 
-    if ("err" in failure) {
-      this.log("turn failed", failure.err);
-      if (ttsStarted && !this.abandoned) this.deps.sendJson({ type: "tts_end" });
-      return;
-    }
-    if (signal.aborted) return;
+    if (ctx.interrupted) return;
+    if ("err" in failure) this.log("turn failed", failure.err);
+    else if (signal.aborted) return;
+
+    if (spoken) this.deps.sendJson({ type: "transcript", text: spoken, role: "assistant" });
     if (ttsStarted) this.deps.sendJson({ type: "tts_end" });
-    if (full.trim()) this.addTurn("assistant", full);
+    if (spoken) this.addTurn("assistant", spoken);
   }
 
   private async speak(
@@ -327,6 +361,7 @@ export class SessionController {
     const reportAbort = new AbortController();
     this.reportAbort = reportAbort;
     if (this.abandoned) reportAbort.abort();
+    let result: "complete" | "failed";
     try {
       while (this.active) await this.active;
       await Promise.all(this.writes);
@@ -341,7 +376,7 @@ export class SessionController {
       await persist.persistReport(this.sessionId, report);
       const ok = await persist.persistSessionStatus(this.sessionId, "complete");
       if (!ok) this.log("complete not recorded: session already ended");
-      return ok ? "complete" : "failed";
+      result = ok ? "complete" : "failed";
     } catch (err) {
       this.log("end failed", err);
       try {
@@ -349,11 +384,23 @@ export class SessionController {
       } catch (writeErr) {
         this.log("persistSessionStatus error", writeErr);
       }
-      return "failed";
-    } finally {
-      this.reportAbort = null;
-      this._state = "idle";
-      this.finished = true;
+      result = "failed";
+    }
+    this.reportAbort = null;
+    this._state = "idle";
+    this.finished = true;
+    // An abandon() during end() reports the outcome itself once its own write lands.
+    if (!this.abandoned) this.notifyEnded(result);
+    return result;
+  }
+
+  private notifyEnded(status: EndedStatus): void {
+    if (this.endedReported) return;
+    this.endedReported = true;
+    try {
+      this.deps.onEnded?.(status);
+    } catch (err) {
+      this.log("onEnded error", err);
     }
   }
 
@@ -416,10 +463,16 @@ export class SessionController {
 
   /** Fire-and-forget write that is logged on failure and awaited by settled() and end(). */
   private track(p: Promise<unknown>, what: string): void {
-    const w: Promise<void> = p.then(
-      () => undefined,
-      (err) => this.log(`${what} error`, err),
+    this.trackDone(
+      p.then(
+        () => undefined,
+        (err) => this.log(`${what} error`, err),
+      ),
     );
+  }
+
+  /** Registers a promise that never rejects so settled() and end() can await it. */
+  private trackDone(w: Promise<void>): void {
     this.writes.add(w);
     void w.then(() => this.writes.delete(w));
   }
