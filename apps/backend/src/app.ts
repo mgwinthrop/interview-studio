@@ -12,8 +12,10 @@ import type { InterviewerDefinition } from "./interviewer/schema";
 import * as interviewerStore from "./interviewerStore";
 import * as persistence from "./persistence";
 import type { Providers } from "./providers/types";
+import { generateReport } from "./reportGenerator";
 import { SessionController, type EndedStatus } from "./sessionController";
 import * as registry from "./sessionRegistry";
+import type { AnyReport, ConversationTurn, ReportV2 } from "./types";
 import { send } from "./wsUtils";
 
 export interface AppDeps {
@@ -106,6 +108,24 @@ function ownerOf(res: express.Response): string {
   return res.locals.ownerId as string;
 }
 
+/** Session ids are server UUIDs; anything else is answered as not found. */
+const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** One body for unknown, foreign and malformed sessions, so none can be told apart. */
+const NOT_FOUND = { error: "Session not found" } as const;
+const GENERATION_FAILED = "Report generation failed";
+
+/** The report JSON served by GET and by regenerate: the report plus interviewerName. */
+function reportBody(report: AnyReport, interviewerName: string | null) {
+  return { ...report, interviewerName };
+}
+
+/** 409 for every reason a regenerate is refused; the reason is logged, never sent. */
+function refuseRegenerate(res: express.Response, sessionId: string, why: string): void {
+  console.warn(`[http] regenerate ${sessionId} 409: ${why}`);
+  res.status(409).json({ error: "report cannot be regenerated" });
+}
+
 export function createApp(deps: AppDeps): App {
   const { config, providers } = deps;
   const persist = deps.persist ?? persistence;
@@ -168,26 +188,131 @@ export function createApp(deps: AppDeps): App {
     }),
   );
 
+  /**
+   * What regenerate needs, for a session owned by ownerId: its stored turns (with metrics)
+   * when there is at least one user turn, and a valid snapshot. Null when either is missing.
+   */
+  async function regenerateInputs(
+    sessionId: string,
+    ownerId: string,
+  ): Promise<{ turns: ConversationTurn[]; interviewer: InterviewerDefinition } | null> {
+    const [turns, interviewer] = await Promise.all([
+      persist.readTurnsFromDb(sessionId, ownerId),
+      persist.readSnapshot(sessionId, ownerId),
+    ]);
+    if (!turns || !turns.some((t) => t.role === "user") || !interviewer) return null;
+    return { turns, interviewer };
+  }
+
   const reportHandler = route("report", async (req, res) => {
-    const found = await persist.readReportFromDb(req.params.sessionId, ownerOf(res));
+    const { sessionId } = req.params;
+    const ownerId = ownerOf(res);
+    const found = await persist.readReportFromDb(sessionId, ownerId);
     if (!found) {
-      res.status(404).json({ error: "Session not found" });
+      res.status(404).json(NOT_FOUND);
       return;
     }
     if (found.sessionStatus === "active") {
       res.status(202).json({ status: "generating" });
       return;
     }
-    if (found.sessionStatus === "complete" && found.report) {
-      res.json({ ...found.report, interviewerName: found.interviewerName });
+    if (found.sessionStatus === "complete") {
+      if (found.report) res.json(reportBody(found.report, found.interviewerName));
+      else res.status(500).json({ status: "unreadable", error: "The report could not be read" });
       return;
     }
-    const status = found.sessionStatus === "abandoned" ? "abandoned" : "failed";
-    res.status(500).json({ status, error: "Report generation failed" });
+    if (found.sessionStatus === "abandoned") {
+      res.status(500).json({ status: "abandoned", error: GENERATION_FAILED });
+      return;
+    }
+    const canRegenerate = (await regenerateInputs(sessionId, ownerId)) !== null;
+    res.status(500).json({ status: "failed", error: GENERATION_FAILED, canRegenerate });
   });
   // Legacy path used by the report page, and the REST path used by the dashboard.
   app.get("/report/:sessionId", reportHandler);
   app.get("/api/session/:sessionId/report", reportHandler);
+
+  /** Owner-scoped keys (owner, session) of regenerations in flight in this process. */
+  const regenerating = new Set<string>();
+
+  app.post(
+    "/api/session/:sessionId/report/regenerate",
+    route("regenerate", async (req, res) => {
+      const { sessionId } = req.params;
+      const ownerId = ownerOf(res);
+      if (!SESSION_ID.test(sessionId)) {
+        res.status(404).json(NOT_FOUND);
+        return;
+      }
+      // Taken before the first await, so of two concurrent requests only one can hold it. The
+      // key includes the owner: another owner's request never touches this session's lock, and
+      // a held lock is reported only after the ownership check, so it reveals nothing.
+      const key = `${ownerId}\u0000${sessionId}`;
+      const held = regenerating.has(key);
+      if (!held) regenerating.add(key);
+      try {
+        const found = await persist.readReportFromDb(sessionId, ownerId);
+        if (!found) {
+          res.status(404).json(NOT_FOUND);
+          return;
+        }
+        if (held || found.sessionStatus !== "failed") {
+          refuseRegenerate(res, sessionId, held ? "in flight" : "not failed");
+          return;
+        }
+        const inputs = await regenerateInputs(sessionId, ownerId);
+        if (!inputs) {
+          refuseRegenerate(res, sessionId, "no user turns or snapshot");
+          return;
+        }
+
+        const outcome = await generateWithDeadline(inputs.turns, inputs.interviewer);
+        if (!outcome.ok) {
+          console.error(`[http] regenerate ${sessionId} 502: ${outcome.why}`);
+          res.status(502).json({ status: "failed", error: GENERATION_FAILED });
+          return;
+        }
+        if (!(await persist.completeFailedSession(sessionId, ownerId, outcome.report))) {
+          refuseRegenerate(res, sessionId, "no longer failed");
+          return;
+        }
+        console.log(`[http] regenerate ${sessionId} 200`);
+        res.json(reportBody(outcome.report, found.interviewerName));
+      } finally {
+        if (!held) regenerating.delete(key);
+      }
+    }),
+  );
+
+  /**
+   * Runs the report call bounded by limits.reportTimeoutMs, as SessionController.finish()
+   * does: an unref'd timer races the work and aborts it. The deadline does not rely on the
+   * provider honouring the abort; a late result is dropped here and never written.
+   */
+  async function generateWithDeadline(
+    turns: ConversationTurn[],
+    interviewer: InterviewerDefinition,
+  ): Promise<{ ok: true; report: ReportV2 } | { ok: false; why: string }> {
+    const abort = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const deadline = new Promise<"timeout">((resolve) => {
+      timer = setTimeout(() => resolve("timeout"), config.limits.reportTimeoutMs);
+      if (typeof timer === "object" && typeof timer.unref === "function") timer.unref();
+    });
+    const work = generateReport(turns, interviewer, providers.llm, abort.signal, {
+      showFillerCounts: config.reportFillerCounts,
+    }).then(
+      (report) => ({ ok: true as const, report }),
+      (err: unknown) => ({ ok: false as const, why: errName(err) }),
+    );
+    const outcome = await Promise.race([work, deadline]);
+    if (timer) clearTimeout(timer);
+    if (outcome === "timeout") {
+      abort.abort();
+      return { ok: false, why: "deadline reached" };
+    }
+    return outcome;
+  }
 
   app.delete(
     "/api/session/:sessionId",
