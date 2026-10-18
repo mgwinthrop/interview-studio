@@ -89,14 +89,13 @@ A `hybrid` profile (a local speech sidecar for STT and TTS with a cloud LLM) is 
 
 `sessionController.ts` owns one live session: its turn history, its phase and a single state.
 
-```
-          start()                    item finishes
-idle ─────────────▶ thinking ◀──────────────────────── listening
-                      │  ▲                                  ▲
-         first audio  │  └──── next queued item ────────────┤
-                      ▼                                     │
-                   speaking ────── item finishes ───────────┘
-```
+State transitions:
+
+- `idle` → `thinking`: `start()` begins the greeting.
+- `listening` → `thinking`: a user utterance arrives (or the next queued one is taken).
+- `thinking` → `speaking`: the first TTS audio chunk of the reply is sent.
+- `thinking` or `speaking` → `listening`: the item finishes (reply done, STT empty or failed, provider error) or `interrupt()` cancels it. If another utterance is queued, it starts at once (`listening` → `thinking`).
+- any state → `idle`: the session ends (`end()` finishes, or `abandon()`).
 
 - `idle`: not started, or ended. `listening`: waiting for the user. `thinking`: STT and LLM running, no audio sent yet. `speaking`: TTS audio is being sent.
 - One item runs at a time (the greeting, then user utterances). Utterances that arrive meanwhile wait in a FIFO queue of up to 5; beyond that the server sends `stt_error` with reason `busy`.
