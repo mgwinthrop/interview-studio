@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { z } from "zod";
-import type Anthropic from "@anthropic-ai/sdk";
+import Anthropic from "@anthropic-ai/sdk";
 import { createCloudProviders } from "../../providers/cloud";
 import { createProviders } from "../../providers";
 import type { Config } from "../../config";
@@ -171,6 +171,20 @@ describe("cloud tts", () => {
       collect(createCloudProviders(cartesiaConfig, { fetch: fn }).tts.synthesize("Hi.", live)),
     ).rejects.toThrow("500");
   });
+
+  it("mentions both statuses when ElevenLabs and Cartesia both fail", async () => {
+    const { fn } = fakeFetch((url) =>
+      url.includes("elevenlabs")
+        ? new Response("eleven-body", { status: 500 })
+        : new Response("cartesia-body", { status: 429 }),
+    );
+    const err = await collect(
+      createCloudProviders(cartesiaConfig, { fetch: fn }).tts.synthesize("Hi.", live),
+    ).catch((e: Error) => e);
+    expect((err as Error).message).toContain("500");
+    expect((err as Error).message).toContain("429");
+    expect((err as Error).message).not.toContain("body");
+  });
 });
 
 describe("cloud llm", () => {
@@ -219,6 +233,81 @@ describe("cloud llm", () => {
       ),
     ).rejects.toBeDefined();
     expect(create).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("cloud llm abort", () => {
+  const req = {
+    system: "s",
+    messages: [{ role: "user" as const, content: "x" }],
+    maxTokens: 50,
+  };
+
+  async function expectAbortName(run: () => Promise<unknown>): Promise<void> {
+    const err = await run().catch((e: Error) => e);
+    expect((err as Error).name).toBe("AbortError");
+  }
+
+  it("stream maps APIUserAbortError while awaiting the stream start", async () => {
+    const { client, stream } = fakeAnthropic("x");
+    stream.mockImplementation(() => {
+      throw new Anthropic.APIUserAbortError();
+    });
+    const controller = new AbortController();
+    const iter = createCloudProviders(baseConfig, { anthropic: client }).llm.stream(
+      req,
+      controller.signal,
+    );
+    await expectAbortName(() => collect(iter));
+  });
+
+  it("stream maps APIUserAbortError raised mid-iteration", async () => {
+    const { client, stream } = fakeAnthropic("x");
+    const controller = new AbortController();
+    stream.mockImplementation(() =>
+      (async function* () {
+        yield { type: "content_block_delta", delta: { type: "text_delta", text: "a" } };
+        throw new Anthropic.APIUserAbortError();
+      })(),
+    );
+    const iter = createCloudProviders(baseConfig, { anthropic: client }).llm.stream(
+      req,
+      controller.signal,
+    );
+    await expectAbortName(() => collect(iter));
+  });
+
+  it("stream maps any error to AbortError once the signal has aborted mid-flight", async () => {
+    const { client, stream } = fakeAnthropic("x");
+    const controller = new AbortController();
+    stream.mockImplementation(() =>
+      (async function* () {
+        yield { type: "content_block_delta", delta: { type: "text_delta", text: "a" } };
+        controller.abort();
+        throw new Error("socket closed");
+      })(),
+    );
+    const iter = createCloudProviders(baseConfig, { anthropic: client }).llm.stream(
+      req,
+      controller.signal,
+    );
+    await expectAbortName(() => collect(iter));
+  });
+
+  it("structured maps APIUserAbortError to AbortError without retrying", async () => {
+    const { client, create } = fakeAnthropic("x");
+    const controller = new AbortController();
+    create.mockImplementation(async () => {
+      controller.abort();
+      throw new Anthropic.APIUserAbortError();
+    });
+    await expectAbortName(() =>
+      createCloudProviders(baseConfig, { anthropic: client }).llm.structured(
+        { ...req, schema: z.object({ ok: z.boolean() }) },
+        controller.signal,
+      ),
+    );
+    expect(create).toHaveBeenCalledTimes(1);
   });
 });
 

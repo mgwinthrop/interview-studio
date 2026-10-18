@@ -26,6 +26,16 @@ function isAbort(err: unknown): boolean {
   return err instanceof Error && err.name === "AbortError";
 }
 
+/** Release the connection of a response we are not going to read. */
+function discardBody(resp: Response): void {
+  resp.body?.cancel().catch(() => undefined);
+}
+
+/** Map SDK abort errors (APIUserAbortError has no AbortError name) to a real AbortError. */
+function normalizeAbort(err: unknown, signal: AbortSignal): unknown {
+  return signal.aborted || err instanceof Anthropic.APIUserAbortError ? abortError() : err;
+}
+
 function createStt(config: Config, doFetch: typeof fetch): SttProvider {
   return {
     async transcribe(pcm16, signal) {
@@ -45,6 +55,7 @@ function createStt(config: Config, doFetch: typeof fetch): SttProvider {
         body: formData,
       });
       if (!response.ok) {
+        discardBody(response);
         throw new Error(`Scribe request failed with status ${response.status}`);
       }
       const result = (await response.json()) as {
@@ -88,7 +99,10 @@ function createTts(config: Config, doFetch: typeof fetch): TtsProvider {
         output_format: { container: "mp3", encoding: "mp3", sample_rate: 44100 },
       }),
     });
-    if (!resp.ok) throw new Error(`Cartesia TTS failed with status ${resp.status}`);
+    if (!resp.ok) {
+      discardBody(resp);
+      throw new Error(`Cartesia TTS failed with status ${resp.status}`);
+    }
     yield* fromResponse(resp, signal);
   }
 
@@ -106,7 +120,10 @@ function createTts(config: Config, doFetch: typeof fetch): TtsProvider {
         model_id: "eleven_flash_v2_5", // locked per AGENTS.md
       }),
     });
-    if (!resp.ok) throw new Error(`ElevenLabs TTS failed with status ${resp.status}`);
+    if (!resp.ok) {
+      discardBody(resp);
+      throw new Error(`ElevenLabs TTS failed with status ${resp.status}`);
+    }
     yield* fromResponse(resp, signal);
   }
 
@@ -114,6 +131,7 @@ function createTts(config: Config, doFetch: typeof fetch): TtsProvider {
     async *synthesize(sentence, signal) {
       throwIfAborted(signal);
       let yielded = false;
+      let primaryError: unknown;
       try {
         for await (const chunk of elevenlabs(sentence, signal)) {
           yielded = true;
@@ -123,8 +141,16 @@ function createTts(config: Config, doFetch: typeof fetch): TtsProvider {
       } catch (err) {
         // Fall back only before any audio was emitted, so the client never hears duplicated speech.
         if (isAbort(err) || signal.aborted || yielded || !config.cartesia) throw err;
+        primaryError = err;
       }
-      yield* cartesia(sentence, signal, config.cartesia);
+      try {
+        yield* cartesia(sentence, signal, config.cartesia);
+      } catch (err) {
+        if (isAbort(err) || signal.aborted) throw err;
+        const first = primaryError instanceof Error ? primaryError.message : "ElevenLabs TTS failed";
+        const second = err instanceof Error ? err.message : "Cartesia TTS failed";
+        throw new Error(`${first}; ${second}`);
+      }
     },
   };
 }
@@ -143,28 +169,8 @@ function createLlm(config: Config, client: Pick<Anthropic, "messages">): LlmProv
   return {
     async *stream(req, signal) {
       throwIfAborted(signal);
-      const stream = client.messages.stream(
-        {
-          model: LLM_MODEL,
-          max_tokens: req.maxTokens,
-          system: req.system,
-          messages: toParams(req.messages),
-        },
-        { signal },
-      );
-      for await (const event of stream) {
-        throwIfAborted(signal);
-        if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-          yield event.delta.text;
-        }
-      }
-    },
-
-    async structured(req, signal) {
-      let lastError: unknown;
-      for (let attempt = 0; attempt < 2; attempt++) {
-        throwIfAborted(signal);
-        const response = await client.messages.create(
+      try {
+        const stream = client.messages.stream(
           {
             model: LLM_MODEL,
             max_tokens: req.maxTokens,
@@ -173,6 +179,35 @@ function createLlm(config: Config, client: Pick<Anthropic, "messages">): LlmProv
           },
           { signal },
         );
+        for await (const event of stream) {
+          throwIfAborted(signal);
+          if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+            yield event.delta.text;
+          }
+        }
+      } catch (err) {
+        throw normalizeAbort(err, signal);
+      }
+    },
+
+    async structured(req, signal) {
+      let lastError: unknown;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        throwIfAborted(signal);
+        let response;
+        try {
+          response = await client.messages.create(
+            {
+              model: LLM_MODEL,
+              max_tokens: req.maxTokens,
+              system: req.system,
+              messages: toParams(req.messages),
+            },
+            { signal },
+          );
+        } catch (err) {
+          throw normalizeAbort(err, signal);
+        }
         const block = response.content[0];
         try {
           if (!block || block.type !== "text") throw new Error("Unexpected model response block");
