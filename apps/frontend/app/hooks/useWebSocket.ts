@@ -11,6 +11,9 @@ interface UseWebSocketReturn {
   transcript: TranscriptEntry[];
   aiSpeaking: boolean;
   sessionComplete: { reportId: string } | null;
+  /** True once the server reports the session ended as failed (no report). */
+  sessionFailed: boolean;
+  /** Server-issued id from session_started; "" until it arrives. */
   sessionId: string;
   lastLatencyMs: number | null;
   sendMessage: (msg: ClientMessage) => void;
@@ -24,14 +27,14 @@ export function useWebSocket(
   onTtsEnd?: () => void,
   onSttError?: () => void
 ): UseWebSocketReturn {
-  // Generate sessionId once — stable across StrictMode double-mount
-  const [sessionId] = useState<string>(() => crypto.randomUUID());
-
+  // The server issues the session id in session_started. Every connection is a new session.
+  const [sessionId, setSessionId] = useState<string>("");
   const [connectionState, setConnectionState] = useState<ConnectionState>("connecting");
   const [phase, setPhase] = useState<Phase>("intro");
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [aiSpeaking, setAiSpeaking] = useState(false);
   const [sessionComplete, setSessionComplete] = useState<{ reportId: string } | null>(null);
+  const [sessionFailed, setSessionFailed] = useState(false);
   const [lastLatencyMs, setLastLatencyMs] = useState<number | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -42,7 +45,8 @@ export function useWebSocket(
   // partial transcripts when a non-partial arrives before the partials (race condition
   // where backend sends final transcript then partials, causing a duplicate entry).
   const lastAiEntryIdRef = useRef<string | null>(null);
-  // Reconnect: trigger re-run of the WS setup effect
+  // Reconnect: trigger re-run of the WS setup effect. The server does not resume sessions,
+  // so a reconnect starts a new conversation with a new server-issued id.
   const [reconnectTrigger, setReconnectTrigger] = useState(0);
   // Prevents the onclose handler from setting "disconnected" during deliberate closes
   // (reconnect and unmount) — avoids a brief flash of the error overlay.
@@ -65,7 +69,7 @@ export function useWebSocket(
       wsRef.current.send(JSON.stringify(msg));
     }
 
-    // tts_end is suppressed on the server when TTS is aborted (ttsStream.ts),
+    // tts_end is suppressed on the server when TTS is aborted (session controller),
     // so reset aiSpeaking immediately on the client side instead of waiting.
     if (msg.type === "interrupt") {
       setAiSpeaking(false);
@@ -82,6 +86,17 @@ export function useWebSocket(
       return;
     }
 
+    // A new connection is a new session: clear everything from the previous one.
+    setSessionId("");
+    setPhase("intro");
+    setTranscript([]);
+    setAiSpeaking(false);
+    setSessionComplete(null);
+    setSessionFailed(false);
+    setLastLatencyMs(null);
+    pendingAssistantIdRef.current = null;
+    lastAiEntryIdRef.current = null;
+
     const ws = new WebSocket(wsUrl);
     ws.binaryType = "arraybuffer"; // ensures binary frames arrive as ArrayBuffer, not Blob
     wsRef.current = ws;
@@ -89,13 +104,7 @@ export function useWebSocket(
 
     ws.onopen = () => {
       setConnectionState("connected");
-      const startMsg: ClientMessage = {
-        type: "session_start",
-        sessionId,
-        topicId,
-        phase: "intro",
-        demo,
-      };
+      const startMsg: ClientMessage = { type: "session_start", topicId, demo };
       ws.send(JSON.stringify(startMsg));
     };
 
@@ -176,8 +185,18 @@ export function useWebSocket(
           setPhase(msg.phase);
           break;
 
+        case "session_started":
+          setSessionId(msg.sessionId);
+          break;
+
         case "session_complete":
           setSessionComplete({ reportId: msg.reportId });
+          break;
+
+        case "session_failed":
+          // The server closes the socket next; the page shows the failure state.
+          setAiSpeaking(false);
+          setSessionFailed(true);
           break;
 
         case "latency_metric":
@@ -208,10 +227,10 @@ export function useWebSocket(
       ws.close();
       wsRef.current = null;
     };
-    // sessionId is stable; demo/topicId are read once at mount — intentional
-    // reconnectTrigger increments on explicit reconnect; re-reads same sessionId/topicId/demo
+    // demo/topicId are read once at mount — intentional.
+    // reconnectTrigger increments on explicit reconnect, which opens a new session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, reconnectTrigger]);
+  }, [reconnectTrigger]);
 
   return {
     connectionState,
@@ -219,6 +238,7 @@ export function useWebSocket(
     transcript,
     aiSpeaking,
     sessionComplete,
+    sessionFailed,
     sessionId,
     lastLatencyMs,
     sendMessage,

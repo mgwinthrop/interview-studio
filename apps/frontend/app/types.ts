@@ -31,13 +31,16 @@ export type ServerMessage =
   | { type: "tts_chunk"; data: ArrayBuffer }
   | { type: "transcript"; text: string; role: "user" | "assistant"; partial?: boolean }
   | { type: "phase_change"; phase: Phase }
+  | { type: "session_started"; sessionId: string }
   | { type: "session_complete"; reportId: string }
-  | { type: "stt_error"; message?: string }
+  | { type: "session_failed"; reason: string }
+  | { type: "stt_error"; reason?: string }
   | { type: "latency_metric"; ms: number };
 
 // Discriminated union of all client → server message types (spec §5.3)
 export type ClientMessage =
-  | { type: "session_start"; sessionId: string; topicId: string; phase: Phase; demo: boolean }
+  // The server issues the session id (session_started) and always starts at "intro".
+  | { type: "session_start"; topicId: string; demo: boolean }
   | { type: "session_end" }
   | { type: "interrupt" }
   | { type: "text_input"; content: string }

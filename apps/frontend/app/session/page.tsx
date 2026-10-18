@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { useVAD } from "../../hooks/useVAD";
@@ -11,6 +12,53 @@ import { AgentPanel } from "../components/AgentPanel";
 import { LiveTranscript } from "../components/LiveTranscript";
 import { getTopicConfig } from "../lib/topics";
 import type { OrbState } from "../types";
+
+// Full-screen error state shared by "connection lost" and "session failed".
+const overlayStyle: React.CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  zIndex: 50,
+  background: "#102B33",
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  justifyContent: "center",
+  gap: 16,
+  fontFamily: "var(--font-manrope), sans-serif",
+};
+const overlayTitleStyle: React.CSSProperties = {
+  fontSize: 20,
+  fontWeight: 700,
+  color: "#FFFFFF",
+  margin: 0,
+  letterSpacing: "-0.01em",
+};
+const overlayBodyStyle: React.CSSProperties = {
+  fontSize: 16,
+  color: "#6B7A8D",
+  margin: 0,
+  textAlign: "center",
+  maxWidth: 400,
+  lineHeight: 1.6,
+};
+const overlayPrimaryStyle: React.CSSProperties = {
+  padding: "12px 28px",
+  borderRadius: 8,
+  border: "none",
+  background: "#087E8B",
+  color: "#FFFFFF",
+  fontSize: 15,
+  fontWeight: 600,
+  cursor: "pointer",
+  fontFamily: "var(--font-manrope), sans-serif",
+  letterSpacing: "0.01em",
+  textDecoration: "none",
+};
+const overlaySecondaryStyle: React.CSSProperties = {
+  ...overlayPrimaryStyle,
+  border: "1px solid rgba(255,255,255,0.3)",
+  background: "transparent",
+};
 
 // Inner component — must be inside <Suspense> because it calls useSearchParams()
 function SessionPageInner() {
@@ -54,8 +102,18 @@ function SessionPageInner() {
 
   const topicConfig = getTopicConfig(topicId);
 
-  const { connectionState, phase, transcript, aiSpeaking, sessionComplete, sessionId, lastLatencyMs, sendMessage, reconnect } =
-    useWebSocket(topicId, demo, handleAudioChunk, handleTtsEnd, handleSttError);
+  const {
+    connectionState,
+    phase,
+    transcript,
+    aiSpeaking,
+    sessionComplete,
+    sessionFailed,
+    sessionId,
+    lastLatencyMs,
+    sendMessage,
+    reconnect,
+  } = useWebSocket(topicId, demo, handleAudioChunk, handleTtsEnd, handleSttError);
 
   // Orb state — 4 states: listening / thinking / speaking / interrupted (spec §7)
   const [orbState, setOrbState] = useState<OrbState>("listening");
@@ -183,6 +241,14 @@ function SessionPageInner() {
     setTextInput("");
   }, [textInput, sendMessageWithFlush]);
 
+  // Session failed: stop listening and drop any queued speech; the failure state renders below.
+  useEffect(() => {
+    if (sessionFailed) {
+      stopMic();
+      audioQueueRef.current?.flush();
+    }
+  }, [sessionFailed, stopMic]);
+
   // Redirect to report page when session_complete received
   useEffect(() => {
     if (sessionComplete) {
@@ -190,16 +256,38 @@ function SessionPageInner() {
     }
   }, [sessionComplete, router, topicId]);
 
+  // The report page needs the server-issued id; before session_started there is none.
+  const goToReportOrHome = useCallback(() => {
+    router.push(sessionId ? `/report/${sessionId}?topicId=${topicId}` : "/");
+  }, [router, sessionId, topicId]);
+
   function handleEndSession() {
     audioQueueRef.current?.flush();
     sendMessage({ type: "session_end" });
-    router.push(`/report/${sessionId}?topicId=${topicId}`);
+    goToReportOrHome();
   }
 
   const minutes = String(Math.floor(elapsed / 60)).padStart(2, "0");
   const seconds = String(elapsed % 60).padStart(2, "0");
 
-  // ── Connection error overlay (all hooks must be above this) ───────────────
+  // ── Error overlays (all hooks must be above this) ─────────────────────────
+  // Session failed: the server ended the session without a report and closes the socket.
+  if (sessionFailed) {
+    return (
+      <div role="alert" style={overlayStyle}>
+        <h2 style={overlayTitleStyle}>The session could not be completed</h2>
+        <p style={overlayBodyStyle}>
+          Something went wrong while preparing your feedback, so no report was saved.
+        </p>
+        <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+          <Link href="/" style={overlayPrimaryStyle}>
+            Back to start
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   // Shows when WS drops mid-session. Guards against normal session end:
   // after session_complete or End Session, we navigate before onclose fires,
   // so sessionComplete will already be truthy and this branch won't trigger.
@@ -208,71 +296,19 @@ function SessionPageInner() {
 
   if (connectionError) {
     return (
-      <div
-        role="alert"
-        style={{
-          position: "fixed",
-          inset: 0,
-          zIndex: 50,
-          background: "#102B33",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          gap: 16,
-          fontFamily: "var(--font-manrope), sans-serif",
-        }}
-      >
-        <h2 style={{ fontSize: 20, fontWeight: 700, color: "#FFFFFF", margin: 0, letterSpacing: "-0.01em" }}>
-          Connection lost
-        </h2>
-        <p
-          style={{
-            fontSize: 16,
-            color: "#6B7A8D",
-            margin: 0,
-            textAlign: "center",
-            maxWidth: 400,
-            lineHeight: 1.6,
-          }}
-        >
-          The session was interrupted. Your progress has been saved.
+      <div role="alert" style={overlayStyle}>
+        <h2 style={overlayTitleStyle}>Connection lost</h2>
+        <p style={overlayBodyStyle}>
+          The connection to the interviewer was lost and this conversation cannot be resumed.
+          Reconnecting starts a new conversation.
         </p>
         <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
-          {/* Primary: reconnect using same sessionId — backend resumes from SQLite */}
-          <button
-            onClick={reconnect}
-            style={{
-              padding: "12px 28px",
-              borderRadius: 8,
-              border: "none",
-              background: "#087E8B",
-              color: "#FFFFFF",
-              fontSize: 15,
-              fontWeight: 600,
-              cursor: "pointer",
-              fontFamily: "var(--font-manrope), sans-serif",
-              letterSpacing: "0.01em",
-            }}
-          >
-            Reconnect
+          {/* Primary: open a new connection, which the server treats as a new session */}
+          <button onClick={reconnect} style={overlayPrimaryStyle}>
+            Start over
           </button>
-          {/* Secondary: navigate to report page (polling handles not-yet-ready state) */}
-          <button
-            onClick={() => router.push(`/report/${sessionId}?topicId=${topicId}`)}
-            style={{
-              padding: "12px 28px",
-              borderRadius: 8,
-              border: "1px solid rgba(255,255,255,0.3)",
-              background: "transparent",
-              color: "#FFFFFF",
-              fontSize: 15,
-              fontWeight: 600,
-              cursor: "pointer",
-              fontFamily: "var(--font-manrope), sans-serif",
-              letterSpacing: "0.01em",
-            }}
-          >
+          {/* Secondary: leave; the report page explains that this session has no report */}
+          <button onClick={goToReportOrHome} style={overlaySecondaryStyle}>
             End session
           </button>
         </div>
@@ -319,7 +355,7 @@ function SessionPageInner() {
 
         {/* Session ID — hidden on mobile */}
         <span className="session-id-label" style={{ fontSize: 11, color: "#6B7A8D", fontFamily: "monospace" }}>
-          {`interview_${sessionId.slice(0, 11)}`}
+          {sessionId ? `interview_${sessionId.slice(0, 11)}` : ""}
         </span>
 
         {/* Right cluster: signal + timer + demo badge */}
