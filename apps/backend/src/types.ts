@@ -42,10 +42,13 @@ export interface SessionState {
   vadT0?: number;
 }
 
+export type SessionStatus = "active" | "complete" | "abandoned" | "failed";
+
 export interface Session {
   id: string;
+  ownerId: string;
   topicId: string;
-  status: "active" | "complete" | "abandoned";
+  status: SessionStatus;
   phase: Phase;
   startedAt: Date;
   endedAt?: Date;

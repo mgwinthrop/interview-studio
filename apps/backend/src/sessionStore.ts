@@ -2,9 +2,15 @@ import { Session, Phase } from "./types";
 
 const sessions = new Map<string, Session>();
 
-export function createSession(id: string, topicId: string, phase: Phase): Session {
+export function createSession(
+  id: string,
+  ownerId: string,
+  topicId: string,
+  phase: Phase
+): Session {
   const session: Session = {
     id,
+    ownerId,
     topicId,
     status: "active",
     phase,

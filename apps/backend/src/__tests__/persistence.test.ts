@@ -1,0 +1,116 @@
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import type { Report } from "../types";
+
+const backendDir = path.resolve(__dirname, "../..");
+let tmpDir: string;
+let p: typeof import("../persistence");
+let prisma: typeof import("../db").default;
+
+function report(sessionId: string): Report {
+  return {
+    sessionId,
+    summary: "s",
+    strengths: [{ area: "a", evidence: "e" }],
+    improvements: [{ area: "a", suggestion: "s" }],
+    highlights: ["h"],
+    overallAssessment: "ok",
+    generatedAt: new Date(),
+  };
+}
+
+async function seed(id: string, owner: string) {
+  await p.persistSessionCreate(id, owner, "ai-se-delivery", "intro");
+  await p.persistTurn({
+    id: `${id}-t1`,
+    sessionId: id,
+    role: "user",
+    content: "hello",
+    phase: "intro",
+    timestamp: new Date(),
+  });
+  await p.persistReport(id, report(id));
+}
+
+beforeAll(async () => {
+  tmpDir = mkdtempSync(path.join(tmpdir(), "persist-test-"));
+  const url = `file:${path.join(tmpDir, "test.db")}`;
+  process.env.DATABASE_URL = url;
+  execFileSync("npx", ["prisma", "migrate", "deploy"], {
+    cwd: backendDir,
+    env: { ...process.env, DATABASE_URL: url },
+    stdio: "pipe",
+  });
+  p = await import("../persistence");
+  prisma = (await import("../db")).default;
+}, 60_000);
+
+afterAll(async () => {
+  await prisma?.$disconnect();
+  rmSync(tmpDir, { recursive: true, force: true });
+});
+
+describe("owner scoping", () => {
+  it("hides turns, report and delete from another owner", async () => {
+    await seed("s-owner", "a");
+    expect(await p.readTurnsFromDb("s-owner", "b")).toBeNull();
+    expect(await p.readReportFromDb("s-owner", "b")).toBeNull();
+    expect(await p.deleteSessionFromDb("s-owner", "b")).toBe(false);
+    expect(await p.readTurnsFromDb("s-owner", "a")).toHaveLength(1);
+    expect((await p.readReportFromDb("s-owner", "a"))?.report).not.toBeNull();
+  });
+
+  it("deletes turns and report for the owner", async () => {
+    await seed("s-del", "a");
+    expect(await p.deleteSessionFromDb("s-del", "a")).toBe(true);
+    expect(await p.readTurnsFromDb("s-del", "a")).toBeNull();
+    expect(await prisma.report.count({ where: { sessionId: "s-del" } })).toBe(0);
+    expect(await prisma.session.count({ where: { id: "s-del" } })).toBe(0);
+  });
+});
+
+describe("statuses", () => {
+  it("keeps abandoned status and does not change it when a report is persisted", async () => {
+    await p.persistSessionCreate("s-ab", "a", "ai-se-delivery", "intro");
+    await p.persistSessionStatus("s-ab", "abandoned");
+    await p.persistReport("s-ab", report("s-ab"));
+    const row = await prisma.session.findUnique({ where: { id: "s-ab" } });
+    expect(row?.status).toBe("abandoned");
+    expect(row?.endedAt).not.toBeNull();
+  });
+
+  it("lists only complete sessions for the owner", async () => {
+    for (const [id, status] of [
+      ["l-complete", "complete"],
+      ["l-abandoned", "abandoned"],
+      ["l-failed", "failed"],
+    ] as const) {
+      await p.persistSessionCreate(id, "lister", "ai-se-delivery", "intro");
+      await p.persistSessionStatus(id, status);
+    }
+    await p.persistSessionCreate("l-other", "someone-else", "ai-se-delivery", "intro");
+    await p.persistSessionStatus("l-other", "complete");
+    const list = await p.listSessionsFromDb("lister");
+    expect(list.map((s) => s.id)).toEqual(["l-complete"]);
+  });
+});
+
+describe("purgeOlderThan", () => {
+  it("deletes sessions ended more than N days ago and returns the count", async () => {
+    await seed("p-old", "a");
+    await seed("p-new", "a");
+    await p.persistSessionStatus("p-old", "complete");
+    await p.persistSessionStatus("p-new", "complete");
+    await prisma.session.update({
+      where: { id: "p-old" },
+      data: { endedAt: new Date(Date.now() - 2 * 24 * 3600 * 1000) },
+    });
+    expect(await p.purgeOlderThan(1)).toBe(1);
+    expect(await prisma.session.count({ where: { id: "p-old" } })).toBe(0);
+    expect(await prisma.conversationTurn.count({ where: { sessionId: "p-old" } })).toBe(0);
+    expect(await prisma.session.count({ where: { id: "p-new" } })).toBe(1);
+  });
+});

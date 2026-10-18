@@ -1,17 +1,20 @@
 import prisma from "./db";
-import { ConversationTurn, Phase, Report } from "./types";
+import { ConversationTurn, Phase, Report, SessionStatus } from "./types";
 
 // ── Read helpers (post-restart fallback for HTTP endpoints) ──────────────────
+// Every query goes through the owning session so one owner never sees another's data.
 
 /**
- * Returns { report, sessionStatus } from SQLite, or null if session not found.
+ * Returns { report, sessionStatus } for a session owned by ownerId, or null if
+ * the session does not exist or belongs to someone else.
  * report is null when the session exists but report generation hasn't completed.
  */
 export async function readReportFromDb(
-  sessionId: string
+  sessionId: string,
+  ownerId: string
 ): Promise<{ report: Report | null; sessionStatus: string } | null> {
-  const session = await prisma.session.findUnique({
-    where: { id: sessionId },
+  const session = await prisma.session.findFirst({
+    where: { id: sessionId, ownerId },
     include: { report: true },
   });
   if (!session) return null;
@@ -32,14 +35,15 @@ export async function readReportFromDb(
 }
 
 /**
- * Returns ConversationTurn[] from SQLite for the given session, ordered by timestamp.
- * Returns null if no turns exist for the session.
+ * Returns ConversationTurn[] for a session owned by ownerId, ordered by timestamp.
+ * Returns null if the session is not owned by ownerId or has no turns.
  */
 export async function readTurnsFromDb(
-  sessionId: string
+  sessionId: string,
+  ownerId: string
 ): Promise<ConversationTurn[] | null> {
   const rows = await prisma.conversationTurn.findMany({
-    where: { sessionId },
+    where: { sessionId, session: { ownerId } },
     orderBy: { timestamp: "asc" },
   });
   if (rows.length === 0) return null;
@@ -53,15 +57,35 @@ export async function readTurnsFromDb(
   }));
 }
 
+/** Completed sessions for the owner, newest first. Abandoned and failed are not listed. */
+export async function listSessionsFromDb(ownerId: string): Promise<
+  { id: string; topicId: string; phase: string; startedAt: Date; endedAt: Date | null }[]
+> {
+  const rows = await prisma.session.findMany({
+    where: { ownerId, status: "complete" },
+    orderBy: { startedAt: "desc" },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    topicId: r.topicId,
+    phase: r.phase,
+    startedAt: r.startedAt,
+    endedAt: r.endedAt,
+  }));
+}
+
+// ── Writes ───────────────────────────────────────────────────────────────────
+
 export async function persistSessionCreate(
   id: string,
+  ownerId: string,
   topicId: string,
   phase: Phase
 ): Promise<void> {
   await prisma.session.upsert({
     where: { id },
     update: {},
-    create: { id, topicId, phase, status: "active" },
+    create: { id, ownerId, topicId, phase, status: "active" },
   });
 }
 
@@ -93,38 +117,66 @@ export async function persistPhaseTransition(
   });
 }
 
-export async function persistSessionEnd(
+/** Sets the session status; any non-active status also stamps endedAt. */
+export async function persistSessionStatus(
   sessionId: string,
-  report?: Report
+  status: SessionStatus
 ): Promise<void> {
   await prisma.session.update({
     where: { id: sessionId },
-    data: {
-      status: "complete",
-      endedAt: new Date(),
-    },
+    data: { status, endedAt: status === "active" ? null : new Date() },
   });
+}
 
-  if (report) {
-    await prisma.report.upsert({
-      where: { sessionId },
-      update: {
-        summary: report.summary,
-        strengthsJson: JSON.stringify(report.strengths),
-        improvementsJson: JSON.stringify(report.improvements),
-        highlightsJson: JSON.stringify(report.highlights),
-        overallAssessment: report.overallAssessment,
-        generatedAt: report.generatedAt,
-      },
-      create: {
-        sessionId,
-        summary: report.summary,
-        strengthsJson: JSON.stringify(report.strengths),
-        improvementsJson: JSON.stringify(report.improvements),
-        highlightsJson: JSON.stringify(report.highlights),
-        overallAssessment: report.overallAssessment,
-        generatedAt: report.generatedAt,
-      },
-    });
-  }
+/** Stores the report. Does not change the session status. */
+export async function persistReport(sessionId: string, report: Report): Promise<void> {
+  const data = {
+    summary: report.summary,
+    strengthsJson: JSON.stringify(report.strengths),
+    improvementsJson: JSON.stringify(report.improvements),
+    highlightsJson: JSON.stringify(report.highlights),
+    overallAssessment: report.overallAssessment,
+    generatedAt: report.generatedAt,
+  };
+  await prisma.report.upsert({
+    where: { sessionId },
+    update: data,
+    create: { sessionId, ...data },
+  });
+}
+
+// ── Deletion (cascades in code, one transaction) ─────────────────────────────
+
+function deleteSessionsTx(ids: string[]) {
+  return prisma.$transaction([
+    prisma.conversationTurn.deleteMany({ where: { sessionId: { in: ids } } }),
+    prisma.report.deleteMany({ where: { sessionId: { in: ids } } }),
+    prisma.session.deleteMany({ where: { id: { in: ids } } }),
+  ]);
+}
+
+/** Deletes a session with its turns and report. Returns false if not found for this owner. */
+export async function deleteSessionFromDb(
+  sessionId: string,
+  ownerId: string
+): Promise<boolean> {
+  const session = await prisma.session.findFirst({
+    where: { id: sessionId, ownerId },
+    select: { id: true },
+  });
+  if (!session) return false;
+  await deleteSessionsTx([sessionId]);
+  return true;
+}
+
+/** Deletes sessions that ended more than `days` days ago. Returns the number deleted. */
+export async function purgeOlderThan(days: number): Promise<number> {
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const old = await prisma.session.findMany({
+    where: { endedAt: { lt: cutoff } },
+    select: { id: true },
+  });
+  if (old.length === 0) return 0;
+  const [, , sessions] = await deleteSessionsTx(old.map((s) => s.id));
+  return sessions.count;
 }
