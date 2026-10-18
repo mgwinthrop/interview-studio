@@ -1,14 +1,16 @@
 export type Phase = "intro" | "share_work" | "deep_dive" | "wrap_up";
 
 // Typed outbound messages — all send(ws, ...) calls must use this union (spec §5.3).
-// tts_chunk is sent as raw binary via ws.send(Buffer) in ttsStream.ts — not through send().
+// tts_chunk is sent as a raw binary frame (the controller's sendAudio) — not through send().
 export type ServerToClientMessage =
   | { type: "tts_chunk"; data: Buffer }
   | { type: "tts_start" }
   | { type: "tts_end" }
   | { type: "transcript"; text: string; role: "user" | "assistant"; partial?: boolean }
   | { type: "phase_change"; phase: Phase }
+  | { type: "session_started"; sessionId: string }
   | { type: "session_complete"; reportId: string }
+  | { type: "session_failed"; reason: string }
   | { type: "stt_error"; reason: string }
   | { type: "latency_metric"; ms: number };
 
@@ -29,17 +31,6 @@ export interface Report {
   highlights: string[];
   overallAssessment: string;
   generatedAt: Date;
-}
-
-export interface SessionState {
-  sessionId: string;
-  topicId: string;
-  phase: Phase;
-  turnCount: number;
-  history: ConversationTurn[];
-  topicsDiscussed: string[];
-  phaseTransitionPending: boolean;
-  vadT0?: number;
 }
 
 export type SessionStatus = "active" | "complete" | "abandoned" | "failed";

@@ -59,11 +59,20 @@ export async function readTurnsFromDb(
 
 /** Completed sessions for the owner, newest first. Abandoned and failed are not listed. */
 export async function listSessionsFromDb(ownerId: string): Promise<
-  { id: string; topicId: string; phase: string; startedAt: Date; endedAt: Date | null }[]
+  {
+    id: string;
+    topicId: string;
+    phase: string;
+    startedAt: Date;
+    endedAt: Date | null;
+    turnCount: number;
+    hasReport: boolean;
+  }[]
 > {
   const rows = await prisma.session.findMany({
     where: { ownerId, status: "complete" },
     orderBy: { startedAt: "desc" },
+    include: { report: { select: { id: true } }, _count: { select: { turns: true } } },
   });
   return rows.map((r) => ({
     id: r.id,
@@ -71,6 +80,8 @@ export async function listSessionsFromDb(ownerId: string): Promise<
     phase: r.phase,
     startedAt: r.startedAt,
     endedAt: r.endedAt,
+    turnCount: r._count.turns,
+    hasReport: r.report !== null,
   }));
 }
 
