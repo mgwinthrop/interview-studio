@@ -22,3 +22,7 @@ coverage/
 apps/frontend/public/*.wasm
 apps/frontend/public/*.onnx
 apps/frontend/public/vad.worklet.bundle.min.js
+
+# Local agent workspaces
+.claude/worktrees/
+.superpowers/
