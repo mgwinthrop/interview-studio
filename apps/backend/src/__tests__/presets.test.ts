@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { PRESETS } from "../interviewer/presets/index.js";
+import { PRESETS, PRESET_TIMESTAMP } from "../interviewer/presets/index.js";
 import { parseInterviewerDefinition, SYSTEM_OWNER } from "../interviewer/schema.js";
 
 const IDS = [
@@ -32,8 +32,8 @@ describe("PRESETS", () => {
     expect(p.source).toBe("preset");
     expect(p.ownerId).toBe(SYSTEM_OWNER);
     expect(p.version).toBe(1);
-    expect(p.createdAt).toBe("2026-10-18T00:00:00.000Z");
-    expect(p.updatedAt).toBe("2026-10-18T00:00:00.000Z");
+    expect(p.createdAt).toBe(PRESET_TIMESTAMP);
+    expect(p.updatedAt).toBe(PRESET_TIMESTAMP);
     expect(p.contentFeedback).toBe(true);
     expect(p.deliveryFeedback).toBe(true);
     expect(p.voice).toBeUndefined();
@@ -48,11 +48,57 @@ describe("PRESETS", () => {
     ).toEqual(PACING);
   });
 
-  it("contains no scoring language", () => {
-    const all = JSON.stringify(PRESETS).toLowerCase();
-    for (const word of ["assessment", "assess", "score", "grade", "pass/fail"]) {
-      expect(all).not.toContain(word);
+  describe("text rules", () => {
+    const fields = PRESETS.flatMap((p) => [
+      { where: `${p.id}.persona`, key: "persona", text: p.persona },
+      { where: `${p.id}.style`, key: "style", text: p.style },
+      { where: `${p.id}.opening`, key: "opening", text: p.opening },
+      { where: `${p.id}.closing`, key: "closing", text: p.closing },
+      ...p.phases.map((ph) => ({
+        where: `${p.id}.${ph.name}`,
+        key: ph.name === "wrap_up" ? "wrap_up" : "phase",
+        text: ph.instruction,
+      })),
+    ]);
+
+    const banned: Record<string, RegExp> = {
+      phaseSwitching: /\b(after|within)\s+\d+|\bturns?\b|\bexchanges?\b|move (on|forward) to/i,
+      listMarkers: /^\s*(?:[-*#]|\d+\.)|\bbullet|\bnumbered list/im,
+      summarising: /say back|reflect back|summaris|summariz|recap|paraphras/i,
+      scoring:
+        /\b(?:assessment|assess|score|scored|scoring|grade|grading|pass\/fail|pass or fail|marking|rating)\b/i,
+      oldTopics: /ai-se-delivery|experience-design|product-design-strategy/i,
+    };
+
+    for (const [rule, re] of Object.entries(banned)) {
+      it(`has no ${rule} language`, () => {
+        for (const f of fields) expect(f.text, f.where).not.toMatch(re);
+      });
     }
+
+    it("has no double quotes in opening and closing (guidance, not a script)", () => {
+      for (const f of fields.filter((x) => x.key === "opening" || x.key === "closing")) {
+        expect(f.text, f.where).not.toMatch(/["“”]/);
+      }
+    });
+
+    it("has no question in opening and closing (intro owns the first question)", () => {
+      for (const f of fields.filter((x) => x.key === "opening" || x.key === "closing")) {
+        expect(f.text, f.where).not.toContain("?");
+      }
+    });
+
+    it("has every wrap_up instruction mention the reflection", () => {
+      for (const f of fields.filter((x) => x.key === "wrap_up")) {
+        expect(f.text, f.where).toMatch(/reflection/i);
+      }
+    });
+
+    it("has at most one question mark per instruction", () => {
+      for (const f of fields.filter((x) => x.key === "phase" || x.key === "wrap_up")) {
+        expect((f.text.match(/\?/g) ?? []).length, f.where).toBeLessThanOrEqual(1);
+      }
+    });
   });
 
   it("does not mention the old topic ids", () => {
