@@ -1,0 +1,242 @@
+import { describe, it, expect, vi } from "vitest";
+import { z } from "zod";
+import type Anthropic from "@anthropic-ai/sdk";
+import { createCloudProviders } from "../../providers/cloud";
+import { createProviders } from "../../providers";
+import type { Config } from "../../config";
+import { runProviderContract } from "./contract";
+
+const baseConfig: Config = {
+  host: "127.0.0.1",
+  port: 3001,
+  allowedOrigins: [],
+  profile: "cloud",
+  databaseUrl: "file:./test.db",
+  anthropicApiKey: "anthropic-key",
+  elevenlabsApiKey: "eleven-key",
+  elevenlabsVoiceId: "voice123",
+  auth: { mode: "local" },
+  limits: {
+    maxPayloadBytes: 1,
+    maxConcurrentSessionsPerOwner: 1,
+    maxTurnsPerSession: 1,
+    idleTimeoutMs: 1,
+  },
+  debugLogText: false,
+};
+
+const cartesiaConfig: Config = { ...baseConfig, cartesia: { apiKey: "c-key", voiceId: "c-voice" } };
+
+function abortError(): Error {
+  const err = new Error("Aborted");
+  err.name = "AbortError";
+  return err;
+}
+
+function streamOf(...chunks: number[][]): ReadableStream<Uint8Array> {
+  return new ReadableStream({
+    start(controller) {
+      for (const c of chunks) controller.enqueue(new Uint8Array(c));
+      controller.close();
+    },
+  });
+}
+
+type Handler = (url: string, init: RequestInit) => Response;
+
+function fakeFetch(handler: Handler) {
+  const calls: { url: string; init: RequestInit }[] = [];
+  const fn = (async (input: string | URL, init?: RequestInit) => {
+    if (init?.signal?.aborted) throw abortError();
+    const url = String(input);
+    calls.push({ url, init: init ?? {} });
+    return handler(url, init ?? {});
+  }) as unknown as typeof fetch;
+  return { fn, calls };
+}
+
+function fakeAnthropic(replyText: string) {
+  const stream = vi.fn((_params: unknown, _opts?: unknown) =>
+    (async function* () {
+      yield { type: "message_start" };
+      for (const piece of replyText.match(/.{1,4}/g) ?? []) {
+        yield { type: "content_block_delta", delta: { type: "text_delta", text: piece } };
+      }
+    })(),
+  );
+  const create = vi.fn(async (_params: unknown, _opts?: unknown) => ({
+    content: [{ type: "text", text: replyText }],
+  }));
+  const client = { messages: { stream, create } } as unknown as Pick<Anthropic, "messages">;
+  return { client, stream, create };
+}
+
+const sttOk = () =>
+  new Response(
+    JSON.stringify({
+      text: " hello world ",
+      words: [
+        { text: "hello", start: 0, end: 0.4, type: "word" },
+        { text: " ", start: 0.4, end: 0.5, type: "spacing" },
+        { text: "world", start: 0.5, end: 0.9, type: "word" },
+      ],
+    }),
+    { status: 200 },
+  );
+
+async function collect<T>(iter: AsyncIterable<T>): Promise<T[]> {
+  const out: T[] = [];
+  for await (const item of iter) out.push(item);
+  return out;
+}
+
+const live = new AbortController().signal;
+
+describe("cloud stt", () => {
+  it("posts multipart to Scribe and maps words", async () => {
+    const { fn, calls } = fakeFetch(sttOk);
+    const { stt } = createCloudProviders(baseConfig, { fetch: fn });
+    const result = await stt.transcribe(Buffer.alloc(3200), live);
+    expect(calls[0].url).toBe("https://api.elevenlabs.io/v1/speech-to-text");
+    expect(calls[0].init.method).toBe("POST");
+    expect((calls[0].init.headers as Record<string, string>)["xi-api-key"]).toBe("eleven-key");
+    const form = calls[0].init.body as FormData;
+    expect(form.get("model_id")).toBe("scribe_v2");
+    expect(form.get("file_format")).toBe("pcm_s16le_16");
+    expect(form.get("language_code")).toBe("en");
+    expect(result.text).toBe("hello world");
+    expect(result.words).toEqual([
+      { text: "hello", start: 0, end: 0.4 },
+      { text: "world", start: 0.5, end: 0.9 },
+    ]);
+  });
+
+  it("returns empty words when the response has none", async () => {
+    const { fn } = fakeFetch(() => new Response(JSON.stringify({ text: "hi" }), { status: 200 }));
+    const result = await createCloudProviders(baseConfig, { fetch: fn }).stt.transcribe(
+      Buffer.alloc(10),
+      live,
+    );
+    expect(result).toEqual({ text: "hi", words: [] });
+  });
+
+  it("rejects with the status but not the body on a non-OK response", async () => {
+    const { fn } = fakeFetch(() => new Response("secret-body-detail", { status: 503 }));
+    const err = await createCloudProviders(baseConfig, { fetch: fn })
+      .stt.transcribe(Buffer.alloc(10), live)
+      .catch((e: Error) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toContain("503");
+    expect((err as Error).message).not.toContain("secret-body-detail");
+  });
+});
+
+describe("cloud tts", () => {
+  it("posts to the ElevenLabs stream endpoint and yields body chunks", async () => {
+    const { fn, calls } = fakeFetch(() => new Response(streamOf([1, 2], [3]), { status: 200 }));
+    const chunks = await collect(
+      createCloudProviders(baseConfig, { fetch: fn }).tts.synthesize("Hi there.", live),
+    );
+    expect(calls[0].url).toBe("https://api.elevenlabs.io/v1/text-to-speech/voice123/stream");
+    const body = JSON.parse(calls[0].init.body as string);
+    expect(body).toEqual({ text: "Hi there.", model_id: "eleven_flash_v2_5" });
+    expect(chunks.map((c) => Array.from(c))).toEqual([[1, 2], [3]]);
+  });
+
+  it("falls back to Cartesia when ElevenLabs returns 500", async () => {
+    const { fn, calls } = fakeFetch((url) =>
+      url.includes("elevenlabs")
+        ? new Response("boom", { status: 500 })
+        : new Response(streamOf([9, 9]), { status: 200 }),
+    );
+    const chunks = await collect(
+      createCloudProviders(cartesiaConfig, { fetch: fn }).tts.synthesize("Hi.", live),
+    );
+    expect(calls[1].url).toBe("https://api.cartesia.ai/tts/bytes");
+    const body = JSON.parse(calls[1].init.body as string);
+    expect(body.voice).toEqual({ mode: "id", id: "c-voice" });
+    expect(chunks.map((c) => Array.from(c))).toEqual([[9, 9]]);
+  });
+
+  it("rejects on a 500 when no Cartesia is configured", async () => {
+    const { fn } = fakeFetch(() => new Response("boom", { status: 500 }));
+    await expect(
+      collect(createCloudProviders(baseConfig, { fetch: fn }).tts.synthesize("Hi.", live)),
+    ).rejects.toThrow("500");
+  });
+
+  it("rejects when both ElevenLabs and Cartesia fail", async () => {
+    const { fn } = fakeFetch(() => new Response("boom", { status: 500 }));
+    await expect(
+      collect(createCloudProviders(cartesiaConfig, { fetch: fn }).tts.synthesize("Hi.", live)),
+    ).rejects.toThrow("500");
+  });
+});
+
+describe("cloud llm", () => {
+  it("stream passes model and maxTokens and yields text deltas", async () => {
+    const { client, stream } = fakeAnthropic("Hello there");
+    const { llm } = createCloudProviders(baseConfig, { anthropic: client });
+    const pieces = await collect(
+      llm.stream({ system: "sys", messages: [{ role: "user", content: "hi" }], maxTokens: 300 }, live),
+    );
+    expect(pieces.join("")).toBe("Hello there");
+    const params = stream.mock.calls[0][0] as Record<string, unknown>;
+    expect(params.model).toBe("claude-sonnet-4-6");
+    expect(params.max_tokens).toBe(300);
+    expect(params.system).toBe("sys");
+  });
+
+  it("structured retries once on a parse failure then succeeds", async () => {
+    const { client, create } = fakeAnthropic("");
+    create
+      .mockResolvedValueOnce({ content: [{ type: "text", text: "no json here" }] })
+      .mockResolvedValueOnce({ content: [{ type: "text", text: 'Sure: {"ok": true}' }] });
+    const value = await createCloudProviders(baseConfig, { anthropic: client }).llm.structured(
+      {
+        system: "s",
+        messages: [{ role: "user", content: "x" }],
+        schema: z.object({ ok: z.boolean() }),
+        maxTokens: 50,
+      },
+      live,
+    );
+    expect(value).toEqual({ ok: true });
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it("structured rejects after the retry also fails", async () => {
+    const { client, create } = fakeAnthropic("not json");
+    await expect(
+      createCloudProviders(baseConfig, { anthropic: client }).llm.structured(
+        {
+          system: "s",
+          messages: [{ role: "user", content: "x" }],
+          schema: z.object({ ok: z.boolean() }),
+          maxTokens: 50,
+        },
+        live,
+      ),
+    ).rejects.toBeDefined();
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("createProviders", () => {
+  it("returns mock providers for the mock profile", async () => {
+    const providers = createProviders({ ...baseConfig, profile: "mock" });
+    const result = await providers.stt.transcribe(Buffer.alloc(10), live);
+    expect(typeof result.text).toBe("string");
+  });
+});
+
+function contractProviders() {
+  const { fn } = fakeFetch((url) => {
+    if (url.includes("speech-to-text")) return sttOk();
+    return new Response(streamOf([1, 2, 3]), { status: 200 });
+  });
+  const { client } = fakeAnthropic('{"ok": true}');
+  return createCloudProviders(baseConfig, { fetch: fn, anthropic: client });
+}
+
+runProviderContract("cloud", contractProviders);
