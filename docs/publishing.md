@@ -1,6 +1,6 @@
 # Publishing source changes
 
-The source repository is [mgwinthrop/mg-interview-studio](https://github.com/mgwinthrop/mg-interview-studio).
+The source repository is [mgwinthrop/interview-studio](https://github.com/mgwinthrop/interview-studio).
 
 ## Before publishing
 

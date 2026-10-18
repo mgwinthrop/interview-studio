@@ -82,4 +82,4 @@ This is a single-user prototype. It has no authentication or authorization for s
 
 Based on the AI Interview Tool implementation at commit `ffb890a`, with an animated interviewer, playback feedback and local setup documentation. No open-source license has been specified.
 
-[Source repository](https://github.com/mgwinthrop/mg-interview-studio)
+[Source repository](https://github.com/mgwinthrop/interview-studio)
