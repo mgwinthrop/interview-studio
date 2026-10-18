@@ -1,12 +1,13 @@
 /**
  * Conversation integration test
  *
- * Drives a real session over WebSocket using text_input (no audio required).
- * Asserts on message sequence, phase transitions, and LLM response quality
- * via an LLM-as-judge rubric.
+ * Opt-in run against REAL providers (not part of `npm test`; the keyless equivalent is
+ * conversation.test.ts). Drives a real session over WebSocket using text_input (no audio
+ * required). Asserts on message sequence, phase transitions, the stored report, and LLM
+ * response quality via an LLM-as-judge rubric.
  *
  * HOW TO RUN:
- *   1. Start the backend:  npm run dev  (in apps/backend/)
+ *   1. Start the backend with real keys (PROFILE=cloud):  npm run dev  (in apps/backend/)
  *   2. In another terminal:  cd apps/backend && npm run test:integration
  *
  * ENVIRONMENT:
@@ -14,17 +15,21 @@
  *   INTEGRATION_TEST=1  — required to un-skip these tests
  *
  * All other env vars (ANTHROPIC_API_KEY, ELEVENLABS_API_KEY, DATABASE_URL)
- * must be set for the backend server — not for this test script itself.
+ * must be set for the backend server — not for this test script itself. ANTHROPIC_API_KEY
+ * must also be set here for the LLM-as-judge calls. If the server runs with AUTH_TOKEN,
+ * set TEST_AUTH_TOKEN so the test can send it as a Bearer header.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { WebSocket } from "ws";
-import { v4 as uuidv4 } from "uuid";
 import Anthropic from "@anthropic-ai/sdk";
 
 const WS_URL = process.env.TEST_WS_URL ?? "ws://localhost:3001";
 const HTTP_URL = WS_URL.replace(/^ws/, "http");
 const RUN = !!process.env.INTEGRATION_TEST;
+const AUTH_HEADERS: Record<string, string> = process.env.TEST_AUTH_TOKEN
+  ? { Authorization: `Bearer ${process.env.TEST_AUTH_TOKEN}` }
+  : {};
 
 // ── WebSocket client ──────────────────────────────────────────────────────────
 
@@ -43,7 +48,7 @@ class WsClient {
   readonly closed: Promise<void>;
 
   constructor(url: string) {
-    this.ws = new WebSocket(url);
+    this.ws = new WebSocket(url, { headers: AUTH_HEADERS });
 
     this.opened = new Promise((res, rej) => {
       this.ws.once("open", res);
@@ -94,6 +99,11 @@ class WsClient {
         reject,
       });
     });
+  }
+
+  /** Number of already-received messages matching pred. */
+  count(pred: (m: AnyMsg) => boolean): number {
+    return this.received.filter(pred).length;
   }
 
   all(): AnyMsg[] {
@@ -148,18 +158,23 @@ describe.skipIf(!RUN)(
   () => {
     let client: WsClient;
     let allMessages: AnyMsg[];
-    const sessionId = uuidv4();
+    let sessionId = "";
 
     beforeAll(async () => {
       // Verify the server is reachable before spending time on WS setup
-      const health = await fetch(`${HTTP_URL}/health`).then((r) => r.json() as Promise<{ status: string }>);
+      const health = await fetch(`${HTTP_URL}/health`, { headers: AUTH_HEADERS }).then(
+        (r) => r.json() as Promise<{ status: string }>,
+      );
       if (health.status !== "ok") throw new Error(`Server health check failed at ${HTTP_URL}`);
 
       client = new WsClient(WS_URL);
       await client.opened;
 
       // ── 1. Start session in demo mode (intro threshold = 1 turn) ─────────
-      client.send({ type: "session_start", sessionId, topicId: "ai-se-delivery", demo: true });
+      // The server issues the session id; the client never chooses one.
+      client.send({ type: "session_start", topicId: "ai-se-delivery", demo: true });
+      const started = await client.waitFor((m) => m.type === "session_started");
+      sessionId = started.sessionId as string;
 
       // Wait for the AI greeting to fully arrive (tts_end = TTS chain complete)
       await client.waitFor((m) => m.type === "tts_end");
@@ -171,12 +186,8 @@ describe.skipIf(!RUN)(
           "Hi, I'm Alex, a software engineer at a fintech startup. I've been using GitHub Copilot for about six months.",
       });
 
-      // Wait for the AI response to complete
-      await client.waitFor(
-        (m) => m.type === "tts_end",
-        // Need the second tts_end — filter by counting: we already consumed the first
-        // so this predicate fires on any new tts_end after the one already in the log
-      );
+      // Wait for the AI response to complete: the second tts_end (the first was the greeting)
+      await client.waitFor(() => client.count((m) => m.type === "tts_end") >= 2);
 
       // ── 3. End the session ────────────────────────────────────────────────
       client.send({ type: "session_end" });
@@ -190,6 +201,11 @@ describe.skipIf(!RUN)(
     });
 
     // ── Message sequence assertions ──────────────────────────────────────────
+
+    it("session_started is the first message and carries a UUID", () => {
+      expect(allMessages[0].type).toBe("session_started");
+      expect(sessionId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    });
 
     it("greeting transcript arrives after session_start", () => {
       const greet = allMessages.find(
@@ -242,11 +258,16 @@ describe.skipIf(!RUN)(
       expect(ms).toBeLessThan(5_000);
     });
 
-    it("session_complete arrives with a non-empty reportId", () => {
+    it("session_complete carries the started session id and the report is stored", async () => {
       const complete = allMessages.find((m) => m.type === "session_complete");
       expect(complete, "no session_complete received").toBeDefined();
-      expect(typeof complete!.reportId).toBe("string");
-      expect((complete!.reportId as string).length).toBeGreaterThan(4);
+      expect(complete!.reportId).toBe(sessionId);
+      expect(allMessages.some((m) => m.type === "session_failed")).toBe(false);
+
+      const res = await fetch(`${HTTP_URL}/api/session/${sessionId}/report`, { headers: AUTH_HEADERS });
+      expect(res.status).toBe(200);
+      const report = (await res.json()) as { summary?: unknown };
+      expect(typeof report.summary).toBe("string");
     });
 
     it("no stt_error events were emitted", () => {
