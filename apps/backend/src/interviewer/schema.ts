@@ -42,8 +42,10 @@ export interface InterviewerSummary {
 
 export type FieldError = { path: string; message: string };
 
-// Control characters other than newline (U+000A) are rejected.
-const CONTROL_CHARS = /[\u0000-\u0008\u000B-\u001F\u007F]/;
+// Line endings are normalised first (CRLF and lone CR become LF). Then every remaining control
+// character is rejected, including tab: U+0000-U+0008, U+0009, U+000B-U+001F and U+007F.
+// Newline (U+000A) is allowed.
+const CONTROL_CHARS = /[\u0000-\u0009\u000B-\u001F\u007F]/;
 
 const MSG = {
   required: "This field is required.",
@@ -65,7 +67,7 @@ const tooLong = (cap: number) => `Must be at most ${cap} characters.`;
 
 function text(cap: number) {
   return z.preprocess(
-    (v) => (typeof v === "string" ? v.trim() : v),
+    (v) => (typeof v === "string" ? v.replace(/\r\n?/g, "\n").trim() : v),
     z
       .string({ invalid_type_error: MSG.type, required_error: MSG.required })
       .min(1, MSG.required)
@@ -177,7 +179,12 @@ function toFieldErrors(error: z.ZodError): FieldError[] {
         message = MSG.unknownKey;
         break;
       case "invalid_type":
-        message = issue.received === "undefined" ? MSG.required : MSG.type;
+        message =
+          issue.received === "undefined"
+            ? MSG.required
+            : issue.expected === "integer"
+              ? MSG.integer
+              : MSG.type;
         break;
       case "too_small":
       case "too_big":

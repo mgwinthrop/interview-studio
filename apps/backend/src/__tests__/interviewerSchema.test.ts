@@ -99,6 +99,25 @@ describe("parseInterviewerInput", () => {
         expect(paths({ ...valid(), style: `a${c}b` })).toContain("style");
       }
     });
+    it("rejects a tab", () => {
+      expect(paths({ ...valid(), persona: "a\tb" })).toContain("persona");
+    });
+    it("normalises CRLF and lone CR to LF", () => {
+      for (const raw of ["a\r\nb", "a\rb"]) {
+        const r = parseInterviewerInput({ ...valid(), persona: raw });
+        expect(r.ok).toBe(true);
+        if (r.ok) expect(r.value.persona).toBe("a\nb");
+      }
+    });
+    it("counts each CRLF as one character against the cap", () => {
+      const base = Array.from({ length: 750 }, () => "a").join("\r\n"); // 1499 after normalising
+      expect(base.length).toBe(2248);
+      expect(parseInterviewerInput({ ...valid(), persona: base + "b" }).ok).toBe(true); // 1500
+      expect(paths({ ...valid(), persona: base + "bc" })).toContain("persona"); // 1501
+    });
+    it("intentionally allows U+0085 and U+2028", () => {
+      expect(parseInterviewerInput({ ...valid(), persona: "a\u0085b\u2028c" }).ok).toBe(true);
+    });
     it("accepts newline", () => {
       expect(parseInterviewerInput({ ...valid(), persona: "line one\nline two" }).ok).toBe(true);
     });
@@ -223,6 +242,23 @@ describe("parseInterviewerInput", () => {
     expect(paths({ ...valid(), id: "sneaky" })).toContain("");
   });
 
+  it.each(["source", "ownerId", "version"])("rejects server-assigned key %s without echoing it", (key) => {
+    const errs = errorsOf({ ...valid(), [key]: "SECRET-VALUE" });
+    expect(errs.map((e) => e.path)).toContain("");
+    for (const e of errs) expect(e.message).not.toContain("SECRET");
+  });
+
+  it("gives the integer message for non-integers and the type message for strings", () => {
+    const a = valid();
+    a.phases[0].minTurns = 1.5;
+    const e1 = errorsOf(a).find((e) => e.path === "phases.0.minTurns");
+    expect(e1?.message).toBe("Must be a whole number.");
+    const b = valid();
+    b.phases[0].minTurns = "2";
+    const e2 = errorsOf(b).find((e) => e.path === "phases.0.minTurns");
+    expect(e2?.message).toBe("Wrong type for this field.");
+  });
+
   it("never echoes submitted values in messages", () => {
     const secret = "SECRET-VALUE-123";
     const v = valid();
@@ -276,28 +312,31 @@ describe("parseInterviewerDefinition", () => {
     } catch (e) {
       msg = (e as Error).message;
     }
-    expect(msg).toContain("id");
-    expect(msg).toContain("version");
-    expect(msg).toContain("persona");
+    expect(msg).toBe("Invalid interviewer definition: persona, id, version");
     expect(msg).not.toContain("SECRET");
   });
 
   it("rejects bad source, ownerId, dates and long id", () => {
-    for (const patch of [
-      { source: "other" },
-      { ownerId: "" },
-      { ownerId: "o".repeat(65) },
-      { createdAt: "yesterday" },
-      { updatedAt: 5 },
-      { id: "i".repeat(65) },
-      { id: "" },
-      { version: 1.5 },
-    ]) {
-      expect(() => parseInterviewerDefinition({ ...def(), ...patch })).toThrow();
+    const cases: [Record<string, unknown>, string][] = [
+      [{ source: "other" }, "source"],
+      [{ ownerId: "" }, "ownerId"],
+      [{ ownerId: "o".repeat(65) }, "ownerId"],
+      [{ createdAt: "yesterday" }, "createdAt"],
+      [{ updatedAt: 5 }, "updatedAt"],
+      [{ id: "i".repeat(65) }, "id"],
+      [{ id: "" }, "id"],
+      [{ version: 1.5 }, "version"],
+    ];
+    for (const [patch, path] of cases) {
+      expect(() => parseInterviewerDefinition({ ...def(), ...patch })).toThrow(
+        new Error(`Invalid interviewer definition: ${path}`),
+      );
     }
   });
 
   it("rejects unknown keys", () => {
-    expect(() => parseInterviewerDefinition({ ...def(), extra: 1 })).toThrow();
+    expect(() => parseInterviewerDefinition({ ...def(), extra: 1 })).toThrow(
+      new Error("Invalid interviewer definition: (root)"),
+    );
   });
 });
