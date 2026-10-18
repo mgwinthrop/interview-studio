@@ -2,10 +2,11 @@ import { randomUUID } from "crypto";
 import type { Config } from "./config";
 import type * as Persistence from "./persistence";
 import type { Providers } from "./providers/types";
+import type { InterviewerDefinition } from "./interviewer/schema";
 import { advancePhase, buildTurnRequest, type TurnSession } from "./orchestrator";
 import { generateReport } from "./reportGenerator";
 import { SentenceChunker } from "./sentenceChunker";
-import type { ConversationTurn, Phase, ServerToClientMessage } from "./types";
+import type { ConversationTurn, ServerToClientMessage } from "./types";
 
 export type ControllerState = "idle" | "listening" | "thinking" | "speaking";
 export type EndedStatus = "complete" | "failed" | "abandoned";
@@ -13,7 +14,8 @@ export type EndedStatus = "complete" | "failed" | "abandoned";
 export interface ControllerDeps {
   sessionId: string;
   ownerId: string;
-  topicId: string;
+  /** The session's snapshot: fixed for the life of the session. */
+  interviewer: InterviewerDefinition;
   demo: boolean;
   providers: Providers;
   config: Config;
@@ -62,7 +64,10 @@ export class SessionController {
   readonly ownerId: string;
 
   private _state: ControllerState = "idle";
-  private _phase: Phase = "intro";
+  /** Index into interviewer.phases; phases advance on per-phase user-turn counts. */
+  private phaseIndex = 0;
+  /** User turns stored since the current phase began. */
+  private phaseUserTurns = 0;
   private readonly _turns: ConversationTurn[] = [];
   private readonly queue: Utterance[] = [];
   private readonly writes = new Set<Promise<void>>();
@@ -90,8 +95,9 @@ export class SessionController {
     return this._state;
   }
 
-  get phase(): Phase {
-    return this._phase;
+  /** The current phase's name. */
+  get phase(): string {
+    return this.deps.interviewer.phases[this.phaseIndex].name;
   }
 
   get turns(): readonly ConversationTurn[] {
@@ -419,7 +425,7 @@ export class SessionController {
       reportAbort.signal.throwIfAborted();
       const report = await generateReport(
         this._turns,
-        this.deps.topicId,
+        this.deps.interviewer,
         this.deps.providers.llm,
         reportAbort.signal,
       );
@@ -453,7 +459,12 @@ export class SessionController {
   // ── Helpers ────────────────────────────────────────────────────────────────
 
   private view(): TurnSession {
-    return { topicId: this.deps.topicId, phase: this._phase, turns: this._turns };
+    return {
+      interviewer: this.deps.interviewer,
+      phaseIndex: this.phaseIndex,
+      phaseUserTurns: this.phaseUserTurns,
+      turns: this._turns,
+    };
   }
 
   private userTurnCount(): number {
@@ -466,22 +477,25 @@ export class SessionController {
       sessionId: this.sessionId,
       role,
       content,
-      phase: this._phase,
+      phase: this.phase,
       timestamp: new Date(),
     };
     this._turns.push(turn);
+    if (role === "user") this.phaseUserTurns += 1;
     if (this.deps.config.debugLogText) console.log(`[session ${this.sessionId}] ${role}: ${content}`);
     this.track(this.deps.persist.persistTurn(turn), "persistTurn");
   }
 
   private maybeAdvancePhase(): void {
-    const next = advancePhase(this.view(), this.deps.demo);
-    if (!next) return;
-    const prev = this._phase;
-    this._phase = next;
-    this.track(this.deps.persist.persistPhaseTransition(this.sessionId, next), "persistPhaseTransition");
-    this.deps.sendJson({ type: "phase_change", phase: next });
-    console.log(`[session ${this.sessionId}] phase ${prev} -> ${next}`);
+    const next = advancePhase(this.deps.interviewer, this.phaseIndex, this.phaseUserTurns, this.deps.demo);
+    if (next === null) return;
+    const prev = this.phase;
+    this.phaseIndex = next;
+    this.phaseUserTurns = 0;
+    const name = this.phase;
+    this.track(this.deps.persist.persistPhaseTransition(this.sessionId, name), "persistPhaseTransition");
+    this.deps.sendJson({ type: "phase_change", phase: name });
+    console.log(`[session ${this.sessionId}] phase ${prev} -> ${name}`);
   }
 
   private setState(next: ControllerState): void {

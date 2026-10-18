@@ -3,9 +3,10 @@ import { SessionController, type ControllerDeps } from "../sessionController";
 import { createMockProviders, type MockScript } from "../providers/mock";
 import type { Providers } from "../providers/types";
 import { loadConfig, type Config } from "../config";
+import { PRESETS } from "../interviewer/presets";
+import type { InterviewerDefinition, PhaseDefinition } from "../interviewer/schema";
 import type {
   ConversationTurn,
-  Phase,
   Report,
   ServerToClientMessage,
   SessionStatus,
@@ -25,7 +26,7 @@ function makeConfig(limits: Partial<Config["limits"]> = {}): Config {
 function makePersist() {
   return {
     persistTurn: vi.fn(async (_t: ConversationTurn) => {}),
-    persistPhaseTransition: vi.fn(async (_id: string, _phase: Phase) => {}),
+    persistPhaseTransition: vi.fn(async (_id: string, _phase: string) => {}),
     persistSessionStatus: vi.fn(async (_id: string, _status: SessionStatus) => true),
     persistReport: vi.fn(async (_id: string, _report: Report) => {}),
   };
@@ -83,6 +84,7 @@ function setup(
     limits?: Partial<Config["limits"]>;
     providers?: ControllerDeps["providers"];
     onEnded?: ControllerDeps["onEnded"];
+    interviewer?: InterviewerDefinition;
   } = {},
 ) {
   const events: Event[] = [];
@@ -91,7 +93,7 @@ function setup(
   const ctl = new SessionController({
     sessionId: "s-1",
     ownerId: "owner-1",
-    topicId: "ai-se-delivery",
+    interviewer: opts.interviewer ?? PRESETS[0],
     demo: opts.demo ?? false,
     providers: opts.providers ?? createMockProviders({ llmReplies: [LONG_REPLY], ...opts.script }),
     config: makeConfig(opts.limits),
@@ -396,36 +398,202 @@ describe("SessionController interrupt", () => {
   });
 });
 
+function withPhases(phases: PhaseDefinition[]): InterviewerDefinition {
+  return { ...PRESETS[0], id: "custom-1", source: "custom", ownerId: "owner-1", phases };
+}
+
+const phaseChanges = (json: () => ServerToClientMessage[]) =>
+  json()
+    .filter((m) => m.type === "phase_change")
+    .map((m) => (m as { phase: string }).phase);
+
 describe("SessionController phases", () => {
-  it("moves intro -> share_work after the second user turn", async () => {
+  it("starts in the first phase by name and moves intro -> share after the second user turn", async () => {
     const { ctl, json, persist } = setup();
+    expect(ctl.phase).toBe("intro");
     await ctl.start();
     ctl.handleText("one");
     await ctl.settled();
-    expect(json().some((m) => m.type === "phase_change")).toBe(false);
+    expect(phaseChanges(json)).toEqual([]);
     ctl.handleText("two");
     await ctl.settled();
     expect(json().filter((m) => m.type === "phase_change")).toEqual([
-      { type: "phase_change", phase: "share_work" },
+      { type: "phase_change", phase: "share" },
     ]);
-    expect(persist.persistPhaseTransition).toHaveBeenCalledWith("s-1", "share_work");
+    expect(persist.persistPhaseTransition.mock.calls).toEqual([["s-1", "share"]]);
+    expect(ctl.phase).toBe("share");
   });
 
-  it("respects demo thresholds: intro after 1, share_work until 5, deep_dive until 10", async () => {
-    const { ctl, json } = setup({ demo: true });
+  it("follows the preset pacing 2/3/5 per phase, then stays in the last phase", async () => {
+    const { ctl, json } = setup({ limits: { maxTurnsPerSession: 100 } });
     await ctl.start();
-    const phasesAfter: (string | undefined)[] = [];
-    for (let i = 1; i <= 10; i++) {
+    const after: string[] = [];
+    for (let i = 1; i <= 14; i++) {
       ctl.handleText(`answer ${i}`);
       await ctl.settled();
-      const changes = json().filter((m) => m.type === "phase_change");
-      phasesAfter.push((changes.at(-1) as { phase: string } | undefined)?.phase);
+      after.push(ctl.phase);
     }
-    expect(phasesAfter[0]).toBe("share_work");
-    expect(phasesAfter[3]).toBe("share_work");
-    expect(phasesAfter[4]).toBe("deep_dive");
-    expect(phasesAfter[8]).toBe("deep_dive");
-    expect(phasesAfter[9]).toBe("wrap_up");
+    expect(after).toEqual([
+      "intro", "share",
+      "share", "share", "deep_dive",
+      "deep_dive", "deep_dive", "deep_dive", "deep_dive", "wrap_up",
+      "wrap_up", "wrap_up", "wrap_up", "wrap_up",
+    ]);
+    expect(phaseChanges(json)).toEqual(["share", "deep_dive", "wrap_up"]);
+  });
+
+  it("stores each turn with the name of the phase it belongs to", async () => {
+    const { ctl, storedTurns } = setup();
+    await ctl.start();
+    ctl.handleText("one");
+    ctl.handleText("two");
+    ctl.handleText("three");
+    await ctl.settled();
+    expect(storedTurns().map((t) => `${t.role}@${t.phase}`)).toEqual([
+      "assistant@intro",
+      "user@intro",
+      "assistant@intro",
+      "user@intro",
+      // The phase advances after the reply to the turn that reached the threshold.
+      "assistant@intro",
+      "user@share",
+      "assistant@share",
+    ]);
+  });
+
+  it("counts user turns per phase: the count resets after an advance", async () => {
+    const interviewer = withPhases([
+      { name: "first", instruction: "F", minTurns: 1, maxTurns: 2 },
+      { name: "second", instruction: "S", minTurns: 1, maxTurns: 2 },
+      { name: "third", instruction: "T" },
+    ]);
+    const { ctl, json } = setup({ interviewer });
+    expect(ctl.phase).toBe("first");
+    await ctl.start();
+    const after: string[] = [];
+    for (let i = 1; i <= 5; i++) {
+      ctl.handleText(`answer ${i}`);
+      await ctl.settled();
+      after.push(ctl.phase);
+    }
+    // Cumulative counting would have left "second" after answer 3.
+    expect(after).toEqual(["first", "second", "second", "third", "third"]);
+    expect(phaseChanges(json)).toEqual(["second", "third"]);
+  });
+
+  it("an interrupted user turn counts once towards the phase", async () => {
+    const interviewer = withPhases([
+      { name: "first", instruction: "F", minTurns: 1, maxTurns: 2 },
+      { name: "last", instruction: "L" },
+    ]);
+    const providers = createMockProviders({ llmReplies: [LONG_REPLY] });
+    const gate = gateTts(providers, SENTENCE_1);
+    const { ctl, json, storedTurns } = setup({ providers, interviewer });
+    await ctl.start();
+    gate.arm();
+    ctl.handleText("interrupted one");
+    await gate.reached;
+    await ctl.interrupt();
+    await ctl.settled();
+    expect(storedTurns().map((t) => t.role)).toEqual(["assistant", "user"]);
+    expect(phaseChanges(json)).toEqual([]);
+    gate.release();
+    ctl.handleText("second one");
+    await ctl.settled();
+    expect(phaseChanges(json)).toEqual(["last"]);
+  });
+
+  it("a user turn whose reply fails still counts", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const interviewer = withPhases([
+      { name: "first", instruction: "F", minTurns: 1, maxTurns: 1 },
+      { name: "last", instruction: "L" },
+    ]);
+    const { ctl, json } = setup({ interviewer, script: { failLlmOnCall: 2 } });
+    await ctl.start();
+    ctl.handleText("fails");
+    await ctl.settled();
+    expect(phaseChanges(json)).toEqual(["last"]);
+  });
+
+  it("demo mode advances every phase at its minTurns", async () => {
+    const { ctl, json, persist } = setup({ demo: true });
+    await ctl.start();
+    const after: string[] = [];
+    for (let i = 1; i <= 5; i++) {
+      ctl.handleText(`answer ${i}`);
+      await ctl.settled();
+      after.push(ctl.phase);
+    }
+    expect(after).toEqual(["share", "deep_dive", "wrap_up", "wrap_up", "wrap_up"]);
+    expect(phaseChanges(json)).toEqual(["share", "deep_dive", "wrap_up"]);
+    expect(persist.persistPhaseTransition.mock.calls.map((c) => c[1])).toEqual([
+      "share",
+      "deep_dive",
+      "wrap_up",
+    ]);
+  });
+
+  it("demo mode with custom minTurns waits for that many turns in each phase", async () => {
+    const interviewer = withPhases([
+      { name: "first", instruction: "F", minTurns: 2, maxTurns: 4 },
+      { name: "last", instruction: "L" },
+    ]);
+    const { ctl, json } = setup({ interviewer, demo: true });
+    await ctl.start();
+    ctl.handleText("one");
+    await ctl.settled();
+    expect(phaseChanges(json)).toEqual([]);
+    ctl.handleText("two");
+    await ctl.settled();
+    expect(phaseChanges(json)).toEqual(["last"]);
+  });
+
+  it("a single-phase interviewer never changes phase", async () => {
+    const interviewer = withPhases([{ name: "only", instruction: "O" }]);
+    const { ctl, json, persist, storedTurns } = setup({ interviewer, demo: true });
+    await ctl.start();
+    for (let i = 1; i <= 4; i++) ctl.handleText(`answer ${i}`);
+    await ctl.settled();
+    expect(phaseChanges(json)).toEqual([]);
+    expect(persist.persistPhaseTransition).not.toHaveBeenCalled();
+    expect(new Set(storedTurns().map((t) => t.phase))).toEqual(new Set(["only"]));
+    expect(ctl.phase).toBe("only");
+  });
+
+  it("sends the current phase's prompt to the LLM, with opening only on the greeting", async () => {
+    const providers = createMockProviders({ llmReplies: [LONG_REPLY] });
+    const stream = vi.spyOn(providers.llm, "stream");
+    const { ctl } = setup({ providers });
+    const def = PRESETS[0];
+    await ctl.start();
+    ctl.handleText("one");
+    ctl.handleText("two");
+    ctl.handleText("three");
+    await ctl.settled();
+    const systems = stream.mock.calls.map((c) => c[0].system);
+    expect(systems).toHaveLength(4);
+    expect(systems[0]).toContain(def.opening);
+    expect(systems[0]).toContain(def.phases[0].instruction);
+    expect(systems.slice(1).some((s) => s.includes(def.opening))).toBe(false);
+    expect(systems[2]).toContain(def.phases[0].instruction);
+    expect(systems[3]).toContain(def.phases[1].instruction);
+    for (const c of stream.mock.calls) expect(c[0].maxTokens).toBe(300);
+  });
+
+  it("logs phase names and ids only, never interviewer text", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { ctl } = setup({ demo: true });
+    await ctl.start();
+    ctl.handleText("one");
+    await ctl.settled();
+    const all = [...log.mock.calls, ...err.mock.calls].flat().join(" ");
+    expect(all).toContain("intro -> share");
+    const def = PRESETS[0];
+    for (const text of [def.persona, def.style, def.opening, def.phases[0].instruction]) {
+      expect(all).not.toContain(text);
+    }
   });
 });
 
@@ -460,6 +628,19 @@ describe("SessionController end and abandon", () => {
     const statusOrder = persist.persistSessionStatus.mock.invocationCallOrder[0];
     expect(reportOrder).toBeLessThan(statusOrder);
     expect(ctl.state).toBe("idle");
+  });
+
+  it("end() builds the report prompt from the interviewer snapshot", async () => {
+    const providers = createMockProviders({ llmReplies: [LONG_REPLY], structured: REPORT });
+    const structured = vi.spyOn(providers.llm, "structured");
+    const interviewer = { ...PRESETS[1], name: "Snapshot Name", purpose: "Snapshot purpose." };
+    const { ctl } = setup({ providers, interviewer });
+    await ctl.start();
+    ctl.handleText(LONG_TEXT);
+    await expect(ctl.end()).resolves.toBe("complete");
+    const system = structured.mock.calls[0][0].system;
+    expect(system).toContain("Snapshot Name");
+    expect(system).toContain("Snapshot purpose.");
   });
 
   it("end() during a speaking reply cancels it like interrupt and reports the committed turns", async () => {

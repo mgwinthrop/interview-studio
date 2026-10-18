@@ -1,12 +1,14 @@
-import { buildSystemPrompt, shouldTransition, nextPhase } from "./llm";
-import { getTopicConfig } from "./topic";
+import { buildSystemPrompt } from "./interviewer/prompt";
+import type { InterviewerDefinition } from "./interviewer/schema";
 import type { ChatMessage } from "./providers/types";
-import type { ConversationTurn, Phase } from "./types";
+import type { ConversationTurn } from "./types";
 
 /** The parts of a live session the pure turn helpers need. */
 export interface TurnSession {
-  topicId: string;
-  phase: Phase;
+  interviewer: InterviewerDefinition;
+  phaseIndex: number;
+  /** User turns stored since the current phase began. */
+  phaseUserTurns: number;
   turns: readonly ConversationTurn[];
 }
 
@@ -19,7 +21,8 @@ export const GREETING_PRIME = "Hello";
  * same-role messages (left by an interrupted or failed turn) are merged.
  */
 export function buildTurnRequest(session: TurnSession): { system: string; messages: ChatMessage[] } {
-  const system = buildSystemPrompt(session.phase, getTopicConfig(session.topicId));
+  const isFirstTurn = session.turns.length === 0;
+  const system = buildSystemPrompt(session.interviewer, session.phaseIndex, isFirstTurn);
   const messages: ChatMessage[] = [];
   for (const turn of session.turns) {
     const last = messages[messages.length - 1];
@@ -36,10 +39,20 @@ export function buildTurnRequest(session: TurnSession): { system: string; messag
 }
 
 /**
- * Phase transitions are driven by the user-turn count, never by the LLM.
- * Returns the next phase if the session should move on now, otherwise null.
+ * Phase transitions are driven by the per-phase user-turn count, never by the LLM.
+ * A phase ends when its count reaches maxTurns (minTurns in demo mode); the last phase
+ * never ends. Returns the next phase index, or null to stay. Advances at most one phase.
  */
-export function advancePhase(session: TurnSession, demo: boolean): Phase | null {
-  const userTurns = session.turns.filter((t) => t.role === "user").length;
-  return shouldTransition(session.phase, userTurns, demo) ? nextPhase(session.phase) : null;
+export function advancePhase(
+  interviewer: InterviewerDefinition,
+  phaseIndex: number,
+  phaseUserTurns: number,
+  demo: boolean,
+): number | null {
+  if (phaseIndex >= interviewer.phases.length - 1) return null;
+  const phase = interviewer.phases[phaseIndex];
+  const limit = demo ? phase.minTurns : phase.maxTurns;
+  // Validation guarantees both on every phase but the last; without one, never advance.
+  if (limit === undefined) return null;
+  return phaseUserTurns >= limit ? phaseIndex + 1 : null;
 }

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { getTopicConfig } from "./topic";
+import type { InterviewerDefinition } from "./interviewer/schema";
 import type { LlmProvider } from "./providers/types";
 import type { ConversationTurn, Report } from "./types";
 
@@ -25,7 +25,7 @@ export const reportSchema = z.object({
  */
 export async function generateReport(
   turns: readonly ConversationTurn[],
-  topicId: string,
+  interviewer: InterviewerDefinition,
   llm: LlmProvider,
   signal: AbortSignal,
 ): Promise<Report> {
@@ -41,11 +41,11 @@ export async function generateReport(
     throw new ReportError("transcript too short");
   }
 
-  const topic = getTopicConfig(topicId);
-  const system = `You are evaluating a recorded interview on the following topic:
-${topic.label}
+  const system = `You are evaluating a recorded voice conversation led by the interviewer "${interviewer.name}".
 
-Context: ${topic.systemPromptContext}
+Purpose of the conversation: ${interviewer.purpose}
+
+The interviewer's persona: ${interviewer.persona}
 
 Below is the full conversation transcript. Generate a structured assessment report in the following JSON format:
 

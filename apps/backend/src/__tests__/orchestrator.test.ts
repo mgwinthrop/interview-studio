@@ -1,22 +1,33 @@
 import { describe, expect, it } from "vitest";
 import { advancePhase, buildTurnRequest, GREETING_PRIME } from "../orchestrator";
-import type { ConversationTurn, Phase } from "../types";
+import { buildSystemPrompt } from "../interviewer/prompt";
+import { PRESETS } from "../interviewer/presets";
+import type { InterviewerDefinition, PhaseDefinition } from "../interviewer/schema";
+import type { ConversationTurn } from "../types";
 
 function turn(role: "user" | "assistant", content: string): ConversationTurn {
   return { id: content, sessionId: "s", role, content, phase: "intro", timestamp: new Date(0) };
 }
 
+function withPhases(phases: PhaseDefinition[]): InterviewerDefinition {
+  return { ...PRESETS[0], id: "custom-1", source: "custom", ownerId: "o", phases };
+}
+
+const preset = PRESETS[0];
+
 describe("buildTurnRequest", () => {
-  it("primes an empty history with the greeting message", () => {
-    const req = buildTurnRequest({ topicId: "ai-se-delivery", phase: "intro", turns: [] });
+  it("primes an empty history with the greeting message and uses the first-turn prompt", () => {
+    const req = buildTurnRequest({ interviewer: preset, phaseIndex: 0, phaseUserTurns: 0, turns: [] });
     expect(req.messages).toEqual([{ role: "user", content: GREETING_PRIME }]);
-    expect(req.system).toContain("Greet the participant");
+    expect(req.system).toBe(buildSystemPrompt(preset, 0, true));
+    expect(req.system).toContain(preset.opening);
   });
 
   it("starts with the prime before a stored greeting and merges same-role runs", () => {
     const req = buildTurnRequest({
-      topicId: "ai-se-delivery",
-      phase: "share_work",
+      interviewer: preset,
+      phaseIndex: 1,
+      phaseUserTurns: 1,
       turns: [turn("assistant", "hi"), turn("user", "a"), turn("user", "b")],
     });
     expect(req.messages).toEqual([
@@ -24,23 +35,76 @@ describe("buildTurnRequest", () => {
       { role: "assistant", content: "hi" },
       { role: "user", content: "a\n\nb" },
     ]);
-    expect(req.system).toContain("walk you through one specific project");
+    expect(req.system).toBe(buildSystemPrompt(preset, 1, false));
+    expect(req.system).toContain(preset.phases[1].instruction);
+    expect(req.system).not.toContain(preset.opening);
+  });
+
+  it("is not a first turn once any turn is stored", () => {
+    const req = buildTurnRequest({
+      interviewer: preset,
+      phaseIndex: 0,
+      phaseUserTurns: 0,
+      turns: [turn("assistant", "hi")],
+    });
+    expect(req.system).not.toContain(preset.opening);
   });
 });
 
 describe("advancePhase", () => {
-  const users = (n: number) => Array.from({ length: n }, (_, i) => turn("user", `u${i}`));
-  const at = (phase: Phase, n: number, demo = false) =>
-    advancePhase({ topicId: "ai-se-delivery", phase, turns: [turn("assistant", "g"), ...users(n)] }, demo);
+  const def = withPhases([
+    { name: "a", instruction: "A", minTurns: 1, maxTurns: 2 },
+    { name: "b", instruction: "B", minTurns: 1, maxTurns: 3 },
+    { name: "c", instruction: "C", minTurns: 2, maxTurns: 4 },
+    { name: "end", instruction: "E" },
+  ]);
 
-  it("uses user-turn thresholds 2/5/10 and demo intro 1", () => {
-    expect(at("intro", 1)).toBeNull();
-    expect(at("intro", 2)).toBe("share_work");
-    expect(at("intro", 1, true)).toBe("share_work");
-    expect(at("share_work", 4)).toBeNull();
-    expect(at("share_work", 5)).toBe("deep_dive");
-    expect(at("deep_dive", 9)).toBeNull();
-    expect(at("deep_dive", 10)).toBe("wrap_up");
-    expect(at("wrap_up", 50)).toBeNull();
+  it("advances at maxTurns of the current phase (1/2 vs 1/3 thresholds)", () => {
+    expect(advancePhase(def, 0, 1, false)).toBeNull();
+    expect(advancePhase(def, 0, 2, false)).toBe(1);
+    expect(advancePhase(def, 1, 2, false)).toBeNull();
+    expect(advancePhase(def, 1, 3, false)).toBe(2);
+    expect(advancePhase(def, 2, 3, false)).toBeNull();
+    expect(advancePhase(def, 2, 4, false)).toBe(3);
+  });
+
+  it("demo mode advances every phase at minTurns", () => {
+    expect(advancePhase(def, 0, 0, true)).toBeNull();
+    expect(advancePhase(def, 0, 1, true)).toBe(1);
+    expect(advancePhase(def, 1, 1, true)).toBe(2);
+    expect(advancePhase(def, 2, 1, true)).toBeNull();
+    expect(advancePhase(def, 2, 2, true)).toBe(3);
+  });
+
+  it("counts are per phase, not cumulative", () => {
+    // Two turns in phase b (after two in phase a) is not enough for b's max of 3.
+    expect(advancePhase(def, 1, 2, false)).toBeNull();
+  });
+
+  it("advances at most one phase per evaluation", () => {
+    expect(advancePhase(def, 0, 50, false)).toBe(1);
+  });
+
+  it("returns null for the last phase whatever the count", () => {
+    expect(advancePhase(def, 3, 0, false)).toBeNull();
+    expect(advancePhase(def, 3, 100, false)).toBeNull();
+    expect(advancePhase(def, 3, 100, true)).toBeNull();
+  });
+
+  it("returns null for a single-phase interviewer", () => {
+    const one = withPhases([{ name: "only", instruction: "O" }]);
+    expect(advancePhase(one, 0, 100, false)).toBeNull();
+    expect(advancePhase(one, 0, 100, true)).toBeNull();
+  });
+
+  it("gives every preset the default pacing 2/3/5 (2/5/10 cumulative)", () => {
+    for (const p of PRESETS) {
+      expect(advancePhase(p, 0, 1, false)).toBeNull();
+      expect(advancePhase(p, 0, 2, false)).toBe(1);
+      expect(advancePhase(p, 1, 3, false)).toBe(2);
+      expect(advancePhase(p, 2, 4, false)).toBeNull();
+      expect(advancePhase(p, 2, 5, false)).toBe(3);
+      expect(advancePhase(p, 3, 50, false)).toBeNull();
+    }
   });
 });
