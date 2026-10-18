@@ -8,12 +8,12 @@ import { createAuthenticator } from "./auth";
 import type { Config } from "./config";
 import prisma from "./db";
 import { createInterviewerRouter } from "./interviewerRoutes";
+import type { InterviewerDefinition } from "./interviewer/schema";
 import * as interviewerStore from "./interviewerStore";
 import * as persistence from "./persistence";
 import type { Providers } from "./providers/types";
 import { SessionController, type EndedStatus } from "./sessionController";
 import * as registry from "./sessionRegistry";
-import { getTopicConfig } from "./topic";
 import { send } from "./wsUtils";
 
 export interface AppDeps {
@@ -67,15 +67,16 @@ function parseMessage(buf: Buffer): ClientMessage | null {
   }
 }
 
-function isKnownTopic(topicId: unknown): topicId is string {
-  if (typeof topicId !== "string") return false;
-  try {
-    getTopicConfig(topicId);
-    return true;
-  } catch {
-    return false;
-  }
+/** Interviewer ids are preset slugs or server-issued UUIDs. */
+const INTERVIEWER_ID = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** Cheap shape check only; whether the id exists for this owner is decided by the lookup. */
+function isInterviewerIdShape(id: unknown): id is string {
+  return typeof id === "string" && INTERVIEWER_ID.test(id);
 }
+
+/** Close reason for every bad interviewerId: malformed, unknown or another owner's. */
+const UNKNOWN_INTERVIEWER = "unknown interviewerId";
 
 /** Writes a plain HTTP error on a socket that has not been upgraded, then destroys it. */
 function rejectUpgrade(socket: Duplex, status: number): void {
@@ -296,9 +297,8 @@ export function createApp(deps: AppDeps): App {
       }
     };
 
-    const begin = (topicId: string, demo: boolean): Promise<SessionController | null> => {
-      const id = randomUUID();
-      sessionId = id;
+    const begin = (interviewerId: string, demo: boolean): Promise<SessionController | null> => {
+      // Counted synchronously, before any await, so concurrent starts cannot pass the cap.
       pendingByOwner.set(ownerId, (pendingByOwner.get(ownerId) ?? 0) + 1);
       const release = () => {
         const n = (pendingByOwner.get(ownerId) ?? 1) - 1;
@@ -307,8 +307,34 @@ export function createApp(deps: AppDeps): App {
       };
 
       return (async () => {
+        // A preset for anyone, a custom interviewer only for its owner. The definition returned
+        // is already validated and becomes the session's snapshot.
+        let interviewer: InterviewerDefinition | null;
         try {
-          await persist.persistSessionCreate(id, ownerId, topicId, "intro");
+          interviewer = await interviewers.getInterviewer(interviewerId, ownerId);
+        } catch (err) {
+          release();
+          console.error(`[ws] interviewer lookup failed: ${errName(err)}`);
+          reject(1011, "internal error", "interviewer lookup failed");
+          return null;
+        }
+        if (!interviewer) {
+          release();
+          // Not found and not visible are answered identically; the client's id is not logged.
+          reject(1008, UNKNOWN_INTERVIEWER, UNKNOWN_INTERVIEWER);
+          return null;
+        }
+        if (ws.readyState !== WebSocket.OPEN || shuttingDown) {
+          release();
+          stage = "ended";
+          console.log("[ws] socket closed before start: nothing created");
+          return null;
+        }
+
+        const id = randomUUID();
+        sessionId = id;
+        try {
+          await persist.persistSessionCreate(id, ownerId, interviewer);
         } catch (err) {
           release();
           console.error(`${tag()} persistSessionCreate failed: ${errName(err)}`);
@@ -327,7 +353,7 @@ export function createApp(deps: AppDeps): App {
         const c: SessionController = new SessionController({
           sessionId: id,
           ownerId,
-          topicId,
+          interviewer,
           demo,
           providers,
           config,
@@ -358,7 +384,10 @@ export function createApp(deps: AppDeps): App {
         controller = c;
         stage = "live";
         send(ws, { type: "session_started", sessionId: id });
-        console.log(`${tag()} started topic ${topicId}${demo ? " (demo)" : ""}`);
+        // The id is a preset slug or a server UUID; interviewer text never reaches the logs.
+        console.log(
+          `${tag()} started interviewer ${interviewer.id} (${interviewer.phases.length} phases)${demo ? " (demo)" : ""}`,
+        );
         void c.start();
         return c;
       })();
@@ -384,8 +413,9 @@ export function createApp(deps: AppDeps): App {
           reject(1008, "session_start required", `${what} before session_start`);
           return;
         }
-        if (!isKnownTopic(msg.topicId)) {
-          reject(1008, "unknown topicId", "unknown topicId");
+        // Shape only (no database): checked before the session counter is touched.
+        if (!isInterviewerIdShape(msg.interviewerId)) {
+          reject(1008, UNKNOWN_INTERVIEWER, UNKNOWN_INTERVIEWER);
           return;
         }
         const max = config.limits.maxConcurrentSessionsPerOwner;
@@ -394,7 +424,7 @@ export function createApp(deps: AppDeps): App {
           return;
         }
         stage = "starting";
-        const p = begin(msg.topicId, msg.demo === true);
+        const p = begin(msg.interviewerId, msg.demo === true);
         ready = p;
         starting.add(p);
         void p.finally(() => starting.delete(p));

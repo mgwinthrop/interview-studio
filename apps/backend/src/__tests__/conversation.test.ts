@@ -12,10 +12,12 @@ import { tmpdir } from "node:os";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
 import WebSocket from "ws";
+import { PRESETS } from "../interviewer/presets";
 import type { Providers } from "../providers/types";
 
 const backendDir = path.resolve(__dirname, "../..");
-const TOPIC = "ai-se-delivery";
+const INTERVIEWER = "tell-a-story";
+const PRESET = PRESETS.find((p) => p.id === INTERVIEWER)!;
 const TEXT_1 = "zebra-marmalade I lead a delivery team that uses AI assistants.";
 const TEXT_2 = "kestrel-pudding we review every change with a shared checklist.";
 const STT_TEXT = "quokka-lantern we pair on prompts and keep a library of review checks.";
@@ -48,6 +50,8 @@ beforeAll(async () => {
   configMod = await import("../config");
   mockMod = await import("../providers/mock");
   prisma = (await import("../db")).default;
+  const { syncPresets } = await import("../interviewerStore");
+  await syncPresets(PRESETS);
 }, 60_000);
 
 afterAll(async () => {
@@ -151,18 +155,18 @@ describe("keyless conversation", () => {
     try {
       const c = new Recorder(`ws://127.0.0.1:${port}/`);
       await c.open();
-      c.send({ type: "session_start", topicId: TOPIC });
+      c.send({ type: "session_start", interviewerId: INTERVIEWER });
 
       // Greeting.
       await c.until("tts_end");
       const sessionId = c.messages[0].sessionId as string;
       expect(c.messages[0].type).toBe("session_started");
 
-      // Two text turns; the second one crosses the intro threshold.
+      // Two text turns; the second one crosses the preset's intro threshold (2 user turns).
       c.send({ type: "text_input", content: TEXT_1 });
       await c.until("tts_end", c.log.length);
       c.send({ type: "text_input", content: TEXT_2 });
-      await c.until("phase_change:share_work");
+      await c.until("phase_change:share");
 
       // A binary audio frame, transcribed by the mock STT. Its reply stalls mid-speech.
       const beforeAudio = c.log.length;
@@ -191,7 +195,7 @@ describe("keyless conversation", () => {
         // text turn 2, then the phase change after the second user turn
         "transcript:user",
         ...spoken,
-        "phase_change:share_work",
+        "phase_change:share",
         // audio turn, cut off mid-reply: no final transcript and no tts_end
         "transcript:user",
         ...reply.slice(0, 4),
@@ -200,7 +204,7 @@ describe("keyless conversation", () => {
       const complete = c.messages.find((m) => m.type === "session_complete");
       expect(complete?.reportId).toBe(sessionId);
       expect(c.messages.filter((m) => m.type === "phase_change")).toEqual([
-        { type: "phase_change", phase: "share_work" },
+        { type: "phase_change", phase: "share" },
       ]);
       expect(c.messages.filter((m) => m.type === "transcript" && m.role === "user").map((m) => m.text)).toEqual([
         TEXT_1,
@@ -210,7 +214,7 @@ describe("keyless conversation", () => {
 
       const report = await fetch(`${base}/api/session/${sessionId}/report`);
       expect(report.status).toBe(200);
-      expect(await report.json()).toMatchObject({ sessionId, summary: REPORT.summary });
+      expect(await report.json()).toMatchObject({ sessionId, summary: REPORT.summary, interviewerName: PRESET.name });
 
       const transcript = await fetch(`${base}/api/session/${sessionId}/transcript`);
       expect(transcript.status).toBe(200);
@@ -218,7 +222,7 @@ describe("keyless conversation", () => {
       for (const said of [TEXT_1, TEXT_2, STT_TEXT]) expect(text).toContain(`Participant: ${said}`);
 
       const row = await prisma.session.findUnique({ where: { id: sessionId } });
-      expect(row).toMatchObject({ status: "complete", phase: "share_work", topicId: TOPIC });
+      expect(row).toMatchObject({ status: "complete", phase: "share", interviewerId: INTERVIEWER });
       // Greeting and two replies are stored; the interrupted reply is not.
       expect(await prisma.conversationTurn.count({ where: { sessionId, role: "assistant" } })).toBe(3);
       expect(await prisma.conversationTurn.count({ where: { sessionId, role: "user" } })).toBe(3);
@@ -241,7 +245,7 @@ describe("keyless conversation", () => {
     });
     const report = await generateReport(
       [turn("assistant", REPLY), turn("user", TEXT_1)],
-      TOPIC,
+      PRESET,
       createProviders(config).llm,
       new AbortController().signal,
     );
