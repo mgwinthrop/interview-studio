@@ -82,10 +82,9 @@ export async function persistSessionCreate(
   topicId: string,
   phase: Phase
 ): Promise<void> {
-  await prisma.session.upsert({
-    where: { id },
-    update: {},
-    create: { id, ownerId, topicId, phase, status: "active" },
+  // Plain create: a duplicate id rejects loudly (ids are server-issued UUIDs).
+  await prisma.session.create({
+    data: { id, ownerId, topicId, phase, status: "active" },
   });
 }
 
@@ -117,15 +116,20 @@ export async function persistPhaseTransition(
   });
 }
 
-/** Sets the session status; any non-active status also stamps endedAt. */
+/**
+ * A session leaves "active" exactly once: only an active row is updated and endedAt is
+ * stamped once. Returns true if a row changed. Target "active" is a no-op (returns false).
+ */
 export async function persistSessionStatus(
   sessionId: string,
   status: SessionStatus
-): Promise<void> {
-  await prisma.session.update({
-    where: { id: sessionId },
-    data: { status, endedAt: status === "active" ? null : new Date() },
+): Promise<boolean> {
+  if (status === "active") return false;
+  const result = await prisma.session.updateMany({
+    where: { id: sessionId, status: "active" },
+    data: { status, endedAt: new Date() },
   });
+  return result.count > 0;
 }
 
 /** Stores the report. Does not change the session status. */
@@ -171,6 +175,9 @@ export async function deleteSessionFromDb(
 
 /** Deletes sessions that ended more than `days` days ago. Returns the number deleted. */
 export async function purgeOlderThan(days: number): Promise<number> {
+  if (!Number.isFinite(days) || days <= 0) {
+    throw new RangeError("days must be a finite number greater than 0");
+  }
   const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
   const old = await prisma.session.findMany({
     where: { endedAt: { lt: cutoff } },

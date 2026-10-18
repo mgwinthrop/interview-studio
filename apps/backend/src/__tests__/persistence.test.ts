@@ -98,7 +98,51 @@ describe("statuses", () => {
   });
 });
 
+describe("status transitions", () => {
+  it("leaves complete untouched on a later abandoned write", async () => {
+    await p.persistSessionCreate("t-1", "a", "ai-se-delivery", "intro");
+    expect(await p.persistSessionStatus("t-1", "complete")).toBe(true);
+    const first = await prisma.session.findUnique({ where: { id: "t-1" } });
+    expect(await p.persistSessionStatus("t-1", "abandoned")).toBe(false);
+    const after = await prisma.session.findUnique({ where: { id: "t-1" } });
+    expect(after?.status).toBe("complete");
+    expect(after?.endedAt?.getTime()).toBe(first?.endedAt?.getTime());
+  });
+
+  it("leaves failed untouched on a later complete write", async () => {
+    await p.persistSessionCreate("t-2", "a", "ai-se-delivery", "intro");
+    expect(await p.persistSessionStatus("t-2", "failed")).toBe(true);
+    expect(await p.persistSessionStatus("t-2", "complete")).toBe(false);
+    const row = await prisma.session.findUnique({ where: { id: "t-2" } });
+    expect(row?.status).toBe("failed");
+  });
+
+  it("returns false for an unknown id", async () => {
+    expect(await p.persistSessionStatus("no-such-id", "complete")).toBe(false);
+  });
+});
+
+describe("persistSessionCreate", () => {
+  it("rejects a duplicate id, even under another owner, and keeps the original row", async () => {
+    await p.persistSessionCreate("c-dup", "a", "ai-se-delivery", "intro");
+    await expect(
+      p.persistSessionCreate("c-dup", "a", "ai-se-delivery", "intro")
+    ).rejects.toThrow();
+    await expect(
+      p.persistSessionCreate("c-dup", "b", "experience-design", "deep_dive")
+    ).rejects.toThrow();
+    const row = await prisma.session.findUnique({ where: { id: "c-dup" } });
+    expect(row?.ownerId).toBe("a");
+    expect(row?.topicId).toBe("ai-se-delivery");
+    expect(row?.phase).toBe("intro");
+  });
+});
+
 describe("purgeOlderThan", () => {
+  it.each([0, -1, NaN, Infinity])("throws RangeError for days=%s", async (d) => {
+    await expect(p.purgeOlderThan(d)).rejects.toThrow(RangeError);
+  });
+
   it("deletes sessions ended more than N days ago and returns the count", async () => {
     await seed("p-old", "a");
     await seed("p-new", "a");
