@@ -5,6 +5,14 @@ import type { Phase, TranscriptEntry, ServerMessage, ClientMessage } from "../ty
 
 export type ConnectionState = "connecting" | "connected" | "disconnected" | "error";
 
+/** Short user-facing explanations for server close codes (see docs/websocket-protocol.md). */
+const CLOSE_REASONS: Record<number, string> = {
+  1013: "Too many active conversations. Close another tab, then start over.",
+  1008: "The server rejected the request. Start over.",
+  1009: "The audio or message was too large. Start over.",
+  1001: "The conversation timed out from inactivity. Start over.",
+};
+
 interface UseWebSocketReturn {
   connectionState: ConnectionState;
   phase: Phase;
@@ -16,6 +24,8 @@ interface UseWebSocketReturn {
   /** Server-issued id from session_started; "" until it arrives. */
   sessionId: string;
   lastLatencyMs: number | null;
+  /** Specific explanation for the last unexpected close, or null for the generic message. */
+  closeReason: string | null;
   sendMessage: (msg: ClientMessage) => void;
   reconnect: () => void;
 }
@@ -36,6 +46,7 @@ export function useWebSocket(
   const [sessionComplete, setSessionComplete] = useState<{ reportId: string } | null>(null);
   const [sessionFailed, setSessionFailed] = useState(false);
   const [lastLatencyMs, setLastLatencyMs] = useState<number | null>(null);
+  const [closeReason, setCloseReason] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   // Tracks the id of the pending partial assistant entry so subsequent partials
@@ -94,6 +105,7 @@ export function useWebSocket(
     setSessionComplete(null);
     setSessionFailed(false);
     setLastLatencyMs(null);
+    setCloseReason(null);
     pendingAssistantIdRef.current = null;
     lastAiEntryIdRef.current = null;
 
@@ -213,10 +225,11 @@ export function useWebSocket(
       setConnectionState("error");
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
       // Suppress "disconnected" during deliberate closes (reconnect, unmount) to
       // avoid a flash of the error overlay between cleanup and the new WS opening.
       if (!deliberateCloseRef.current) {
+        setCloseReason(CLOSE_REASONS[event.code] ?? null);
         setConnectionState("disconnected");
       }
       deliberateCloseRef.current = false;
@@ -241,6 +254,7 @@ export function useWebSocket(
     sessionFailed,
     sessionId,
     lastLatencyMs,
+    closeReason,
     sendMessage,
     reconnect,
   };

@@ -25,7 +25,11 @@ function ReportPageInner() {
   const [report, setReport] = useState<Report | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollCountRef = useRef(0);
-  const MAX_POLLS = 15; // 15 × 2s = 30s ceiling before forcing error state
+  // Set on the first terminal result so overlapping in-flight polls change nothing after it.
+  const stoppedRef = useRef(false);
+  // 60 × 2s = 120s ceiling: the server's end-of-session deadline is 90s (it includes
+  // finishing the in-flight turn), plus margin. Only 202 "generating" keeps polling.
+  const MAX_POLLS = 60;
 
   function clearPoll() {
     if (intervalRef.current !== null) {
@@ -34,16 +38,22 @@ function ReportPageInner() {
     }
   }
 
+  function stop(next: Status) {
+    stoppedRef.current = true;
+    clearPoll();
+    setStatus(next);
+  }
+
   async function fetchReport() {
+    if (stoppedRef.current) return;
     if (!apiUrl) {
-      setStatus("error");
+      stop("error");
       return;
     }
 
     pollCountRef.current += 1;
     if (pollCountRef.current > MAX_POLLS) {
-      setStatus("error");
-      clearPoll();
+      stop("error");
       return;
     }
 
@@ -51,31 +61,31 @@ function ReportPageInner() {
     try {
       res = await fetch(`${apiUrl}/report/${sessionId}`);
     } catch {
-      setStatus("error");
-      clearPoll();
+      if (!stoppedRef.current) stop("error");
       return;
     }
+    if (stoppedRef.current) return;
 
     if (res.status === 200) {
+      stoppedRef.current = true;
+      clearPoll();
       const data = (await res.json()) as Report;
       setReport(data);
       setStatus("ready");
-      clearPoll();
     } else if (res.status === 202) {
       // Still generating — keep polling (ceiling enforced above)
     } else if (res.status === 404 || res.status >= 500) {
-      // 404 = no report for this session; 5xx = backend couldn't generate report
-      // Both mean the session ended without a usable report
-      setStatus("abandoned");
-      clearPoll();
+      // 404 = no report for this session; 5xx = failed or abandoned (no usable report).
+      // Terminal: stop polling at once.
+      stop("abandoned");
     } else {
-      setStatus("error");
-      clearPoll();
+      stop("error");
     }
   }
 
   useEffect(() => {
     pollCountRef.current = 0; // reset on sessionId change
+    stoppedRef.current = false;
     fetchReport(); // immediate first attempt
     intervalRef.current = setInterval(fetchReport, 2000);
 

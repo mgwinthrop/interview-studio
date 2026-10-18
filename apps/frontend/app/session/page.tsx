@@ -111,6 +111,7 @@ function SessionPageInner() {
     sessionFailed,
     sessionId,
     lastLatencyMs,
+    closeReason,
     sendMessage,
     reconnect,
   } = useWebSocket(topicId, demo, handleAudioChunk, handleTtsEnd, handleSttError);
@@ -299,8 +300,8 @@ function SessionPageInner() {
       <div role="alert" style={overlayStyle}>
         <h2 style={overlayTitleStyle}>Connection lost</h2>
         <p style={overlayBodyStyle}>
-          The connection to the interviewer was lost and this conversation cannot be resumed.
-          Reconnecting starts a new conversation.
+          {closeReason ??
+            "The connection to the interviewer was lost and this conversation cannot be resumed. Reconnecting starts a new conversation."}
         </p>
         <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
           {/* Primary: open a new connection, which the server treats as a new session */}
