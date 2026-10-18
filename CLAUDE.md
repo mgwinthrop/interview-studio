@@ -12,9 +12,9 @@ Requires Node 20+. Install per app: `npm --prefix apps/backend ci` and `npm --pr
 
 Backend (`apps/backend`):
 - `npx prisma generate` — required once after install, and after schema changes
-- `npm run dev` — tsx watch on port 3001
-- `npm test` — vitest unit tests (also `npm test` at repo root); single file: `npx vitest run src/__tests__/topic.test.ts`; single test: `npx vitest run -t "name"`
-- `npm run test:integration` — drives a real session over WebSocket with an LLM judge. Needs the backend already running plus real API keys; sets `INTEGRATION_TEST=1`; `TEST_WS_URL` overrides the default `ws://localhost:3001`. Excluded from `npm test`.
+- `npm run dev` — tsx watch on `127.0.0.1:3001`. With the default `PROFILE=cloud` it needs `ANTHROPIC_API_KEY` and `ELEVENLABS_API_KEY`; `PROFILE=mock npm run dev` runs a full conversation (greeting, replies, interrupt, report) with no keys
+- `npm test` — vitest unit tests plus the keyless end-to-end conversation test (`src/__tests__/conversation.test.ts`, mock providers, temp SQLite DB; no keys or running server) (also `npm test` at repo root); single file: `npx vitest run src/__tests__/topic.test.ts`; single test: `npx vitest run -t "name"`
+- `npm run test:integration` — opt-in run of a real session against real providers over WebSocket with an LLM judge. Needs the backend already running with `PROFILE=cloud` and real API keys (also `ANTHROPIC_API_KEY` in the test's environment for the judge); sets `INTEGRATION_TEST=1`; `TEST_WS_URL` overrides the default `ws://localhost:3001`. Excluded from `npm test`.
 - `npm run build` — `tsc`
 
 Frontend (`apps/frontend`): `npm run dev` (port 3000), `npm run lint`, `npm run build`. There are no frontend tests.
@@ -25,7 +25,7 @@ Before publishing, run all of: `npm test`, frontend lint, frontend build, backen
 
 ## Architecture
 
-Pipeline: browser mic → AudioWorklet (PCM16, 16kHz mono) → Silero VAD (`@ricky0123/vad-web`, client-side, decides end of turn) → WebSocket binary frame → STT → LLM → `sentenceChunker.ts` → TTS → binary MP3 frames back → `lib/audioQueue.ts` (Web Audio, serialised playback). `docs/architecture.md` has the latency budget and diagram.
+Pipeline: browser mic → AudioWorklet (PCM16, 16kHz mono) → Silero VAD (`@ricky0123/vad-web`, client-side, decides end of turn) → WebSocket binary frame (one whole utterance) → STT (one request per utterance, not streaming) → LLM → `sentenceChunker.ts` → TTS → binary MP3 frames back → `lib/audioQueue.ts` (Web Audio, serialised playback). `docs/architecture.md` has the latency budget and diagram.
 
 Backend:
 - `index.ts` — thin entrypoint: `loadConfig` (`config.ts`; exits on a bad setting), `runMigrations` (`migrate.ts`; exits on failure), `createProviders`, `createApp`, `listen`.
@@ -42,6 +42,6 @@ Frontend: `app/session/page.tsx` is the live conversation, built on `hooks/useWe
 
 - Topic IDs (`ai-se-delivery`, `experience-design`, `product-design-strategy`) exist in both `backend/src/topic.ts` and `frontend/app/lib/topics.ts`; change both or neither.
 - The WebSocket protocol is specified in `docs/websocket-protocol.md`. Keep client, server and that doc in sync. Do not change the audio framing or message types unless the task says to.
-- Interrupts must stop both audio playback (`audioQueue.flush()`, which bumps a generation counter to discard in-flight decodes) and the server's TTS and LLM streams (abort signals), and reset Scribe. The client snaps to the interrupt state locally before any server round-trip.
+- Interrupts must stop both audio playback (`audioQueue.flush()`, which bumps a generation counter to discard in-flight decodes) and the server's TTS and LLM streams (one abort signal per turn) and drop queued utterances. The client snaps to the interrupt state locally before any server round-trip.
 - Avatar states must reflect real connection, pause, interrupt and audio-playback state, not timers, and must respect `prefers-reduced-motion`.
 - `docs/architecture.md` lists "locked decisions" (Claude Sonnet model with `max_tokens: 300`, Scribe v2, `eleven_flash_v2_5`, phase thresholds 2/5/10, 16kHz PCM16). Treat them as fixed unless explicitly asked to change them.
