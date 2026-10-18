@@ -3,6 +3,7 @@ import type { Providers } from "./types";
 export interface MockScript {
   sttTexts?: string[];
   llmReplies?: string[];
+  /** 1-based LLM call number that throws. Counts `stream` and `structured` calls together; calls aborted before starting are not counted. */
   failLlmOnCall?: number;
   ttsDelayMs?: number;
   structured?: unknown;

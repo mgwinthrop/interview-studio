@@ -27,6 +27,12 @@ async function expectAbort(run: () => Promise<unknown>): Promise<void> {
 
 const messages = [{ role: "user" as const, content: "Hello" }];
 
+// Explicit prompt so a real provider (not just the mock default) must produce { ok: true }.
+const STRUCTURED_SYSTEM = "Respond with a JSON object whose `ok` field is true.";
+const STRUCTURED_MESSAGES = [
+  { role: "user" as const, content: 'Reply with exactly this JSON object: {"ok": true}' },
+];
+
 export function runProviderContract(name: string, make: () => Providers): void {
   describe(`provider contract: ${name}`, () => {
     const live = new AbortController().signal;
@@ -53,16 +59,21 @@ export function runProviderContract(name: string, make: () => Providers): void {
     it("llm.structured returns a value matching the schema", async () => {
       const schema = z.object({ ok: z.boolean() });
       const value = await make().llm.structured(
-        { system: "s", messages, schema, maxTokens: 50 },
+        { system: STRUCTURED_SYSTEM, messages: STRUCTURED_MESSAGES, schema, maxTokens: 50 },
         live,
       );
       expect(schema.safeParse(value).success).toBe(true);
+      expect(value.ok).toBe(true);
     });
 
     it("llm.structured rejects when the value does not match the schema", async () => {
+      // The prompt asks for { ok: true }, which cannot satisfy this schema.
       const schema = z.object({ definitelyMissing: z.string() });
       await expect(
-        make().llm.structured({ system: "s", messages, schema, maxTokens: 50 }, live),
+        make().llm.structured(
+          { system: STRUCTURED_SYSTEM, messages: STRUCTURED_MESSAGES, schema, maxTokens: 50 },
+          live,
+        ),
       ).rejects.toBeDefined();
     });
 
