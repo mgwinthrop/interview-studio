@@ -33,11 +33,11 @@ In local mode the server trusts loopback peers. A reverse proxy on the same host
 - Sessions are single-connection. There is no reattach: a new connection is a new session with a new ID, and reconnecting after a drop starts a new conversation.
 - The first frame on a socket must be a valid JSON `session_start` with an `interviewerId` the caller can see: a preset ID (visible to everyone) or the ID of one of the caller's own custom interviewers. A second `session_start` on the same socket is ignored.
 - `topicId` is gone. A `session_start` that carries `topicId` but no `interviewerId` is treated as a missing ID and closed 1008.
+- Malformed JSON text frames after `session_start` are ignored. Unknown message types are ignored.
 
 ### Interviewer snapshot
 
 When the session is created, the server copies the full interviewer definition into the session row (the snapshot), in the same write that creates the row and before `session_started` is sent. The running session, its phases and its report use only that snapshot: editing or deleting the interviewer afterwards does not affect a session that has already started, or its report.
-- Malformed JSON text frames after `session_start` are ignored. Unknown message types are ignored.
 
 ### Session statuses
 

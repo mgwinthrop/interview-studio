@@ -55,18 +55,42 @@ Target: **< 1.5 seconds** from end of user speech to first AI audio.
 
 These are estimates, not measurements. Because transcription starts only after the whole utterance has been uploaded, the total can exceed the 1.5 second target on long utterances. The `latency_metric` message reports the measured time from the server receiving an utterance to the first audio chunk, so the budget can be checked against real runs. The mock profile has no provider latency and says nothing about these figures.
 
-## Phase system
+## Interviewers
 
-The interview progresses through four phases. Transitions are **orchestrator-driven** — the LLM never decides when to transition; `advancePhase()` in `orchestrator.ts` counts user turns and the session controller sends the `phase_change` event.
+An interviewer is a record that defines one kind of conversation: who the interviewer is, how it speaks, the phases the conversation moves through and what the report should notice. The record, its field caps and its validation are in `apps/backend/src/interviewer/schema.ts`. The server code is in `interviewer/` (schema, presets, prompt), `interviewerStore.ts` and `interviewerRoutes.ts`.
 
-| Phase | Trigger | Turn threshold |
-|---|---|---|
-| `intro` | Session start | — |
-| `share_work` | After 2 user turns (1 in demo mode) | `turnCount >= 2` |
-| `deep_dive` | After 5 user turns | `turnCount >= 5` |
-| `wrap_up` | After 10 user turns | `turnCount >= 10` |
+- **Fields.** `name`, `purpose`, `persona`, `style`, `opening`, `closing`, 1 to 8 `phases` (each with a `name`, an `instruction` and, on every phase except the last, `minTurns` and `maxTurns`), up to 6 `focus` items, `contentFeedback`, `deliveryFeedback` and an optional `voice`. The server adds `id`, `source` (`preset` or `custom`), `ownerId`, `version`, `createdAt` and `updatedAt`. Text is trimmed, control characters are rejected, and unknown fields are refused. Phase names must be unique within an interviewer.
+- **Presets.** Four presets live in the repository under `interviewer/presets/`: `tell-a-story`, `explain-an-idea`, `rehearse-an-interview` and `work-out-a-point-of-view`. Each has the phases `intro`, `share`, `deep_dive` and `wrap_up`. Presets are owned by `system`, visible to everyone and read-only through the API.
+- **Preset sync.** After migrations, `index.ts` calls `syncPresets`, which validates every preset and then inserts new ones, updates changed ones and removes preset rows whose file is gone, in one transaction. A preset that fails validation stops startup. Custom interviewers and sessions are never touched by the sync.
+- **Custom interviewers.** Created through the API and visible only to their owner (another owner's interviewer is a 404). Each owner may hold up to 50. Every update must send the `version` it was based on; a stale `version` is answered 409 and a successful update raises the version by one.
+- **Snapshot.** When a session starts, the server copies the full interviewer record into `Session.interviewerJson`, in the same write that creates the session and before `session_started` is sent. The live session, its phase list, its prompts and its report read only that copy. Editing or deleting an interviewer, or changing a preset file, never changes a past or running session or its report. `Session.interviewerId` records which interviewer was used.
+- **Earlier sessions.** Sessions stored before interviewers existed have their old topic id in `interviewerId` and no snapshot. The API reports their `interviewerName` as `null`, and the frontend labels them "Earlier interview".
+- **Phase names on the wire.** `phase_change` carries the phase name from the snapshot, so clients must not assume a fixed set. Stored turns and `Session.phase` hold the same names.
 
-Each phase injects a different instruction block via `buildSystemPrompt(phase, topic)` in `llm.ts`. The check runs after the reply to a user turn ends, so `phase_change` follows that turn's `tts_end` (or comes after the cut-off if the reply was interrupted).
+### Prompt layout
+
+`buildSystemPrompt` in `interviewer/prompt.ts` builds the system prompt for each turn in this order: the fixed voice-rules wrapper (code, not editable), the interviewer's `persona`, its `style`, the current phase's `instruction`, the `opening` guidance on the first turn only, the `closing` guidance in the last phase only, and a final voice-rules reminder. The reminder comes last so interviewer text never follows the rules. The report prompt (`reportGenerator.ts`) is built from the snapshot's name, purpose, persona and focus items. `contentFeedback`, `deliveryFeedback` and `voice` are stored and validated but not yet read by the report or the speech providers.
+
+### Phase advancement
+
+Transitions are **orchestrator-driven**: the LLM never decides when to move on. `advancePhase()` in `orchestrator.ts` compares the user turns counted in the current phase with that phase's `maxTurns` (its `minTurns` in demo mode) and moves forward one phase at a time. The last phase has no limits and never ends by count. The session controller sends `phase_change`. The check runs after the reply to a user turn ends, so `phase_change` follows that turn's `tts_end` (or comes after the cut-off if the reply was interrupted).
+
+Counts are per phase. The presets use `minTurns` 1 and `maxTurns` 2 (`intro`), 3 (`share`) and 5 (`deep_dive`), which gives the cumulative thresholds 2, 5 and 10 user turns.
+
+### Interviewer API
+
+All routes are behind the authenticator and scoped to the caller's owner. Bodies are JSON, at most 64 KB. A route id that is not 1 to 64 letters, digits, `_` or `-` is a 404. Errors never echo submitted text.
+
+| Route | Result |
+|---|---|
+| `GET /api/interviewers` | 200: summaries (`id`, `name`, `purpose`, `source`, `version`) of the presets, then the owner's custom interviewers, each ordered by name. |
+| `GET /api/interviewers/:id` | 200: the full record without `ownerId`. 404 for an unknown id or another owner's interviewer. |
+| `POST /api/interviewers` | 201: the new record, with a server-issued UUID at version 1. 422 `{ errors: [{ path, message }] }` for invalid input or at the 50 cap. |
+| `PUT /api/interviewers/:id` | Body is the full input plus `version`. 200: the updated record. 403 for a preset, 404, 409 `version conflict`, 422 for invalid input. |
+| `POST /api/interviewers/:id/duplicate` | 201: a custom copy named `<name> (copy)` of any interviewer the caller can see. 404, or 422 at the cap. |
+| `DELETE /api/interviewers/:id` | 204. 403 for a preset, 404 otherwise. |
+
+Malformed JSON is 400 and a body over 64 KB is 413.
 
 ## Providers and profiles
 
@@ -131,8 +155,10 @@ Ending is bounded by `limits.reportTimeoutMs` (90 seconds). If the in-flight tur
 
 ## Data lifecycle
 
-- Active session state lives in memory. SQLite (Prisma) is written when a session is created, on each completed turn, on phase changes, and when the session ends (status and report). `DATABASE_URL` selects the file; never hardcode or commit it.
+- Active session state lives in memory. SQLite (Prisma) is written when a session is created (with its interviewer snapshot), on each completed turn, on phase changes, and when the session ends (status and report). `DATABASE_URL` selects the file; never hardcode or commit it.
 - `DELETE /api/session/:sessionId` removes a session with its turns and report. The dashboard offers it with a confirmation. A live session cannot be deleted (409).
+- Deleting a custom interviewer (`DELETE /api/interviewers/:id`) removes only its row in the `Interviewer` table. Sessions keep their own snapshot, so their reports, transcripts and names are unchanged. Deleting a session never touches an interviewer.
+- Preset rows are rebuilt from the repository files at every startup. Removing a preset file removes its row, while sessions that used it keep their snapshot.
 - `RETENTION_DAYS` is off by default. When set, sessions that ended more than that many days ago are deleted once at startup (`retention.ts`).
 - Migrations are applied at startup (`migrate.ts`). If they fail, the server prints the last lines of Prisma's error output with the `DATABASE_URL` value and any `user:pass@` credentials redacted, and exits 1.
 - At startup, after migrations, any session still `active` is marked `abandoned` with `endedAt` set (a crash or restart left it; the server is single-instance, so nothing is live at boot). Only the count is logged. This lets the report route answer and retention purge those rows.
@@ -157,7 +183,8 @@ These are not up for debate. Change requires an explicit instruction and a spec 
 | TTS fallback | Cartesia `sonic-english` | Independent provider — covers ElevenLabs outages |
 | VAD | `@ricky0123/vad-web` (Silero) | Client-side WASM; no round-trip for end-of-turn |
 | Sample rate | 16kHz mono PCM16 | Scribe v2 optimal input format |
-| Phase thresholds | 2 / 5 / 10 | Tuned against real interview run-throughs |
+
+Phase thresholds are not locked. They are per-interviewer settings; the presets default to 2/5/10 cumulative user turns (intro 2, share 3 more, deep dive 5 more), and demo mode ends each phase at its `minTurns`.
 
 ## Interrupt handling
 
