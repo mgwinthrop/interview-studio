@@ -503,6 +503,54 @@ describe("SessionController phases", () => {
     expect(phaseChanges(json)).toEqual(["last"]);
   });
 
+  it("serialises phase writes: a later write never starts before an earlier one finishes", async () => {
+    const interviewer = withPhases([
+      { name: "first", instruction: "F", minTurns: 1, maxTurns: 1 },
+      { name: "second", instruction: "S", minTurns: 1, maxTurns: 1 },
+      { name: "last", instruction: "L" },
+    ]);
+    const { ctl, json, persist } = setup({ interviewer, script: { llmReplies: [LONG_REPLY, LONG_REPLY, LONG_REPLY] } });
+    const finished: string[] = [];
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((r) => (releaseFirst = r));
+    persist.persistPhaseTransition.mockImplementation(async (_id: string, phase: string) => {
+      if (phase === "second") await firstGate;
+      finished.push(phase);
+    });
+    await ctl.start();
+    ctl.handleText("one");
+    ctl.handleText("two");
+    await vi.waitFor(() => expect(phaseChanges(json)).toEqual(["second", "last"]));
+    // The first write is still pending, so the second must not have started.
+    expect(persist.persistPhaseTransition.mock.calls.map((c) => c[1])).toEqual(["second"]);
+    releaseFirst();
+    await ctl.settled();
+    expect(persist.persistPhaseTransition.mock.calls.map((c) => c[1])).toEqual(["second", "last"]);
+    expect(finished).toEqual(["second", "last"]);
+  });
+
+  it("a failed phase write is logged by class and does not stop later writes", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const interviewer = withPhases([
+      { name: "first", instruction: "F", minTurns: 1, maxTurns: 1 },
+      { name: "second", instruction: "S", minTurns: 1, maxTurns: 1 },
+      { name: "last", instruction: "L" },
+    ]);
+    const { ctl, persist } = setup({ interviewer, script: { llmReplies: [LONG_REPLY, LONG_REPLY, LONG_REPLY] } });
+    persist.persistPhaseTransition.mockImplementationOnce(async () => {
+      throw new TypeError("secret detail");
+    });
+    await ctl.start();
+    ctl.handleText("one");
+    await ctl.settled();
+    ctl.handleText("two");
+    await ctl.settled();
+    expect(persist.persistPhaseTransition.mock.calls.map((c) => c[1])).toEqual(["second", "last"]);
+    const logged = errors.mock.calls.flat().join(" ");
+    expect(logged).toMatch(/persistPhaseTransition error \(state \w+\): TypeError/);
+    expect(logged).not.toContain("secret detail");
+  });
+
   it("a user turn whose reply fails still counts", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const interviewer = withPhases([

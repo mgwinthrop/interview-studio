@@ -486,6 +486,9 @@ export class SessionController {
     this.track(this.deps.persist.persistTurn(turn), "persistTurn");
   }
 
+  /** Tail of the phase-transition write chain (never rejects). */
+  private phaseWrite: Promise<void> = Promise.resolve();
+
   private maybeAdvancePhase(): void {
     const next = advancePhase(this.deps.interviewer, this.phaseIndex, this.phaseUserTurns, this.deps.demo);
     if (next === null) return;
@@ -493,7 +496,15 @@ export class SessionController {
     this.phaseIndex = next;
     this.phaseUserTurns = 0;
     const name = this.phase;
-    this.track(this.deps.persist.persistPhaseTransition(this.sessionId, name), "persistPhaseTransition");
+    // Serialised: writes run in order so Session.phase ends on the latest phase. A failure is
+    // logged and does not stop later writes.
+    this.phaseWrite = this.phaseWrite.then(() =>
+      this.deps.persist.persistPhaseTransition(this.sessionId, name).then(
+        () => undefined,
+        (err) => this.log("persistPhaseTransition error", err),
+      ),
+    );
+    this.trackDone(this.phaseWrite);
     this.deps.sendJson({ type: "phase_change", phase: name });
     // Indices only: phase names are interviewer-written text and never reach the logs.
     console.log(`[session ${this.sessionId}] phase ${prev} -> ${next}`);

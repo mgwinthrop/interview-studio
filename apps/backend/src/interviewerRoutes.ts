@@ -20,7 +20,7 @@ const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const NOT_FOUND = { error: "Interviewer not found" };
 const PRESET_LOCKED = { error: "presets cannot be changed" };
 const NOT_OBJECT: FieldError[] = [{ path: "", message: "Request body must be a JSON object." }];
-const LIMIT_REACHED: FieldError[] = [{ path: "", message: "limit of 50 custom interviewers reached" }];
+const LIMIT_REACHED: FieldError[] = [{ path: "", message: `limit of ${interviewerStore.MAX_CUSTOM_PER_OWNER} custom interviewers reached` }];
 const BAD_VERSION: FieldError = { path: "version", message: "Must be a whole number of at least 1." };
 
 type Handler = (req: express.Request<{ id: string }>, res: express.Response) => Promise<void>;

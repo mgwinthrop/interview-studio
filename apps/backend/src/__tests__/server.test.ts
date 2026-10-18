@@ -93,6 +93,12 @@ afterEach(async () => {
   while (running.length) await running.pop()!.close();
 });
 
+// Custom interviewers a test created (owner "local"), removed so the 50 cap is never reached.
+const createdCustom: string[] = [];
+afterEach(async () => {
+  for (const id of createdCustom.splice(0)) await store.deleteInterviewer(id, "local");
+});
+
 function makeConfig(
   env: Record<string, string> = {},
   overrides: { limits?: Partial<Config["limits"]>; debugLogText?: boolean } = {},
@@ -350,6 +356,7 @@ describe("session start", () => {
   it("closes 1008 'unknown interviewerId' for another owner's custom interviewer", async () => {
     // Two owners: local mode authenticates as "local", token mode as "token".
     const custom = await store.createInterviewer("local", customInput());
+    createdCustom.push(custom.id);
     const t = await start({ config: makeConfig({ AUTH_TOKEN: "second-owner-token" }) });
     const before = await prisma.session.count();
     const foreign = connect(t, {}, "?token=second-owner-token");
@@ -962,7 +969,9 @@ describe("custom interviewers", () => {
       body: JSON.stringify(customInput()),
     });
     expect(res.status).toBe(201);
-    return (await res.json()) as InterviewerDefinition;
+    const created = (await res.json()) as InterviewerDefinition;
+    createdCustom.push(created.id);
+    return created;
   }
 
   it("a custom interviewer from the API starts a session; its phase names and thresholds drive phase_change", async () => {
@@ -977,6 +986,11 @@ describe("custom interviewers", () => {
     expect(c.messages.filter((m) => m.type === "phase_change")).toHaveLength(1);
     await textTurn(c);
     expect(await phaseChanges(c, 2)).toEqual([CUSTOM_PHASES[1], CUSTOM_PHASES[2]]);
+    // Phase writes are chained, so the stored phase ends on the last phase reached.
+    await vi.waitFor(async () => {
+      const row = await prisma.session.findUnique({ where: { id } });
+      expect(row?.phase).toBe(CUSTOM_PHASES[2]);
+    });
     // The snapshot is the stored definition (the API response omits ownerId).
     expect(await persistence.readSnapshot(id, "local")).toEqual({ ...custom, ownerId: "local" });
     c.ws.close();
@@ -1095,6 +1109,7 @@ describe("logging", () => {
   it("never logs interviewer text during a whole conversation with a custom interviewer", async () => {
     const r = await start();
     const custom = await store.createInterviewer("local", customInput());
+    createdCustom.push(custom.id);
     await converse(r, custom.id);
     const logs = allLogText();
     expect(logs).toContain(custom.id);
