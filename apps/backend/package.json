@@ -18,7 +18,8 @@
     "elevenlabs": "^1.50.3",
     "express": "^4.21.2",
     "uuid": "^11.0.3",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
