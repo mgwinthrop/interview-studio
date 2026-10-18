@@ -352,6 +352,16 @@ describe("report v2", () => {
     expect((found?.report as ReportV2).generatedAt).toBeInstanceOf(Date);
   });
 
+  it("round-trips the deliveryUnavailable marker", async () => {
+    await p.persistSessionCreate("rv2-du", "a", INTERVIEWER);
+    const { delivery: _d, ...rest } = report("rv2-du");
+    const r: ReportV2 = { ...rest, deliveryUnavailable: true };
+    await p.persistReport("rv2-du", r);
+    const found = (await p.readReportFromDb("rv2-du", "a"))?.report as ReportV2;
+    expect(found).toEqual(r);
+    expect(found.deliveryUnavailable).toBe(true);
+  });
+
   it("round-trips a report with neither content nor delivery", async () => {
     await p.persistSessionCreate("rv2-min", "a", INTERVIEWER);
     const r: ReportV2 = { format: 2, sessionId: "rv2-min", generatedAt: new Date(1760000000000), nextSteps: [] };

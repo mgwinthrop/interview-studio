@@ -50,6 +50,8 @@ export interface ReportV2 {
     developAreas: { area: string; suggestion: string }[];
   };
   delivery?: { summary: DeliverySummary; reading: string };
+  /** Set when delivery feedback was on but no spoken answers were measured. */
+  deliveryUnavailable?: true;
   nextSteps: string[];
 }
 
