@@ -30,6 +30,8 @@ export interface Config {
     reportTimeoutMs: number;
   };
   debugLogText: boolean;
+  /** Show filler-word counts in reports. Off until speech-to-text is known to keep fillers. */
+  reportFillerCounts: boolean;
   retentionDays?: number;
 }
 
@@ -58,6 +60,7 @@ const schema = z.object({
   AUTH_TOKEN: z.string().optional(),
   DEBUG_LOG_TEXT: z.enum(["true", "false", "1", "0"]).optional(),
   RETENTION_DAYS: z.coerce.number().int().positive().optional(),
+  REPORT_FILLER_COUNTS: z.string().optional(),
 });
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -119,6 +122,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
       reportTimeoutMs: 90_000,
     },
     debugLogText: e.DEBUG_LOG_TEXT === "true" || e.DEBUG_LOG_TEXT === "1",
+    reportFillerCounts: ["1", "true"].includes((e.REPORT_FILLER_COUNTS ?? "").toLowerCase()),
     retentionDays: e.RETENTION_DAYS,
   };
 }

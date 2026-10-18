@@ -5,6 +5,7 @@ import {
   SYSTEM_OWNER,
   type FieldError,
 } from "../interviewer/schema.js";
+import { PRESETS } from "../interviewer/presets";
 
 function valid(): Record<string, any> {
   return {
@@ -45,9 +46,33 @@ describe("parseInterviewerInput", () => {
   });
 
   it("keeps explicit feedback flags", () => {
-    const r = parseInterviewerInput({ ...valid(), contentFeedback: false, deliveryFeedback: false });
-    expect(r.ok && r.value.contentFeedback).toBe(false);
-    expect(r.ok && r.value.deliveryFeedback).toBe(false);
+    const a = parseInterviewerInput({ ...valid(), contentFeedback: false, deliveryFeedback: true });
+    expect(a.ok && a.value.contentFeedback).toBe(false);
+    expect(a.ok && a.value.deliveryFeedback).toBe(true);
+    const b = parseInterviewerInput({ ...valid(), contentFeedback: true, deliveryFeedback: false });
+    expect(b.ok && b.value.contentFeedback).toBe(true);
+    expect(b.ok && b.value.deliveryFeedback).toBe(false);
+  });
+
+  it("rejects both feedback switches off on contentFeedback, with a fixed message", () => {
+    const errs = errorsOf({ ...valid(), contentFeedback: false, deliveryFeedback: false });
+    expect(errs).toEqual([
+      { path: "contentFeedback", message: "Turn on content or delivery feedback (or both)." },
+    ]);
+  });
+
+  it("accepts content off when delivery is left to its default (on)", () => {
+    const r = parseInterviewerInput({ ...valid(), contentFeedback: false });
+    expect(r.ok).toBe(true);
+  });
+
+  it("accepts every preset's input fields", () => {
+    for (const p of PRESETS) {
+      const { id: _i, source: _s, ownerId: _o, version: _v, createdAt: _c, updatedAt: _u, ...input } = p;
+      const r = parseInterviewerInput(input);
+      expect(r.ok, p.id).toBe(true);
+      expect(p.contentFeedback || p.deliveryFeedback).toBe(true);
+    }
   });
 
   it("exports the system owner", () => {

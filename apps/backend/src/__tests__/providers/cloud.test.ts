@@ -25,6 +25,7 @@ const baseConfig: Config = {
     reportTimeoutMs: 1,
   },
   debugLogText: false,
+  reportFillerCounts: false,
 };
 
 const cartesiaConfig: Config = { ...baseConfig, cartesia: { apiKey: "c-key", voiceId: "c-voice" } };

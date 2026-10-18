@@ -62,6 +62,7 @@ const MSG = {
   turnsForbidden: "Not allowed on the last phase.",
   date: "Must be an ISO date string.",
   id: "Must be letters, digits, underscore or hyphen.",
+  feedbackOff: "Turn on content or delivery feedback (or both).",
 };
 
 const tooLong = (cap: number) => `Must be at most ${cap} characters.`;
@@ -151,7 +152,17 @@ const inputShape = {
     .optional(),
 };
 
-const inputSchema = z.object(inputShape).strict();
+// Saving an interviewer with both feedback switches off is refused (the report would be empty).
+// Stored definitions are not checked, so an older snapshot still loads; the report generator
+// treats both-off as content-on.
+const inputSchema = z
+  .object(inputShape)
+  .strict()
+  .superRefine((v, ctx) => {
+    if (!v.contentFeedback && !v.deliveryFeedback) {
+      ctx.addIssue({ code: "custom", path: ["contentFeedback"], message: MSG.feedbackOff });
+    }
+  });
 
 const definitionSchema = z
   .object({

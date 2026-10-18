@@ -60,6 +60,16 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...keys, HOST: "0.0.0.0", AUTH_TOKEN: "" })).toThrow(/authentication/);
   });
 
+  it("REPORT_FILLER_COUNTS is off by default and only 1 or true (any case) turn it on", () => {
+    expect(loadConfig({ ...keys }).reportFillerCounts).toBe(false);
+    for (const v of ["1", "true", "TRUE", "True", " true "]) {
+      expect(loadConfig({ ...keys, REPORT_FILLER_COUNTS: v }).reportFillerCounts, v).toBe(true);
+    }
+    for (const v of ["", "0", "false", "yes", "on", "2"]) {
+      expect(loadConfig({ ...keys, REPORT_FILLER_COUNTS: v }).reportFillerCounts, v).toBe(false);
+    }
+  });
+
   it("rejects non-numeric PORT", () => {
     expect(() => loadConfig({ ...keys, PORT: "abc" })).toThrow(ConfigError);
   });
