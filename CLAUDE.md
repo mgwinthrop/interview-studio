@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Interview Studio: a voice-conversation tool where an AI interviewer asks questions and then produces a transcript and written feedback. Two independent npm projects (no workspace root install): `apps/backend` (Node/Express/WebSocket/Prisma+SQLite) and `apps/frontend` (Next.js 14 App Router). Single-user prototype: local mode (no `AUTH_TOKEN`) accepts loopback peers only, with `Host` and `Origin` checks; setting `AUTH_TOKEN` enables an optional shared-token mode. Read `AGENTS.md` for the binding repo rules (never commit credentials, transcripts, databases or deployment identifiers; keep changes inside this repo).
+Interview Studio: a voice-conversation tool where an AI interviewer asks questions and then produces a transcript and a written reflection. Two independent npm projects (no workspace root install): `apps/backend` (Node/Express/WebSocket/Prisma+SQLite) and `apps/frontend` (Next.js 14 App Router). Single-user prototype: local mode (no `AUTH_TOKEN`) accepts loopback peers only, with `Host` and `Origin` checks; setting `AUTH_TOKEN` enables an optional shared-token mode. Read `AGENTS.md` for the binding repo rules (never commit credentials, transcripts, databases or deployment identifiers; keep changes inside this repo).
 
 ## Commands
 
@@ -40,7 +40,7 @@ Backend:
 - Regenerate: `POST /api/session/:sessionId/report/regenerate` rewrites the report of a `failed` session synchronously (same deadline as session end) and moves it to `complete` through `completeFailedSession` in `persistence.ts`.
 - Data lifecycle: `DELETE /api/session/:sessionId` (owner-scoped; 204, 404 for unknown or foreign, 409 while the session is live) removes a session with its turns and report; the dashboard has a delete button. Set `RETENTION_DAYS` to have `retention.ts` purge ended sessions older than that once at startup (a failure is logged and does not block startup).
 
-Frontend: `app/session/page.tsx` is the live conversation, built on `hooks/useWebSocket.ts`, `hooks/useVAD.ts` and `lib/audioQueue.ts`. `app/components/InterviewerAvatar.tsx` is an inline SVG animated by CSS in `globals.css`. `app/lib/interviewers.ts` loads interviewers from the API (the frontend hard-codes no interviewer ids); the session page loads the interviewer before it opens the WebSocket. Report and history pages are `app/report/[sessionId]` and `app/dashboard`.
+Frontend: `app/session/page.tsx` is the live conversation, built on `hooks/useWebSocket.ts`, `hooks/useVAD.ts` and `lib/audioQueue.ts`. `app/components/InterviewerAvatar.tsx` is an inline SVG animated by CSS in `globals.css`. `app/lib/interviewers.ts` loads interviewers from the API (the frontend hard-codes no interviewer ids); the session page loads the interviewer before it opens the WebSocket. Report and history pages are `app/report/[sessionId]` and `app/dashboard`. The three-part report is rendered by `app/components/ReportView.tsx` (types and parser in `app/lib/report.ts`), and the report page has a regenerate button for failed reports.
 
 ## Contracts to keep stable
 

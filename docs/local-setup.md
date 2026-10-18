@@ -6,11 +6,11 @@ See the root README for installation and local startup. Environment examples con
 
 ## Upgrading an existing install
 
-This release migrates existing sessions to the new interviewer model, and the migration runs automatically at backend startup. Old sessions keep their transcripts and reports and appear as "Earlier interview". The change is one-way: to go back, restore your backup. Only one backend process may use a database file at a time.
+Each release may add database migrations, and they run automatically at backend startup. The newest migration (delivery metrics and the three-part report) only adds nullable columns and rewrites no data. An earlier one (preset interviewers) rebuilt the sessions table; sessions from before it keep their transcripts and reports and appear as "Earlier interview". Migrations are one-way: to go back, restore your backup. Only one backend process may use a database file at a time.
 
 1. Stop every running backend, including `npm run dev` watchers. A second server migrating the database under a running one breaks the running server and loses its in-flight session.
 2. Copy the SQLite file (the file named by `DATABASE_URL`, `apps/backend/prisma/local.db` by default) to a backup.
-3. Run `npm --prefix apps/backend ci` (new dependencies may have been added), then `cd apps/backend && npx prisma generate`. Migrations do not regenerate the Prisma client; with a stale client, startup stops with `Preset sync failed: TypeError`.
+3. Run `npm --prefix apps/backend ci` (new dependencies may have been added), then `cd apps/backend && npx prisma generate`. Migrations do not regenerate the Prisma client. With a stale client the backend can still start and look healthy, but saving a spoken turn or a report fails on the new columns, so sessions end `failed` and reports are not saved (regenerating fails too). If that happens, stop the backend, run `npx prisma generate` and start it again.
 4. Start the backend once and watch for "Database migrations applied".
 
 If the migration fails or the process stops part-way, stop the backend, restore the backup and start again. Do not delete the `_prisma_migrations` table. `cd apps/backend && npx prisma migrate status` shows which migrations are applied or failed.

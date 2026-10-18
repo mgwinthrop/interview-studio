@@ -502,7 +502,7 @@ function ReportV2Body({ report }: { report: ReportV2View }) {
                   <li key={t.turn} style={{ ...cardStyle, padding: "10px 14px" }}>
                     <div style={{ ...itemTitleStyle, fontSize: 13, marginBottom: 2 }}>Answer {t.turn}</div>
                     <p style={{ ...itemTextStyle, fontSize: 13, color: "#33424F" }}>
-                      <Value value={t.wordCount} format={(n) => `${n} words`} />
+                      <Value value={t.wordCount} format={(n) => `${n} ${n === 1 ? "word" : "words"}`} />
                       {" · pace "}
                       <Value value={t.wordsPerMinute} format={formatPace} />
                       {" · longest pause "}
@@ -511,7 +511,6 @@ function ReportV2Body({ report }: { report: ReportV2View }) {
                       <Value
                         value={t.responseGapMs}
                         format={(ms) => formatSeconds(ms / 1000)}
-                       
                       />
                     </p>
                   </li>
@@ -531,7 +530,7 @@ function ReportV2Body({ report }: { report: ReportV2View }) {
       ) : deliveryUnavailable ? (
         <MainSection title="Delivery">
           <p style={{ margin: 0, fontSize: 14, lineHeight: 1.65, color: "#33424F" }}>
-            Delivery feedback isn&apos;t available for this conversation because no spoken answers were recorded.
+            Delivery wasn&apos;t measured for this conversation (typed answers, or a conversation from before delivery was measured).
           </p>
         </MainSection>
       ) : null}
@@ -588,7 +587,6 @@ function DeliveryNumbers({ summary }: { summary: DeliverySummaryView }) {
         <Value
           value={summary.medianResponseGapMs}
           format={(ms) => formatSeconds(ms / 1000)}
-         
         />
       ),
     },

@@ -116,7 +116,7 @@ Per audio turn, `ConversationTurn.metricsJson` holds the numbers above and nothi
 
 ### Session summary
 
-`summarizeDelivery` rolls the measured turns into one `DeliverySummary`, or returns `null` when no turn has metrics. Total words and speaking time are sums. Average pace is total-based: the timed words of the turns with a duration divided by their total time, not the mean of per-turn paces; it is `null` when that total time is under 2 s. Pauses are summed and the longest pause is the maximum. The response gap is the median over the turns that have one (`medianResponseGapMs`). The summary also lists `perTurn` entries (word count, pace, longest pause, response gap), numbered by the user's answers in order, typed ones included.
+`summarizeDelivery` rolls the measured turns into one `DeliverySummary`, or returns `null` when no turn has metrics. Total words and speaking time are sums. Average pace is total-based: the timed words of the turns with a duration divided by their total time, not the mean of per-turn paces; it is `null` when that total time is under 2 s. Pauses are summed and the longest pause is the maximum. Speaking time, pause count and longest pause are `null` when no measured turn has the underlying value (for example every answer was one word, or the STT returned text without word timings); a real zero stays zero, and unknown is never reported as zero. `fillerCount` is also `null` when no measured turn has a count, not only when filler counts are hidden. The response gap is the median over the turns that have one (`medianResponseGapMs`). The summary also lists `perTurn` entries (word count, pace, longest pause, response gap), numbered by the user's answers in order, typed ones included.
 
 ### Report structure
 
@@ -125,7 +125,7 @@ Per audio turn, `ConversationTurn.metricsJson` holds the numbers above and nothi
 Which parts are asked for comes from the interviewer's snapshot:
 
 - `contentFeedback` on: the Content part is asked for. `deliveryFeedback` on: the Delivery part is asked for, if a summary exists.
-- If delivery is on but no spoken answer was measured (for example a text-only session), there is no Delivery part, the report gets `deliveryUnavailable: true`, and the model is told not to comment on delivery. Content is then generated even if `contentFeedback` is off, so a report is never next steps alone.
+- If delivery is on but no spoken answer was measured (for example a text-only session), there is no Delivery part, the report gets `deliveryUnavailable: true` (the page says delivery was not measured for this conversation, typed answers or a conversation from before delivery was measured), and the model is told not to comment on delivery. Content is then generated even if `contentFeedback` is off, so a report is never next steps alone.
 - The interviewer schema refuses an interviewer with both switches off. If one reaches generation anyway, it is treated as content on.
 - When delivery is off, the model is not given the numbers.
 
