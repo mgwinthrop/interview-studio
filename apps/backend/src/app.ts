@@ -29,6 +29,9 @@ export interface App {
 /** Fixed text sent with session_failed: never model output or transcript text. */
 const FAILED_REASON = "report generation failed";
 
+/** Largest accepted text_input content, in UTF-8 bytes; larger gets stt_error too_long. */
+const MAX_TEXT_INPUT_BYTES = 8192;
+
 const STATUS_TEXT: Record<number, string> = { 401: "Unauthorized", 403: "Forbidden" };
 
 /** Client message types we name in logs; anything else is logged as "unknown". */
@@ -358,6 +361,15 @@ export function createApp(deps: AppDeps): App {
       if (stage === "ended") return;
       const buf = toBuffer(data);
 
+      // Binary frames (audio) are bounded by ws maxPayload; JSON text frames get a tighter
+      // cap. A live session is abandoned by onGone once the close completes.
+      if (!isBinary && buf.length > config.limits.maxTextFrameBytes) {
+        console.warn(`${tag()} closing 1009: text frame of ${buf.length} bytes`);
+        if (stage === "awaiting") stage = "ended";
+        closeWs(1009, "message too large");
+        return;
+      }
+
       if (stage === "awaiting") {
         const msg = isBinary ? null : parseMessage(buf);
         if (!msg || msg.type !== "session_start") {
@@ -402,7 +414,13 @@ export function createApp(deps: AppDeps): App {
           console.warn(`${tag()} ignored second session_start`);
           return;
         case "text_input":
-          if (typeof msg.content !== "string" || !msg.content.trim()) return;
+          if (typeof msg.content !== "string") return;
+          if (Buffer.byteLength(msg.content) > MAX_TEXT_INPUT_BYTES) {
+            console.warn(`${tag()} text_input over ${MAX_TEXT_INPUT_BYTES} bytes ignored`);
+            send(ws, { type: "stt_error", reason: "too_long" });
+            return;
+          }
+          if (!msg.content.trim()) return;
           console.log(`${tag()} text_input ${Buffer.byteLength(msg.content)} bytes`);
           c.handleText(msg.content);
           return;

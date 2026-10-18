@@ -19,7 +19,10 @@ export interface Config {
   cartesia?: { apiKey: string; voiceId: string };
   auth: { mode: "local" } | { mode: "token"; token: string };
   limits: {
+    /** ws maxPayload: the largest frame of any kind; one binary frame is one whole utterance. */
     maxPayloadBytes: number;
+    /** Largest JSON text frame; bigger ones close the socket 1009. */
+    maxTextFrameBytes: number;
     maxConcurrentSessionsPerOwner: number;
     maxTurnsPerSession: number;
     idleTimeoutMs: number;
@@ -107,7 +110,9 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
         : undefined,
     auth,
     limits: {
-      maxPayloadBytes: 1024 * 1024,
+      // 16 kHz mono PCM16 is 32 KB/s, so 10 MiB is about 5.5 minutes of speech.
+      maxPayloadBytes: 10 * 1024 * 1024,
+      maxTextFrameBytes: 64 * 1024,
       maxConcurrentSessionsPerOwner: 2,
       maxTurnsPerSession: 200,
       idleTimeoutMs: 15 * 60 * 1000,

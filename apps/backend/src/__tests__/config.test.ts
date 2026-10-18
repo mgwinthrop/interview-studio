@@ -12,7 +12,8 @@ describe("loadConfig", () => {
     expect(c.allowedOrigins).toEqual(["http://localhost:3000"]);
     expect(c.auth).toEqual({ mode: "local" });
     expect(c.limits).toEqual({
-      maxPayloadBytes: 1024 * 1024,
+      maxPayloadBytes: 10 * 1024 * 1024,
+      maxTextFrameBytes: 64 * 1024,
       maxConcurrentSessionsPerOwner: 2,
       maxTurnsPerSession: 200,
       idleTimeoutMs: 15 * 60 * 1000,

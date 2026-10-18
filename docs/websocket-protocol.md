@@ -50,11 +50,11 @@ All client messages are JSON strings except `audio` frames which are **raw binar
 
 | Type | Payload | Notes |
 |---|---|---|
-| `audio` | Raw PCM16 binary frame | Sent as binary WebSocket frame, not JSON. 16kHz mono, one complete utterance (end of turn decided by the client VAD). Only accepted after `session_start`. |
+| `audio` | Raw PCM16 binary frame | Sent as binary WebSocket frame, not JSON. 16kHz mono, one complete utterance (end of turn decided by the client VAD). Only accepted after `session_start`. At most `limits.maxPayloadBytes` (10 MiB, about 5.5 minutes); a larger frame closes the socket 1009. |
 | `session_start` | `{ type, topicId, demo? }` | Must be the first frame. **Must include `topicId`** — one of `"ai-se-delivery"`, `"experience-design"`, `"product-design-strategy"`. `demo` shortens intro to 1 turn. |
 | `session_end` | `{ type }` | Ends the session: waits for the in-flight turn, generates the report, then the server sends `session_complete` or `session_failed`. |
 | `interrupt` | `{ type }` | Cancels in-flight STT, LLM and TTS and drops queued utterances. Server resets for next user turn. |
-| `text_input` | `{ type, content: string }` | Text fallback — bypasses STT. Treated identically to a completed voice turn. Empty or whitespace-only content is ignored. |
+| `text_input` | `{ type, content: string }` | Text fallback — bypasses STT. Treated identically to a completed voice turn. Empty or whitespace-only content is ignored. Content over 8192 UTF-8 bytes is ignored and answered with `stt_error` reason `too_long`. |
 
 ## Server → Client
 
@@ -70,7 +70,7 @@ All server messages are JSON strings except `tts_chunk` which is a **raw binary 
 | `phase_change` | `{ type, phase }` | When the server transitions to the next phase. `phase` is one of `"intro"`, `"share_work"`, `"deep_dive"`, `"wrap_up"`. |
 | `session_complete` | `{ type, reportId }` | The session ended as `complete` and its report is stored. `reportId` is the session ID. The server then closes the socket normally (1000). |
 | `session_failed` | `{ type, reason }` | The session ended as `failed` (no report). `reason` is a short fixed string, never model output or transcript text. The server then closes the socket normally (1000). |
-| `stt_error` | `{ type, reason }` | Non-fatal STT failure (`low_confidence`, `stt_failed`, or `busy` when the utterance queue is full). Client should show a toast; session continues. |
+| `stt_error` | `{ type, reason }` | Non-fatal input failure (`low_confidence`, `stt_failed`, `busy` when the utterance queue is full, or `too_long` when a `text_input` is over 8192 bytes). Client should show a toast; session continues. |
 | `latency_metric` | `{ type, ms }` | Emitted on the first `tts_chunk` of a reply. `ms` = elapsed time since the server received the user's utterance. |
 
 ## Close codes
@@ -80,7 +80,7 @@ All server messages are JSON strings except `tts_chunk` which is a **raw binary 
 | 1000 | `session complete` / `session failed` | After `session_complete` or `session_failed`. |
 | 1001 | `idle timeout` | The session received no client activity for the idle limit and was marked `abandoned`. No JSON message is sent first. (`server shutdown` when the server stops.) |
 | 1008 | `session_start required` / `unknown topicId` | The first frame was binary, malformed, another message type, or a `session_start` with an unknown `topicId`. |
-| 1009 | (set by the `ws` library) | A frame was larger than the payload limit (1 MiB by default). |
+| 1009 | (set by the `ws` library) / `message too large` | A frame was larger than its limit: any frame over `limits.maxPayloadBytes` (10 MiB by default, about 5.5 minutes of 16 kHz PCM16 audio in one utterance) is closed by the `ws` library; a JSON text frame over `limits.maxTextFrameBytes` (64 KiB by default) is closed by the server with reason `message too large`. |
 | 1011 | `internal error` | The session could not be created (database write failed). |
 | 1013 | `too many sessions` | The owner already has the maximum number of concurrent sessions (2 by default). Nothing is created. |
 

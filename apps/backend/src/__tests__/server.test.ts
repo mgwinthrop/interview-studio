@@ -281,12 +281,68 @@ describe("session start", () => {
 });
 
 describe("caps and limits", () => {
-  it("closes 1009 on a frame larger than maxPayloadBytes", async () => {
+  it("closes 1009 on a binary frame larger than maxPayloadBytes", async () => {
     const r = await start({ config: makeConfig({}, { limits: { maxPayloadBytes: 1024 } }) });
     const c = connect(r);
     await c.startSession();
     c.ws.send(Buffer.alloc(4096));
     expect((await c.closed).code).toBe(1009);
+  });
+
+  it("accepts a binary utterance longer than 33 s of 16 kHz PCM16 (2 MiB) and keeps the socket open", async () => {
+    const r = await start();
+    const c = connect(r);
+    await c.startSession();
+    await c.assistantFinal();
+    const mark = c.messages.length;
+    c.ws.send(Buffer.alloc(2 * 1024 * 1024));
+    const user = await c.next((m) => m.type === "transcript" && m.role === "user", mark);
+    expect(user.text).toBe(STT_TEXT);
+    await c.assistantFinal(mark);
+    expect(c.ws.readyState).toBe(WebSocket.OPEN);
+    c.ws.close();
+    await c.closed;
+  });
+
+  it("closes 1009 'message too large' on a text frame over maxTextFrameBytes", async () => {
+    const r = await start({ config: makeConfig({}, { limits: { maxTextFrameBytes: 1024 } }) });
+    const c = connect(r);
+    const id = await c.startSession();
+    await c.assistantFinal();
+    c.send({ type: "text_input", content: "x".repeat(2048) });
+    expect(await c.closed).toEqual({ code: 1009, reason: "message too large" });
+    expect(c.messages.some((m) => m.type === "transcript" && m.role === "user")).toBe(false);
+    await vi.waitFor(async () => {
+      expect((await prisma.session.findUnique({ where: { id } }))?.status).toBe("abandoned");
+    });
+  });
+
+  it("closes 1009 on an oversize text frame before session_start", async () => {
+    const r = await start({ config: makeConfig({}, { limits: { maxTextFrameBytes: 64 } }) });
+    const c = connect(r);
+    await c.opened;
+    c.send({ type: "session_start", topicId: TOPIC, padding: "x".repeat(128) });
+    expect((await c.closed).code).toBe(1009);
+    expect(c.messages).toHaveLength(0);
+  });
+
+  it("answers an over-8 KB text_input with stt_error too_long and ignores it", async () => {
+    const r = await start();
+    const c = connect(r);
+    await c.startSession();
+    await c.assistantFinal();
+    const mark = c.messages.length;
+    c.send({ type: "text_input", content: "é".repeat(4097) }); // 8194 UTF-8 bytes
+    const err = await c.next((m) => m.type === "stt_error", mark);
+    expect(err).toEqual({ type: "stt_error", reason: "too_long" });
+    // Exactly at the cap is accepted.
+    c.send({ type: "text_input", content: "a".repeat(8192) });
+    const user = await c.next((m) => m.type === "transcript" && m.role === "user", mark);
+    expect((user.text as string).length).toBe(8192);
+    expect(c.messages.filter((m) => m.type === "transcript" && m.role === "user")).toHaveLength(1);
+    expect(c.ws.readyState).toBe(WebSocket.OPEN);
+    c.ws.close();
+    await c.closed;
   });
 
   it("closes 1013 on a third concurrent session for the same owner", async () => {

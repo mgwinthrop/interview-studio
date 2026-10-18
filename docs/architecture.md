@@ -122,7 +122,7 @@ Ending is bounded by `limits.reportTimeoutMs` (90 seconds). If the in-flight tur
 - **Authenticator seam.** Every HTTP route and every WebSocket upgrade goes through one authenticator (`auth.ts`) that returns an `ownerId`. Sessions are stored with their owner, and reads, lists and deletes are scoped to it, so another owner's session is a 404. Local mode (no `AUTH_TOKEN`) uses the owner `local`; token mode (`AUTH_TOKEN` set) uses the owner `token`. Real accounts would replace the authenticator and nothing else.
 - **Origin check.** An `Origin` header must be in `ALLOWED_ORIGIN`; a request without one must come from a loopback peer.
 - **Safe by default.** `HOST` defaults to `127.0.0.1`. Configuring a non-loopback `HOST` without `AUTH_TOKEN` fails at startup (fail closed). Local mode accepts loopback peers only.
-- **Limits.** 1 MiB maximum frame (close 1009), 2 concurrent sessions per owner (close 1013), 15 minute idle timeout (close 1001), 200 user turns per session. All close codes are in `websocket-protocol.md`.
+- **Limits.** 10 MiB maximum frame, which bounds one spoken utterance to about 5.5 minutes of 16 kHz PCM16 (close 1009), 64 KiB maximum JSON text frame (close 1009, `message too large`), 8 KB maximum `text_input` (ignored with `stt_error` `too_long`), 2 concurrent sessions per owner (close 1013), 15 minute idle timeout (close 1001), 200 user turns per session. All close codes are in `websocket-protocol.md`.
 
 ## Logging rules
 

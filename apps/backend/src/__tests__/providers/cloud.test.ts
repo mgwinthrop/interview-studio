@@ -18,6 +18,7 @@ const baseConfig: Config = {
   auth: { mode: "local" },
   limits: {
     maxPayloadBytes: 1,
+    maxTextFrameBytes: 1,
     maxConcurrentSessionsPerOwner: 1,
     maxTurnsPerSession: 1,
     idleTimeoutMs: 1,
