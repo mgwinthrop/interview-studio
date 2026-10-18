@@ -25,13 +25,15 @@ Before publishing, run all of: `npm test`, frontend lint, frontend build, backen
 
 ## Architecture
 
-Pipeline: browser mic → AudioWorklet (PCM16, 16kHz mono) → Silero VAD (`@ricky0123/vad-web`, client-side, decides end of turn) → WebSocket binary frame → ElevenLabs Scribe STT (`scribeSession.ts`) → Claude (`llm.ts`) → `sentenceChunker.ts` → TTS (`ttsStream.ts`, ElevenLabs with optional Cartesia fallback) → binary MP3 frames back → `lib/audioQueue.ts` (Web Audio, serialised playback). `docs/architecture.md` has the latency budget and diagram.
+Pipeline: browser mic → AudioWorklet (PCM16, 16kHz mono) → Silero VAD (`@ricky0123/vad-web`, client-side, decides end of turn) → WebSocket binary frame → STT → LLM → `sentenceChunker.ts` → TTS → binary MP3 frames back → `lib/audioQueue.ts` (Web Audio, serialised playback). `docs/architecture.md` has the latency budget and diagram.
 
 Backend:
-- `index.ts` — Express app plus the single WebSocket endpoint at the root path. Binary frames (`isBinary`) are audio; everything else is typed JSON. `session_start` must be the first message.
-- `orchestrator.ts` — per-session turn handling and the interrupt flow. Phase transitions (`intro` → `share_work` → `deep_dive` → `wrap_up`) are driven by user-turn counts in the orchestrator, never decided by the LLM. `buildSystemPrompt(phase, topic)` injects per-phase instructions.
+- `index.ts` — thin entrypoint: `loadConfig` (`config.ts`; exits on a bad setting), `runMigrations` (`migrate.ts`; exits on failure), `createProviders`, `createApp`, `listen`.
+- `app.ts` — `createApp` builds the Express routes and the single WebSocket endpoint at the root path without listening (tests use it on port 0). `auth.ts` runs on every HTTP request and on the upgrade (origin check, loopback-only local mode, optional `AUTH_TOKEN`) and yields the `ownerId` every query filters by. The server issues session IDs; binary frames (`isBinary`) are audio, everything else is typed JSON, and `session_start` must be the first frame.
+- `providers/` — STT, LLM and TTS interfaces with cloud (ElevenLabs Scribe, Claude, ElevenLabs TTS with optional Cartesia fallback) and mock implementations; `PROFILE=mock` needs no keys.
+- `sessionController.ts` — one controller per connection: turn queue, interrupt and abort flow, idle timeout, end and report; `sessionRegistry.ts` tracks live controllers. `orchestrator.ts` holds the pure turn helpers. Phase transitions (`intro` → `share_work` → `deep_dive` → `wrap_up`) are driven by user-turn counts, never decided by the LLM. `buildSystemPrompt(phase, topic)` injects per-phase instructions.
 - `topic.ts` — the three preset interviewers (topic IDs and prompts).
-- `sessionStore.ts` / `runtimeStore.ts` — in-memory active session state. `persistence.ts` + `prisma/schema.prisma` write to SQLite on completed turns, phase changes and session end. `reportGenerator.ts` builds the post-session feedback.
+- `persistence.ts` + `prisma/schema.prisma` write to SQLite as turns complete, on phase changes and when the session ends (`complete`, `failed` or `abandoned`). `reportGenerator.ts` builds the post-session feedback.
 
 Frontend: `app/session/page.tsx` is the live conversation, built on `hooks/useWebSocket.ts`, `hooks/useVAD.ts` and `lib/audioQueue.ts`. `app/components/InterviewerAvatar.tsx` is an inline SVG animated by CSS in `globals.css`. `app/lib/topics.ts` mirrors the backend topic IDs. Report and history pages are `app/report/[sessionId]` and `app/dashboard`.
 
