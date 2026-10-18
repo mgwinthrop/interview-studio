@@ -1,7 +1,8 @@
 import { randomUUID } from "crypto";
 import type { Config } from "./config";
 import type * as Persistence from "./persistence";
-import type { Providers } from "./providers/types";
+import { computeTurnMetrics, type TurnMetrics } from "./delivery/metrics";
+import type { Providers, Word } from "./providers/types";
 import type { InterviewerDefinition } from "./interviewer/schema";
 import { advancePhase, buildTurnRequest, type TurnSession } from "./orchestrator";
 import { generateReport } from "./reportGenerator";
@@ -33,10 +34,13 @@ export interface ControllerDeps {
   onEnded?(status: EndedStatus): void;
 }
 
-/** A user utterance waiting for its turn. receivedAt is the latency_metric origin. */
+/**
+ * A user utterance waiting for its turn. receivedAt is the latency_metric origin. An audio
+ * item carries the response gap noted just before it arrived (null when none was noted).
+ */
 type Utterance =
   | { kind: "text"; text: string; receivedAt: number }
-  | { kind: "audio"; pcm: Buffer; receivedAt: number };
+  | { kind: "audio"; pcm: Buffer; receivedAt: number; responseGapMs: number | null };
 type Item = Utterance | { kind: "greeting" };
 
 /** The in-flight item. interrupted is set by interrupt()/abandon() before they abort. */
@@ -46,6 +50,8 @@ interface TurnCtx {
 }
 
 const QUEUE_CAP = 5;
+/** Largest accepted response gap (10 minutes); anything outside 0..this is ignored. */
+const MAX_RESPONSE_GAP_MS = 600_000;
 /** Locked decision: conversational replies use max_tokens 300. */
 const MAX_TOKENS = 300;
 
@@ -78,6 +84,8 @@ export class SessionController {
   private reportAbort: AbortController | null = null;
   private ending: Promise<"complete" | "failed"> | null = null;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Gap from noteResponseGap() waiting for the next audio utterance; never given to text. */
+  private pendingGapMs: number | null = null;
 
   private started = false;
   /** No new input is accepted: end() has begun or abandon() was called. */
@@ -113,7 +121,23 @@ export class SessionController {
   }
 
   handleAudio(pcm: Buffer): void {
-    this.enqueue({ kind: "audio", pcm, receivedAt: Date.now() });
+    // The pending gap belongs to this utterance, so it is taken now, at arrival, and not
+    // when the item is dequeued; it is consumed even if the item is then dropped.
+    const responseGapMs = this.pendingGapMs;
+    this.pendingGapMs = null;
+    this.enqueue({ kind: "audio", pcm, receivedAt: Date.now(), responseGapMs });
+  }
+
+  /**
+   * Notes the client-measured gap between the end of the interviewer's playback and the
+   * start of the user's speech, for the next audio utterance. Anything but a finite number
+   * in 0..600000 ms is ignored silently; a later valid note replaces an earlier one. The
+   * value is never logged.
+   */
+  noteResponseGap(ms: unknown): void {
+    if (this.closed) return;
+    if (typeof ms !== "number" || !Number.isFinite(ms) || ms < 0 || ms > MAX_RESPONSE_GAP_MS) return;
+    this.pendingGapMs = ms;
   }
 
   handleText(text: string): void {
@@ -127,6 +151,7 @@ export class SessionController {
     if (this.closed) return;
     this.touch();
     this.queue.length = 0;
+    this.pendingGapMs = null;
     this.cancelTurn();
     const current = this.active;
     if (current) await current;
@@ -146,6 +171,7 @@ export class SessionController {
     this.closed = true;
     this.clearIdle();
     this.queue.length = 0;
+    this.pendingGapMs = null;
     this.cancelTurn();
     this.ending = this.finish();
     return this.ending;
@@ -158,6 +184,7 @@ export class SessionController {
     this.closed = true;
     this.clearIdle();
     this.queue.length = 0;
+    this.pendingGapMs = null;
     this.cancelTurn();
     this.reportAbort?.abort();
     this._state = "idle";
@@ -239,16 +266,19 @@ export class SessionController {
     this.setState("thinking");
     try {
       let userText: string | null = null;
+      let metrics: TurnMetrics | null = null;
       if (item.kind === "audio") {
-        userText = await this.transcribe(item.pcm, ctx.abort.signal);
-        if (userText === null) return;
+        const heard = await this.transcribe(item.pcm, ctx.abort.signal);
+        if (heard === null) return;
+        userText = heard.text;
+        metrics = computeTurnMetrics({ text: heard.text, words: heard.words, responseGapMs: item.responseGapMs });
       } else if (item.kind === "text") {
         userText = item.text;
       }
       if (ctx.abort.signal.aborted) return;
 
       if (userText !== null) {
-        this.addTurn("user", userText);
+        this.addTurn("user", userText, metrics);
         this.deps.sendJson({ type: "transcript", text: userText, role: "user" });
       }
       await this.respond(ctx, item.kind === "greeting" ? undefined : item.receivedAt);
@@ -259,16 +289,16 @@ export class SessionController {
     }
   }
 
-  /** Returns the transcript, or null when the utterance yields no turn. */
-  private async transcribe(pcm: Buffer, signal: AbortSignal): Promise<string | null> {
+  /** Returns the trimmed transcript and its words, or null when the utterance yields no turn. */
+  private async transcribe(pcm: Buffer, signal: AbortSignal): Promise<{ text: string; words: Word[] } | null> {
     try {
-      const { text } = await this.deps.providers.stt.transcribe(pcm, signal);
+      const { text, words } = await this.deps.providers.stt.transcribe(pcm, signal);
       if (signal.aborted) return null;
       if (!text.trim()) {
         this.deps.sendJson({ type: "stt_error", reason: "low_confidence" });
         return null;
       }
-      return text.trim();
+      return { text: text.trim(), words };
     } catch (err) {
       // Only our own abort is silent; an AbortError we did not cause is a provider failure.
       if (signal.aborted) return null;
@@ -471,7 +501,8 @@ export class SessionController {
     return this._turns.filter((t) => t.role === "user").length;
   }
 
-  private addTurn(role: ConversationTurn["role"], content: string): void {
+  /** metrics: delivery measures of a voiced user turn (numbers only); omitted otherwise. */
+  private addTurn(role: ConversationTurn["role"], content: string, metrics: TurnMetrics | null = null): void {
     const turn: ConversationTurn = {
       id: randomUUID(),
       sessionId: this.sessionId,
@@ -479,6 +510,7 @@ export class SessionController {
       content,
       phase: this.phase,
       timestamp: new Date(),
+      ...(metrics ? { metrics } : {}),
     };
     this._turns.push(turn);
     if (role === "user") this.phaseUserTurns += 1;

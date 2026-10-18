@@ -1217,3 +1217,227 @@ describe("SessionController report deadline", () => {
     expect(persist.persistSessionStatus.mock.calls).toEqual([["s-1", "complete"]]);
   });
 });
+
+describe("SessionController delivery metrics", () => {
+  const METRIC_KEYS = [
+    "durationSec",
+    "fillerCount",
+    "longestPauseSec",
+    "pauseCount",
+    "responseGapMs",
+    "timedWordCount",
+    "wordCount",
+    "wordsPerMinute",
+  ];
+  const userTurns = (turns: readonly ConversationTurn[]) => turns.filter((t) => t.role === "user");
+  const gaps = (turns: readonly ConversationTurn[]) =>
+    userTurns(turns).map((t) => t.metrics?.responseGapMs ?? null);
+
+  it("stores metrics computed from the STT words on an audio turn, as numbers only", async () => {
+    const { ctl, storedTurns } = setup({ script: { sttTexts: ["um I think we ship weekly"] } });
+    await ctl.start();
+    ctl.noteResponseGap(850);
+    ctl.handleAudio(Buffer.alloc(320));
+    await ctl.settled();
+    const [turn] = userTurns(storedTurns());
+    expect(turn.content).toBe("um I think we ship weekly");
+    expect(turn.metrics).toMatchObject({ wordCount: 6, timedWordCount: 6, responseGapMs: 850, fillerCount: 1 });
+    expect(Object.keys(turn.metrics!).sort()).toEqual(METRIC_KEYS);
+    for (const v of Object.values(turn.metrics!)) expect(v === null || typeof v === "number").toBe(true);
+    // The in-memory turn carries the same metrics.
+    expect(userTurns(ctl.turns)[0].metrics).toEqual(turn.metrics);
+  });
+
+  it("an audio turn with no noted gap has responseGapMs null", async () => {
+    const { ctl, storedTurns } = setup({ script: { sttTexts: ["spoken words"] } });
+    await ctl.start();
+    ctl.handleAudio(Buffer.alloc(320));
+    await ctl.settled();
+    expect(userTurns(storedTurns())[0].metrics).toMatchObject({ wordCount: 2, responseGapMs: null });
+  });
+
+  it("text-input turns and the greeting store no metrics", async () => {
+    const { ctl, storedTurns } = setup();
+    await ctl.start();
+    ctl.handleText("typed answer");
+    await ctl.settled();
+    const turns = storedTurns();
+    expect(turns.map((t) => t.role)).toEqual(["assistant", "user", "assistant"]);
+    for (const t of turns) expect(t.metrics ?? null).toBeNull();
+  });
+
+  it.each([
+    ["-5", -5],
+    ["NaN", NaN],
+    ["Infinity", Infinity],
+    ["-Infinity", -Infinity],
+    ['"12"', "12"],
+    ["1e9", 1e9],
+    ["600001", 600_001],
+    ["null", null],
+    ["undefined", undefined],
+    ["an object", { ms: 12 }],
+  ])("ignores an invalid gap (%s) silently", async (_label, value) => {
+    const spies = (["log", "warn", "error"] as const).map((m) => vi.spyOn(console, m).mockImplementation(() => {}));
+    const { ctl, storedTurns } = setup();
+    await ctl.start();
+    expect(() => ctl.noteResponseGap(value)).not.toThrow();
+    for (const s of spies) expect(s).not.toHaveBeenCalled();
+    ctl.handleAudio(Buffer.alloc(320));
+    await ctl.settled();
+    expect(gaps(storedTurns())).toEqual([null]);
+  });
+
+  it("accepts the bounds 0 and 600000", async () => {
+    const { ctl, storedTurns } = setup({ script: { ttsDelayMs: 5 } });
+    await ctl.start();
+    ctl.noteResponseGap(0);
+    ctl.handleAudio(Buffer.alloc(320));
+    ctl.noteResponseGap(600_000);
+    ctl.handleAudio(Buffer.alloc(320));
+    await ctl.settled();
+    expect(gaps(storedTurns())).toEqual([0, 600_000]);
+  });
+
+  it("an invalid note does not replace an earlier valid one", async () => {
+    const { ctl, storedTurns } = setup();
+    await ctl.start();
+    ctl.noteResponseGap(700);
+    ctl.noteResponseGap(-1);
+    ctl.handleAudio(Buffer.alloc(320));
+    await ctl.settled();
+    expect(gaps(storedTurns())).toEqual([700]);
+  });
+
+  it("two valid notes before one audio keep only the last", async () => {
+    const { ctl, storedTurns } = setup({ script: { ttsDelayMs: 5 } });
+    await ctl.start();
+    ctl.noteResponseGap(100);
+    ctl.noteResponseGap(200);
+    ctl.handleAudio(Buffer.alloc(320));
+    ctl.handleAudio(Buffer.alloc(320));
+    await ctl.settled();
+    // The second audio finds the gap already consumed.
+    expect(gaps(storedTurns())).toEqual([200, null]);
+  });
+
+  it("a gap noted then interrupt() is discarded: the next audio has responseGapMs null", async () => {
+    const { ctl, storedTurns } = setup();
+    await ctl.start();
+    ctl.noteResponseGap(450);
+    await ctl.interrupt();
+    ctl.handleAudio(Buffer.alloc(320));
+    await ctl.settled();
+    expect(userTurns(storedTurns())).toHaveLength(1);
+    expect(gaps(storedTurns())).toEqual([null]);
+  });
+
+  it("with two audio items enqueued back to back, a note between them attaches to the second only", async () => {
+    const { ctl, storedTurns } = setup({ script: { sttTexts: ["first words", "second words"], ttsDelayMs: 5 } });
+    await ctl.start();
+    ctl.handleText("busy now");
+    ctl.handleAudio(Buffer.alloc(320));
+    ctl.noteResponseGap(1234);
+    ctl.handleAudio(Buffer.alloc(320));
+    await ctl.settled();
+    expect(userTurns(storedTurns()).map((t) => [t.content, t.metrics?.responseGapMs ?? null])).toEqual([
+      ["busy now", null],
+      ["first words", null],
+      ["second words", 1234],
+    ]);
+  });
+
+  it("the note binds at enqueue time, not when the queued item runs", async () => {
+    const { ctl, storedTurns } = setup({ script: { sttTexts: ["first words", "second words"], ttsDelayMs: 5 } });
+    await ctl.start();
+    ctl.handleText("busy now");
+    ctl.noteResponseGap(300);
+    ctl.handleAudio(Buffer.alloc(320)); // queued behind the text turn, carries 300
+    ctl.noteResponseGap(900);
+    ctl.handleAudio(Buffer.alloc(320)); // carries 900
+    await ctl.settled();
+    expect(gaps(storedTurns())).toEqual([null, 300, 900]);
+  });
+
+  it("a gap never lands on a text turn, and an interrupt drops it before a later audio turn", async () => {
+    const { ctl, storedTurns } = setup();
+    await ctl.start();
+    ctl.noteResponseGap(321);
+    ctl.handleText("typed instead");
+    await ctl.settled();
+    expect(userTurns(storedTurns())[0].metrics ?? null).toBeNull();
+    await ctl.interrupt();
+    ctl.handleAudio(Buffer.alloc(320));
+    await ctl.settled();
+    const turns = userTurns(storedTurns());
+    expect(turns).toHaveLength(2);
+    expect(turns[0].metrics ?? null).toBeNull();
+    expect(turns[1].metrics).toMatchObject({ responseGapMs: null });
+  });
+
+  it("a text turn does not consume a pending gap: the next audio still gets it", async () => {
+    const { ctl, storedTurns } = setup({ script: { ttsDelayMs: 5 } });
+    await ctl.start();
+    ctl.noteResponseGap(640);
+    ctl.handleText("typed first");
+    ctl.handleAudio(Buffer.alloc(320));
+    await ctl.settled();
+    expect(gaps(storedTurns())).toEqual([null, 640]);
+  });
+
+  it("a gap consumed by an audio item whose STT fails does not carry to the next audio", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const providers = createMockProviders({ llmReplies: [LONG_REPLY] });
+    vi.spyOn(providers.stt, "transcribe").mockRejectedValueOnce(new TypeError("down"));
+    const { ctl, json, storedTurns } = setup({ providers });
+    await ctl.start();
+    ctl.noteResponseGap(500);
+    ctl.handleAudio(Buffer.alloc(320));
+    await ctl.settled();
+    expect(json()).toContainEqual({ type: "stt_error", reason: "stt_failed" });
+    expect(userTurns(storedTurns())).toHaveLength(0);
+    ctl.handleAudio(Buffer.alloc(320));
+    await ctl.settled();
+    expect(gaps(storedTurns())).toEqual([null]);
+  });
+
+  it("an empty transcript with a noted gap stores nothing and still sends low_confidence", async () => {
+    const { ctl, json, storedTurns } = setup({ script: { sttTexts: ["   "] } });
+    await ctl.start();
+    ctl.noteResponseGap(500);
+    ctl.handleAudio(Buffer.alloc(320));
+    await ctl.settled();
+    expect(json()).toContainEqual({ type: "stt_error", reason: "low_confidence" });
+    expect(userTurns(storedTurns())).toHaveLength(0);
+  });
+
+  it("a closed controller ignores notes without throwing or logging", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { ctl, events } = setup();
+    await ctl.start();
+    ctl.abandon();
+    await ctl.settled();
+    const n = events.length;
+    expect(() => ctl.noteResponseGap(4321)).not.toThrow();
+    ctl.handleAudio(Buffer.alloc(320));
+    await ctl.settled();
+    expect(events.length).toBe(n);
+    const all = [...log.mock.calls, ...err.mock.calls].flat().join(" ");
+    expect(all).not.toContain("4321");
+  });
+
+  it("never logs the gap value", async () => {
+    const spies = (["log", "warn", "error"] as const).map((m) => vi.spyOn(console, m).mockImplementation(() => {}));
+    const { ctl } = setup({ script: { ttsDelayMs: 5 } });
+    await ctl.start();
+    ctl.noteResponseGap(4321);
+    ctl.handleAudio(Buffer.alloc(320));
+    ctl.noteResponseGap(8765);
+    await ctl.interrupt();
+    await ctl.settled();
+    const all = spies.flatMap((s) => s.mock.calls).flat().join(" ");
+    expect(all).not.toContain("4321");
+    expect(all).not.toContain("8765");
+  });
+});
