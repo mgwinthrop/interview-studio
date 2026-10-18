@@ -63,6 +63,8 @@ const overlaySecondaryStyle: React.CSSProperties = {
 function LoadingScreen() {
   return (
     <div
+      role="status"
+      aria-label="Loading session"
       style={{
         display: "flex",
         alignItems: "center",
@@ -424,7 +426,7 @@ function SessionView({ interviewer, demo }: SessionViewProps) {
         }}
       >
         {/* Interviewer name */}
-        <span style={{ fontSize: 15, fontWeight: 700, color: "#000000" }}>
+        <span dir="auto" style={{ fontSize: 15, fontWeight: 700, color: "#000000", overflowWrap: "anywhere" }}>
           {interviewer.name}
         </span>
 

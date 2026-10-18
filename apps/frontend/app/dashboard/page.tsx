@@ -311,11 +311,13 @@ export default function DashboardPage() {
                     }}
                   >
                     <div
+                      dir="auto"
                       style={{
                         fontSize: 13,
                         fontWeight: 700,
                         color: "#000000",
                         marginBottom: 3,
+                        overflowWrap: "anywhere",
                       }}
                     >
                       {s.interviewerName ?? EARLIER_INTERVIEW_LABEL}

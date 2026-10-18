@@ -303,7 +303,9 @@ function PersonaCard({ interviewer, onSelect }: PersonaCardProps) {
           margin: 0,
           lineHeight: 1.3,
           letterSpacing: "-0.01em",
+          overflowWrap: "anywhere",
         }}
+        dir="auto"
       >
         {interviewer.name}
       </h2>

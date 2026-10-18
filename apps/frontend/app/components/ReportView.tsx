@@ -54,7 +54,7 @@ export function ReportView({ report, interviewerName, sessionId, onNewSession }:
           >
             Assessment report
           </h1>
-          <p style={{ margin: "3px 0 0", fontSize: 13, color: "#6B7A8D", fontWeight: 400 }}>
+          <p dir="auto" style={{ margin: "3px 0 0", fontSize: 13, color: "#6B7A8D", fontWeight: 400, overflowWrap: "anywhere" }}>
             {interviewerLabel} — {headerDate}
           </p>
         </div>
@@ -121,7 +121,7 @@ export function ReportView({ report, interviewerName, sessionId, onNewSession }:
                 marginBottom: 3,
               }}
             >
-              <span style={{ fontSize: 13, fontWeight: 700, color: "#087E8B" }}>
+              <span dir="auto" style={{ fontSize: 13, fontWeight: 700, color: "#087E8B", overflowWrap: "anywhere" }}>
                 {interviewerLabel}
               </span>
               <span style={{ fontSize: 11, color: "#6B7A8D", fontWeight: 400, flexShrink: 0, marginLeft: 8 }}>
