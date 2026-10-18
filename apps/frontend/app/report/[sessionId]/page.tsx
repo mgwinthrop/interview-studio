@@ -6,9 +6,14 @@ import { apiUrl } from "../../lib/config";
 import { Nav } from "../../components/Nav";
 import { FlowStepper } from "../../components/FlowStepper";
 import { ReportView } from "../../components/ReportView";
-import type { Report, ReportResponse } from "../../types";
+import {
+  parseReport,
+  parseReportFailure,
+  regenerateReport,
+  type ReportView as ReportData,
+} from "../../lib/report";
 
-type Status = "loading" | "ready" | "abandoned" | "error";
+type Status = "loading" | "ready" | "abandoned" | "failed" | "unreadable" | "error";
 
 // Inner component, rendered inside <Suspense> by the page wrapper.
 function ReportPageInner() {
@@ -16,9 +21,14 @@ function ReportPageInner() {
   const router = useRouter();
 
   const [status, setStatus] = useState<Status>("loading");
-  const [report, setReport] = useState<Report | null>(null);
-  // null for sessions stored before interviewers had names.
-  const [interviewerName, setInterviewerName] = useState<string | null>(null);
+  const [report, setReport] = useState<ReportData | null>(null);
+  // From a failed report's 500 body: whether the server can write the report again.
+  const [canRegenerate, setCanRegenerate] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
+  const [regenerateError, setRegenerateError] = useState<string | null>(null);
+  // True once a regenerated report replaces the failed state, so focus moves to its heading.
+  const [regenerated, setRegenerated] = useState(false);
+  const regenerateButtonRef = useRef<HTMLButtonElement>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollCountRef = useRef(0);
   // Set on the first terminal result so overlapping in-flight polls change nothing after it.
@@ -55,7 +65,7 @@ function ReportPageInner() {
 
     let res: Response;
     try {
-      res = await fetch(`${apiUrl}/report/${sessionId}`);
+      res = await fetch(`${apiUrl}/report/${encodeURIComponent(sessionId)}`);
     } catch {
       if (!stoppedRef.current) stop("error");
       return;
@@ -65,16 +75,32 @@ function ReportPageInner() {
     if (res.status === 200) {
       stoppedRef.current = true;
       clearPoll();
-      const { interviewerName: name, ...data } = (await res.json()) as ReportResponse;
-      setReport(data);
-      setInterviewerName(name ?? null);
-      setStatus("ready");
+      const parsed = parseReport(await readJson(res));
+      if (parsed) {
+        setReport(parsed);
+        setStatus("ready");
+      } else {
+        setStatus("error");
+      }
     } else if (res.status === 202) {
       // Still generating — keep polling (ceiling enforced above)
-    } else if (res.status === 404 || res.status >= 500) {
-      // 404 = no report for this session; 5xx = failed or abandoned (no usable report).
-      // Terminal: stop polling at once.
+    } else if (res.status === 404) {
+      // No report for this session. Terminal: stop polling at once.
       stop("abandoned");
+    } else if (res.status >= 500) {
+      // Failed, abandoned or unreadable (no usable report). Terminal: stop polling at once,
+      // before reading the body, so overlapping polls change nothing after it.
+      stoppedRef.current = true;
+      clearPoll();
+      const failure = parseReportFailure(await readJson(res));
+      if (failure.kind === "failed") {
+        setCanRegenerate(failure.canRegenerate);
+        setStatus("failed");
+      } else if (failure.kind === "unreadable") {
+        setStatus("unreadable");
+      } else {
+        setStatus("abandoned");
+      }
     } else {
       stop("error");
     }
@@ -89,6 +115,27 @@ function ReportPageInner() {
     return () => clearPoll(); // critical: stop polling on unmount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
+
+  // After a failed regenerate the button is enabled again; put focus back on it so keyboard
+  // and screen-reader users stay where they were (the alert announces the message).
+  useEffect(() => {
+    if (!regenerating && regenerateError) regenerateButtonRef.current?.focus();
+  }, [regenerating, regenerateError]);
+
+  async function handleRegenerate() {
+    if (regenerating) return;
+    setRegenerating(true);
+    setRegenerateError(null);
+    const outcome = await regenerateReport(sessionId);
+    if (outcome.ok) {
+      setReport(outcome.report);
+      setRegenerated(true);
+      setStatus("ready");
+    } else {
+      setRegenerateError(outcome.message);
+    }
+    setRegenerating(false);
+  }
 
   // ── Layouts ───────────────────────────────────────────────────────────────
 
@@ -117,6 +164,65 @@ function ReportPageInner() {
           <p style={{ fontSize: 16, color: "#6B7A8D", margin: 0, textAlign: "center", maxWidth: 400 }}>
             The session was too short to generate a report, or it ended unexpectedly.
           </p>
+          <button onClick={() => router.push("/")} style={backButtonStyle}>
+            Back to Home
+          </button>
+        </div>
+      </Shell>
+    );
+  }
+
+  if (status === "failed") {
+    return (
+      <Shell>
+        <div style={centeredColumnStyle}>
+          <h1 style={messageHeadingStyle}>We couldn&apos;t write the reflection for this conversation.</h1>
+          {canRegenerate && (
+            <>
+              <p style={messageTextStyle}>
+                Your conversation was saved. Generating the report again can take up to a minute and a half.
+              </p>
+              <button
+                ref={regenerateButtonRef}
+                type="button"
+                onClick={handleRegenerate}
+                disabled={regenerating}
+                aria-busy={regenerating ? "true" : undefined}
+                style={{
+                  marginTop: 8,
+                  padding: "10px 24px",
+                  borderRadius: 8,
+                  border: "none",
+                  background: regenerating ? "#4F8F96" : "#087E8B",
+                  color: "#FFFFFF",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: regenerating ? "default" : "pointer",
+                  fontFamily: "var(--font-manrope), sans-serif",
+                }}
+              >
+                {regenerating ? "Generating…" : "Try generating it again"}
+              </button>
+              {regenerateError && (
+                <p role="alert" style={{ ...messageTextStyle, fontSize: 14, color: "#B3261E" }}>
+                  {regenerateError}
+                </p>
+              )}
+            </>
+          )}
+          <button onClick={() => router.push("/")} style={backButtonStyle}>
+            Back to Home
+          </button>
+        </div>
+      </Shell>
+    );
+  }
+
+  if (status === "unreadable") {
+    return (
+      <Shell>
+        <div style={centeredColumnStyle}>
+          <h1 style={messageHeadingStyle}>This report could not be read.</h1>
           <button onClick={() => router.push("/")} style={backButtonStyle}>
             Back to Home
           </button>
@@ -157,9 +263,10 @@ function ReportPageInner() {
       <FlowStepper currentStep={4} />
       <ReportView
         report={report!}
-        interviewerName={interviewerName}
+        interviewerName={report!.interviewerName}
         sessionId={sessionId}
         onNewSession={() => router.push("/mic-check")}
+        focusHeading={regenerated}
       />
     </div>
   );
@@ -181,6 +288,15 @@ export default function ReportPage() {
 }
 
 // ── Shared sub-components ────────────────────────────────────────────────────
+
+/** The response body as JSON, or null when it is not JSON. Never throws. */
+async function readJson(res: Response): Promise<unknown> {
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
@@ -210,6 +326,32 @@ function Shell({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
+
+const centeredColumnStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  gap: 16,
+  padding: "24px 16px",
+  maxWidth: 480,
+};
+
+const messageHeadingStyle: React.CSSProperties = {
+  fontSize: 20,
+  fontWeight: 700,
+  color: "#000000",
+  margin: 0,
+  textAlign: "center",
+  lineHeight: 1.35,
+};
+
+const messageTextStyle: React.CSSProperties = {
+  fontSize: 16,
+  color: "#6B7A8D",
+  margin: 0,
+  textAlign: "center",
+  lineHeight: 1.5,
+};
 
 const backButtonStyle: React.CSSProperties = {
   marginTop: 8,

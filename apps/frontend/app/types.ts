@@ -10,23 +10,7 @@ export interface TranscriptEntry {
   content: string;
 }
 
-// Report interface — spec §8 Data Model
-// generatedAt is string (JSON-serialised Date from backend)
-export interface Report {
-  sessionId: string;
-  summary: string;
-  strengths: { area: string; evidence: string }[];
-  improvements: { area: string; suggestion: string }[];
-  highlights: string[];
-  overallAssessment: string;
-  generatedAt: string;
-}
-
-// The report endpoints return the report fields plus the interviewer's name.
-// interviewerName is null for sessions stored before interviewers had names.
-export interface ReportResponse extends Report {
-  interviewerName: string | null;
-}
+// Report types (format 1 and format 2) and their parser live in lib/report.ts.
 
 // Discriminated union of all server → client message types (spec §5.3)
 export type ServerMessage =

@@ -195,7 +195,7 @@ export default function MicCheckPage() {
             Test your microphone
           </h1>
           <p style={{ fontSize: 16, color: "#6B7A8D", margin: 0, fontWeight: 400 }}>
-            Enable your mic to begin the assessment
+            Enable your mic to begin the conversation
           </p>
         </div>
 

@@ -2,11 +2,12 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Nav } from "../components/Nav";
 import { ReportView } from "../components/ReportView";
 import { apiUrl } from "../lib/config";
 import { EARLIER_INTERVIEW_LABEL } from "../lib/interviewers";
-import type { Report } from "../types";
+import { parseReport, parseReportFailure, type ReportView as ReportData } from "../lib/report";
 
 // One row of GET /api/sessions.
 interface SessionListItem {
@@ -38,6 +39,9 @@ function ClipboardIcon() {
   );
 }
 
+const REPORT_LOAD_FAILED = "Could not load report.";
+const REPORT_UNREADABLE = "This report could not be read.";
+
 function CenteredMessage({ children }: { children: React.ReactNode }) {
   return (
     <div
@@ -60,9 +64,12 @@ export default function DashboardPage() {
   const router = useRouter();
   const [sessions, setSessions] = useState<SessionListItem[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [report, setReport] = useState<Report | null>(null);
+  const [report, setReport] = useState<ReportData | null>(null);
   const [loadingReport, setLoadingReport] = useState(false);
-  const [reportError, setReportError] = useState(false);
+  // A plain message when the selected session's report could not be shown; null otherwise.
+  const [reportError, setReportError] = useState<string | null>(null);
+  // The selected session's report failed and the server can write it again (on its report page).
+  const [canRegenerateSelected, setCanRegenerateSelected] = useState(false);
   const [loadingSessions, setLoadingSessions] = useState(true);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -84,19 +91,49 @@ export default function DashboardPage() {
 
   // Fetch report whenever selected session changes
   useEffect(() => {
-    if (!selectedId) return;
+    if (!selectedId) {
+      // An earlier fetch may have been cancelled mid-flight (e.g. by a delete).
+      setLoadingReport(false);
+      return;
+    }
+    // A later selection supersedes this one; its late answer must not overwrite the view.
+    let cancelled = false;
     setReport(null);
-    setReportError(false);
+    setReportError(null);
+    setCanRegenerateSelected(false);
     setLoadingReport(true);
-    fetch(`${apiUrl}/api/session/${selectedId}/report`)
-      .then((r) => {
-        if (r.status === 202 || r.status === 404) return null;
-        if (!r.ok) throw new Error("fetch failed");
-        return r.json();
-      })
-      .then((data: Report | null) => setReport(data))
-      .catch(() => setReportError(true))
-      .finally(() => setLoadingReport(false));
+    (async () => {
+      let message: string | null = null;
+      let parsed: ReportData | null = null;
+      let canRegenerate = false;
+      try {
+        const r = await fetch(`${apiUrl}/api/session/${encodeURIComponent(selectedId)}/report`);
+        if (r.status === 200) {
+          parsed = parseReport(await r.json().catch(() => null));
+          if (!parsed) message = REPORT_UNREADABLE;
+        } else if (r.status >= 500) {
+          const failure = parseReportFailure(await r.json().catch(() => null));
+          if (failure.kind === "failed") {
+            message = "We couldn't write the reflection for this conversation.";
+            canRegenerate = failure.canRegenerate;
+          } else {
+            message = failure.kind === "unreadable" ? REPORT_UNREADABLE : REPORT_LOAD_FAILED;
+          }
+        } else if (r.status !== 202 && r.status !== 404) {
+          message = REPORT_LOAD_FAILED;
+        }
+      } catch {
+        message = REPORT_LOAD_FAILED;
+      }
+      if (cancelled) return;
+      setReport(parsed);
+      setReportError(message);
+      setCanRegenerateSelected(canRegenerate);
+      setLoadingReport(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [selectedId]);
 
   // A different selection clears any earlier delete error
@@ -193,7 +230,7 @@ export default function DashboardPage() {
             fontWeight: 400,
           }}
         >
-          Completed assessment sessions
+          Completed conversations and their reports
         </p>
       </div>
 
@@ -229,7 +266,7 @@ export default function DashboardPage() {
                 marginBottom: 20,
               }}
             >
-              Complete an assessment to see your report here.
+              Finish a conversation to see its report here.
             </div>
             <button
               onClick={() => router.push("/")}
@@ -245,7 +282,7 @@ export default function DashboardPage() {
                 fontFamily: "var(--font-manrope), sans-serif",
               }}
             >
-              Start assessment →
+              Start a conversation →
             </button>
           </div>
         </div>
@@ -396,7 +433,19 @@ export default function DashboardPage() {
             {loadingReport ? (
               <CenteredMessage>Loading report…</CenteredMessage>
             ) : reportError ? (
-              <CenteredMessage>Could not load report.</CenteredMessage>
+              <CenteredMessage>
+                <div style={{ textAlign: "center", padding: "0 16px" }}>
+                  <p style={{ margin: 0 }}>{reportError}</p>
+                  {canRegenerateSelected && selectedId && (
+                    <Link
+                      href={`/report/${encodeURIComponent(selectedId)}`}
+                      style={{ display: "inline-block", marginTop: 10, color: "#087E8B", fontWeight: 600 }}
+                    >
+                      Open the report page to try again
+                    </Link>
+                  )}
+                </div>
+              </CenteredMessage>
             ) : !selectedId ? (
               <CenteredMessage>
                 Select a session to view its report
@@ -404,7 +453,7 @@ export default function DashboardPage() {
             ) : report ? (
               <ReportView
                 report={report}
-                interviewerName={selectedInterviewerName}
+                interviewerName={selectedInterviewerName ?? report.interviewerName}
                 sessionId={selectedId}
                 onNewSession={() => router.push("/")}
               />
