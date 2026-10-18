@@ -10,7 +10,7 @@ export class ReportError extends Error {
   }
 }
 
-const reportSchema = z.object({
+export const reportSchema = z.object({
   summary: z.string(),
   strengths: z.array(z.object({ area: z.string(), evidence: z.string() })),
   improvements: z.array(z.object({ area: z.string(), suggestion: z.string() })),
@@ -30,7 +30,10 @@ export async function generateReport(
   signal: AbortSignal,
 ): Promise<Report> {
   const transcript = turns
-    .map((t) => `${t.role === "user" ? "Participant" : "Interviewer"}: ${t.content}`)
+    .map(
+      (t) =>
+        `${t.role === "user" ? "Participant" : "Interviewer"}: ${t.content}`,
+    )
     .join("\n");
 
   const userTurns = turns.filter((t) => t.role === "user").length;
@@ -60,17 +63,33 @@ Below is the full conversation transcript. Generate a structured assessment repo
 
 Return only the JSON object. No preamble or markdown formatting.`;
 
-  const parsed = await llm.structured(
-    {
-      system,
-      messages: [{ role: "user", content: `TRANSCRIPT:\n${transcript}` }],
-      schema: reportSchema,
-      // 1024: intentional exception to the 300 conversational limit; a full JSON report
-      // needs the headroom. See AGENTS.md Report Generation Rules.
-      maxTokens: 1024,
-    },
-    signal,
-  );
+  let raw: unknown;
+  try {
+    raw = await llm.structured(
+      {
+        system,
+        messages: [{ role: "user", content: `TRANSCRIPT:\n${transcript}` }],
+        schema: reportSchema,
+        // 1024: intentional exception to the 300 conversational limit; a full JSON report
+        // needs the headroom. See AGENTS.md Report Generation Rules.
+        maxTokens: 1024,
+      },
+      signal,
+    );
+  } catch (err) {
+    // Aborts propagate as aborts; anything else becomes a ReportError carrying only the
+    // cause's class name (never model output or transcript text).
+    if (signal.aborted || (err instanceof Error && err.name === "AbortError"))
+      throw err;
+    throw new ReportError(
+      `report generation failed: ${err instanceof Error ? err.constructor.name : "unknown"}`,
+    );
+  }
+
+  const checked = reportSchema.safeParse(raw);
+  if (!checked.success)
+    throw new ReportError("report generation failed: invalid output");
+  const parsed = checked.data;
 
   return {
     sessionId: turns[0].sessionId,
