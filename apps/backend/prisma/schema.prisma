@@ -27,13 +27,15 @@ model Session {
 }
 
 model ConversationTurn {
-  id        String   @id @default(uuid())
-  sessionId String
-  role      String
-  content   String
-  phase     String
-  timestamp DateTime @default(now())
-  session   Session  @relation(fields: [sessionId], references: [id])
+  id          String   @id @default(uuid())
+  sessionId   String
+  role        String
+  content     String
+  phase       String
+  timestamp   DateTime @default(now())
+  // JSON.stringify(TurnMetrics) for user turns; null when not measured and on older rows.
+  metricsJson String?
+  session     Session  @relation(fields: [sessionId], references: [id])
 }
 
 model Report {
@@ -45,6 +47,8 @@ model Report {
   highlightsJson    String // JSON.stringify(string[])
   overallAssessment String
   generatedAt       DateTime @default(now())
+  // JSON of the v2 report; null on reports from before v2, which use the columns above.
+  reportJson        String?
   session           Session  @relation(fields: [sessionId], references: [id])
 }
 

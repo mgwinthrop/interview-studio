@@ -146,8 +146,8 @@ describe("interviewers migration over a populated database", () => {
   it("keeps every turn and report byte-for-byte", async () => {
     expect(before.turns).toHaveLength(4);
     expect(before.reports).toHaveLength(1);
-    expect(await dump("ConversationTurn")).toEqual(before.turns);
-    expect(await dump("Report")).toEqual(before.reports);
+    expect(await dump("ConversationTurn", ["metricsJson"])).toEqual(before.turns);
+    expect(await dump("Report", ["reportJson"])).toEqual(before.reports);
   });
 
   it("keeps the indexes, the report sessionId unique constraint and the foreign keys", async () => {
