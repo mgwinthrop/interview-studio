@@ -56,7 +56,7 @@ export default function HomePage() {
             marginBottom: 16,
           }}
         >
-          Michael Gray / Experiments in AI
+          Voice-first interview practice
         </div>
         <h1
           style={{

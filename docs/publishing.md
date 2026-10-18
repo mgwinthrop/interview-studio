@@ -1,20 +1,23 @@
-# Publishing to Michael’s personal GitHub
+# Publishing source changes
 
-Prepared destination: `mgwinthrop/mg-interview-studio` (public).
+The source repository is [mgwinthrop/mg-interview-studio](https://github.com/mgwinthrop/mg-interview-studio).
 
-Authenticate the GitHub CLI as `mgwinthrop`:
+## Before publishing
+
+- Review the diff and confirm that credentials, session data and environment-specific settings are excluded.
+- Run the verification commands in the root README.
+- Confirm that your GitHub account has write access to the destination repository.
+
+## Push a branch
+
+From the repository checkout:
 
 ```sh
-gh auth login --hostname github.com --git-protocol https --web
-gh api user --jq .login
+git status
+git remote -v
+git push origin HEAD
 ```
 
-The second command must return `mgwinthrop`. From this repository:
+For contributions, push a branch to a fork and open a pull request against the source repository.
 
-```sh
-gh repo create mgwinthrop/mg-interview-studio --public --source=. --remote=origin --push --description "Voice-first interview practice with an animated AI interviewer"
-```
-
-The checkout has a clean initial commit containing only the prepared source. The original repository and its history are not changed or published. No license has been chosen for the pre-existing code; preserve the provenance in the README.
-
-Verification: 106 backend tests passed, frontend lint passed, frontend/backend builds passed, and focused audio playback checks passed. The frontend build reports existing ONNX bundling warnings. Live provider integration and a browser preview have not been verified in this environment.
+Publishing source code does not deploy the application. See [local setup and deployment](local-setup.md) to run or host the tool. The current prototype requires access controls before public hosting.

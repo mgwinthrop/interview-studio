@@ -1,5 +1,5 @@
-# Create a NEW Fly app, then deploy with --app YOUR_PERSONAL_APP.
-# No company app is configured here.
+# Create a NEW Fly app, then deploy with --app YOUR_APP.
+# Set the app name for your deployment.
 primary_region = 'iad'
 
 [build]

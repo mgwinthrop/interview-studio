@@ -299,7 +299,7 @@ body {
   }
 }
 
-/* MG's animated interviewer. All movement respects the device preference. */
+/* Animated interviewer. All movement respects the device preference. */
 .interviewer-panel { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:24px 16px; height:100%; background:#102B33; color:#EFF5EC; text-align:center; }
 .interviewer-heading h2 { font-size:26px; font-weight:700; margin:8px 0; letter-spacing:-.04em; }
 .interviewer-eyebrow { font-size:10px; letter-spacing:.15em; color:#93C9C4; font-weight:600; }

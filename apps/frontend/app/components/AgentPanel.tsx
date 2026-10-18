@@ -16,7 +16,7 @@ export function AgentPanel({ orbState, connectionState, lastLatencyMs, sessionId
   const state: AvatarState = paused ? "paused" : connectionState === "connected" ? orbState : connectionState;
   return (
     <div className="interviewer-panel">
-      <div className="interviewer-heading"><span className="interviewer-eyebrow">YOUR AI INTERVIEWER</span><h2>Meet MG</h2><p>A little curiosity. A better conversation.</p></div>
+      <div className="interviewer-heading"><span className="interviewer-eyebrow">YOUR AI INTERVIEWER</span><h2>AI interviewer</h2><p>Explore your experience through conversation.</p></div>
       <InterviewerAvatar state={state} />
       <div className="interviewer-status" role="status" aria-live="polite"><span className="interviewer-status-dot" data-state={state} />{AVATAR_LABELS[state]}</div>
       <p className="interviewer-caption">{state === "listening" ? "Take your time. I’m all ears." : state === "thinking" ? "Considering your experience…" : state === "speaking" ? "You can interrupt at any time." : state === "interrupted" ? "Go ahead — I’m listening." : state === "paused" ? "Resume whenever you’re ready." : "Waiting for the interview connection."}</p>

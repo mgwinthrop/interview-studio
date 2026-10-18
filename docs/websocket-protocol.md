@@ -6,7 +6,7 @@ The backend exposes a single WebSocket endpoint at the root path (`ws://host/`).
 
 ```
 ws://localhost:3001               # local dev
-wss://YOUR_PERSONAL_BACKEND  # optional personal deployment
+wss://YOUR_BACKEND  # optional hosted deployment
 ```
 
 The client opens the connection, then sends `session_start` as the first message. The server rejects any other message type before `session_start`.

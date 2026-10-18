@@ -1,6 +1,15 @@
 # MG Interview Studio
 
-Michael Gray’s personal edition of a voice-first AI interview experiment. Practice talking through your work with a curious animated interviewer, then review a transcript and a written assessment.
+MG Interview Studio is a voice-first interview practice tool for explaining your work, reflecting on your use of AI, and receiving structured feedback. An animated AI interviewer guides the conversation, asks follow-up questions, and produces a transcript and written assessment.
+
+Designed for practitioners in engineering, experience design and product strategy who want to rehearse examples from their work and identify where their explanations could be clearer or more specific.
+
+## How to use it
+
+1. Check your microphone and choose an interview focus.
+2. Talk through concrete examples of how you use AI in your work. Sessions typically take 8–12 minutes.
+3. Respond to follow-up questions, or interrupt to clarify a point.
+4. Review the transcript and feedback, then use them to refine your examples.
 
 ## What it does
 
@@ -54,15 +63,15 @@ npm --prefix apps/backend run build
 
 This is a single-user prototype. It has no authentication or authorization for session history and reports. Run locally or behind access controls; publishing source does not make the application suitable for unrestricted public hosting. Speech is sent to the configured speech provider, and transcripts are sent to the configured language model. Use practice content, not confidential interview or candidate data. Provider calls incur charges on your accounts.
 
-## Personalization
+## Customization
 
 - `apps/frontend/app/components/InterviewerAvatar.tsx`: character artwork and labels.
 - `apps/frontend/app/globals.css`: animation, colors and reduced-motion behavior.
-- `apps/frontend/app/components/Nav.tsx`: personal branding.
+- `apps/frontend/app/components/Nav.tsx`: product name and navigation.
 - `apps/backend/src/topic.ts`: interview topics and prompts.
 
-## Provenance and publication
+## Project background
 
-Prepared from the existing AI Interview Tool source at commit `ffb890a`. This personal edition changes branding, avatar presentation, playback feedback and local setup. It excludes the original Git history, company deployment identifiers, internal task notes, credentials and session data. Rebranding does not change ownership of pre-existing code. No new open-source license is asserted in this edition.
+Based on the AI Interview Tool implementation at commit `ffb890a`, with an animated interviewer, playback feedback and local setup documentation. No open-source license has been specified.
 
-Target repository: `mgwinthrop/mg-interview-studio`.
+[Source repository](https://github.com/mgwinthrop/mg-interview-studio)

@@ -20,7 +20,7 @@ export function Nav({ demo }: NavProps) {
         flexShrink: 0,
       }}
     >
-      {/* Left: Personal monogram + wordmark + product label */}
+      {/* Left: Product monogram + wordmark + product label */}
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <Link href="/" aria-label="MG Interview Studio home" style={{width: 32, height: 32, borderRadius: 10, background: "#087E8B", color: "white", display: "grid", placeItems: "center", fontWeight: 800, fontSize: 12, textDecoration: "none"}}>MG</Link>
 

@@ -9,8 +9,8 @@ const manrope = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "MG Interview Studio | Michael Gray",
-  description: "Conversational AI interviewer for software engineering delivery insights",
+  title: "MG Interview Studio",
+  description: "Voice-first interview practice with an animated AI interviewer, transcripts and structured feedback",
 };
 
 export default function RootLayout({
