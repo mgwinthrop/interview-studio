@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Interview Studio: a voice-conversation tool where an AI interviewer asks questions and then produces a transcript and written feedback. Two independent npm projects (no workspace root install): `apps/backend` (Node/Express/WebSocket/Prisma+SQLite) and `apps/frontend` (Next.js 14 App Router). Prototype only: single-user, no authentication. Read `AGENTS.md` for the binding repo rules (never commit credentials, transcripts, databases or deployment identifiers; keep changes inside this repo).
+Interview Studio: a voice-conversation tool where an AI interviewer asks questions and then produces a transcript and written feedback. Two independent npm projects (no workspace root install): `apps/backend` (Node/Express/WebSocket/Prisma+SQLite) and `apps/frontend` (Next.js 14 App Router). Single-user prototype: local mode (no `AUTH_TOKEN`) accepts loopback peers only, with `Host` and `Origin` checks; setting `AUTH_TOKEN` enables an optional shared-token mode. Read `AGENTS.md` for the binding repo rules (never commit credentials, transcripts, databases or deployment identifiers; keep changes inside this repo).
 
 ## Commands
 

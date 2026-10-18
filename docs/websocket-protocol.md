@@ -18,6 +18,7 @@ The upgrade request goes through the same authenticator as every HTTP route, bef
 | `Origin` header present but not in `ALLOWED_ORIGIN` | HTTP 403 |
 | No `Origin` header and the peer is not loopback | HTTP 403 |
 | Local mode (no `AUTH_TOKEN`) and the peer is not loopback | HTTP 403 |
+| Local mode and the `Host` header is missing or not a loopback host (`localhost`, `127.0.0.0/8`, `[::1]`, any port; guards against DNS rebinding) | HTTP 403 |
 | Token mode (`AUTH_TOKEN` set) and the token is missing or wrong | HTTP 401 |
 
 In token mode the token is sent as `Authorization: Bearer <token>`. Browsers cannot set headers on a WebSocket, so the browser client may instead connect to `ws://host/?token=<token>`. The `?token=` form is for the browser WebSocket only; because it puts the secret in the URL, request URLs must never be logged (the server does not log them).

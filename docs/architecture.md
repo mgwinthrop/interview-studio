@@ -140,6 +140,7 @@ Ending is bounded by `limits.reportTimeoutMs` (90 seconds). If the in-flight tur
 
 ## Operating notes
 
+- Local mode also requires the `Host` header to name a loopback host (`localhost`, `127.0.0.0/8` or `[::1]`, any port), so a DNS-rebinding page cannot reach the server; anything else is 403 `host not allowed`. Token mode does not check `Host`.
 - Behind a reverse proxy on the same host, every forwarded client appears as loopback and passes the local-mode check. Set `AUTH_TOKEN`, or keep the proxy unreachable from other machines (see `websocket-protocol.md`).
 - `?token=` is for the browser WebSocket only, because browsers cannot set headers on a WebSocket. Use `Authorization: Bearer` everywhere else, and make sure no proxy or platform logs full request URLs.
 - `GET /health` returns `{ status, database, providers: { profile } }` and is behind the authenticator like every other route.

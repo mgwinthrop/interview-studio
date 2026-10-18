@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
+import http from "node:http";
 import { tmpdir } from "node:os";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
@@ -378,6 +379,26 @@ describe("authentication on upgrade", () => {
     const r = await start();
     const c = connect(r, { origin: "http://evil.example" });
     expect(await c.rejected).toBe(403);
+  });
+
+  it("refuses an upgrade and an HTTP request with a non-loopback Host in local mode (403)", async () => {
+    const r = await start();
+    const c = connect(r, { headers: { Host: "evil.example:3001" } });
+    expect(await c.rejected).toBe(403);
+    const status = await new Promise<number>((resolve, reject) => {
+      const rq = http.request(
+        { host: "127.0.0.1", port: r.port, path: "/health", headers: { Host: "evil.example" } },
+        (res) => {
+          res.resume();
+          resolve(res.statusCode ?? 0);
+        },
+      );
+      rq.on("error", reject);
+      rq.end();
+    });
+    expect(status).toBe(403);
+    // The default Host (127.0.0.1:port) is accepted.
+    expect((await fetch(`${r.base}/health`)).status).toBe(200);
   });
 
   it("accepts the allowed Origin", async () => {

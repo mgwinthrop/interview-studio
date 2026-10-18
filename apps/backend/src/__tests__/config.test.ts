@@ -44,6 +44,22 @@ describe("loadConfig", () => {
     expect(c.auth).toEqual({ mode: "token", token: "secret" });
   });
 
+  it.each(["::1", "localhost", "127.0.0.1", "::ffff:127.0.0.1"])(
+    "HOST=%s stays in local mode without AUTH_TOKEN",
+    (HOST) => {
+      const c = loadConfig({ ...keys, HOST });
+      expect(c.host).toBe(HOST);
+      expect(c.auth).toEqual({ mode: "local" });
+    },
+  );
+
+  it("treats an empty AUTH_TOKEN as unset", () => {
+    expect(loadConfig({ ...keys, AUTH_TOKEN: "" }).auth).toEqual({ mode: "local" });
+    expect(loadConfig({ ...keys, AUTH_TOKEN: "   " }).auth).toEqual({ mode: "local" });
+    expect(() => loadConfig({ ...keys, HOST: "0.0.0.0", AUTH_TOKEN: "" })).toThrow(ConfigError);
+    expect(() => loadConfig({ ...keys, HOST: "0.0.0.0", AUTH_TOKEN: "" })).toThrow(/authentication/);
+  });
+
   it("rejects non-numeric PORT", () => {
     expect(() => loadConfig({ ...keys, PORT: "abc" })).toThrow(ConfigError);
   });

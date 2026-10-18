@@ -32,6 +32,31 @@ function extractToken(req: AuthRequest): string | undefined {
   return undefined;
 }
 
+/**
+ * True when a Host header names a loopback host: `localhost`, 127.0.0.0/8 or ::1, with an
+ * optional numeric port. Hostname comparison is case-insensitive; IPv6 may be bracketed
+ * (`[::1]:3001`) or bare (`::1`, no port). Guards local mode against DNS rebinding.
+ */
+export function isLoopbackHostHeader(host: string | undefined): boolean {
+  if (typeof host !== "string") return false;
+  const h = host.trim().toLowerCase();
+  let name: string;
+  let port: string | undefined;
+  if (h.startsWith("[")) {
+    const m = /^\[([^\]]+)\](?::(.*))?$/.exec(h);
+    if (!m) return false;
+    [, name, port] = m;
+  } else if (h.indexOf(":") !== h.lastIndexOf(":")) {
+    name = h; // bare IPv6 literal: no port
+  } else {
+    const i = h.indexOf(":");
+    name = i < 0 ? h : h.slice(0, i);
+    port = i < 0 ? undefined : h.slice(i + 1);
+  }
+  if (port !== undefined && !/^\d{1,5}$/.test(port)) return false;
+  return name === "localhost" || name === "::1" || /^127(\.\d{1,3}){3}$/.test(name);
+}
+
 export function createAuthenticator(config: Config): (req: AuthRequest) => AuthResult {
   return (req) => {
     const remote = req.socket.remoteAddress;
@@ -48,6 +73,11 @@ export function createAuthenticator(config: Config): (req: AuthRequest) => AuthR
 
     if (config.auth.mode === "local") {
       if (!loopback) return { ok: false, status: 403, reason: "local mode accepts loopback only" };
+      // A loopback peer is not enough: browsers omit Origin on some same-origin requests,
+      // so a rebinding hostname could reach us. The fixed reason never echoes the header.
+      if (!isLoopbackHostHeader(req.headers.host)) {
+        return { ok: false, status: 403, reason: "host not allowed" };
+      }
       return { ok: true, ownerId: "local" };
     }
 
