@@ -27,6 +27,15 @@ export const REPORT_LIMITS = {
 } as const;
 const L = REPORT_LIMITS;
 
+/**
+ * Output budget for the report call: a deliberate exception to the 300-token conversational
+ * limit. The largest schema-valid output (every REPORT_LIMITS cap reached) is about 6,900
+ * characters, about 2,300 tokens at a conservative 3 characters per token; 3072 leaves margin.
+ * A cut-off reply would fail validation on both attempts and lose the whole report, and an
+ * unused budget costs nothing. A test fails if a cap is raised past this budget.
+ */
+export const REPORT_MAX_TOKENS = 3072;
+
 const str = (max: number) => z.string().min(1).max(max);
 
 const contentSchema = z.object({
@@ -179,11 +188,18 @@ export async function generateReport(
   // Numbers and transcript are data, so they go in the user message, never the system prompt.
   // The code-computed summary comes first and the participant's words last.
   const measured = userTurns.filter((t) => t.metrics).length;
+  // Hidden filler counts are left out of the model's copy entirely, so it is never prompted
+  // about fillers; the returned summary keeps fillerCount (null).
+  let modelSummary: Partial<DeliverySummary> | null = summary;
+  if (summary && !options.showFillerCounts) {
+    const { fillerCount: _hidden, ...rest } = summary;
+    modelSummary = rest;
+  }
   const userContent = [
     ...(summary
       ? [
           `Participant answers in total: ${userTurns.length}; spoken and measured: ${measured}`,
-          `DELIVERY SUMMARY (measured in code):\n${JSON.stringify(summary, null, 2)}`,
+          `DELIVERY SUMMARY (measured in code):\n${JSON.stringify(modelSummary, null, 2)}`,
         ]
       : []),
     `TRANSCRIPT:\n${transcript}`,
@@ -197,11 +213,7 @@ export async function generateReport(
         system,
         messages: [{ role: "user", content: userContent }],
         schema,
-        // 2048: a deliberate exception to the 300-token conversational limit. A report at
-        // every REPORT_LIMITS cap is about 7,000 characters (roughly 1,750 tokens), so 2048
-        // fits the largest valid output with margin; a cut-off reply would fail validation
-        // on both attempts and lose the whole report. A test guards this against cap changes.
-        maxTokens: 2048,
+        maxTokens: REPORT_MAX_TOKENS,
       },
       signal,
     );

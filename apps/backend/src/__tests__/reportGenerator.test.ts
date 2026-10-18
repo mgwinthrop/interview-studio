@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { generateReport, REPORT_LIMITS, ReportError, reportOutputSchema } from "../reportGenerator";
+import { generateReport, REPORT_LIMITS, REPORT_MAX_TOKENS, ReportError, reportOutputSchema } from "../reportGenerator";
 import { createMockProviders } from "../providers/mock";
 import { PRESETS } from "../interviewer/presets";
 import { summarizeDelivery, type TurnMetrics } from "../delivery/metrics";
@@ -112,8 +112,9 @@ describe("generateReport", () => {
   it("hides fillerCount by default, in the prompt and in the report", async () => {
     const { report, user } = await run(withSwitches(true, true));
     expect(report.delivery!.summary.fillerCount).toBeNull();
-    expect(user).toContain('"fillerCount": null');
-    expect(user).not.toMatch(/"fillerCount": \d/);
+    // The model's copy has no fillerCount key at all; the stored summary keeps it as null.
+    expect(user).not.toContain("fillerCount");
+    expect("fillerCount" in report.delivery!.summary).toBe(true);
   });
 
   it("shows fillerCount when showFillerCounts is on", async () => {
@@ -200,7 +201,7 @@ describe("generateReport", () => {
     expect(req.system).toContain(INTERVIEWER.persona);
     expect(INTERVIEWER.focus.length).toBeGreaterThan(0);
     for (const item of INTERVIEWER.focus) expect(req.system).toContain(item);
-    expect(req.maxTokens).toBe(2048);
+    expect(req.maxTokens).toBe(REPORT_MAX_TOKENS);
   });
 
   it("omits the focus section when the focus list is empty", async () => {
@@ -339,8 +340,10 @@ describe("generateReport", () => {
   it("mentions fillers only when filler counts are shown", async () => {
     const hidden = await run(withSwitches(true, true));
     expect(hidden.req.system).not.toMatch(/filler/i);
+    expect(hidden.user).not.toMatch(/filler/i);
     const shown = await run(withSwitches(true, true), turns(), { showFillerCounts: true });
     expect(shown.req.system).toMatch(/"fillerCount" counts/);
+    expect(shown.user).toContain('"fillerCount": 22');
     expect(shown.req.system).toMatch(/only if it is notable/);
   });
 
@@ -385,9 +388,10 @@ describe("generateReport", () => {
     expect(reportOutputSchema.safeParse(at(1)).success).toBe(false);
   });
 
-  it("asks for 2048 output tokens, enough for the largest valid output with margin", async () => {
+  it("asks for REPORT_MAX_TOKENS output tokens, enough for the largest valid output with margin", async () => {
     const { req } = await run(withSwitches(true, true));
-    expect(req.maxTokens).toBe(2048);
+    expect(REPORT_MAX_TOKENS).toBe(3072);
+    expect(req.maxTokens).toBe(REPORT_MAX_TOKENS);
     const L = REPORT_LIMITS;
     const s = (n: number) => "x".repeat(n);
     const largest = {
@@ -401,10 +405,10 @@ describe("generateReport", () => {
     };
     expect(reportOutputSchema.safeParse(largest).success).toBe(true);
     const chars = JSON.stringify(largest).length;
-    // English prose runs at about 4 characters per token; 3.5 is the conservative estimate used
-    // here. The largest output is about 6,900 characters (about 1,970 tokens at 3.5). Raising
-    // any cap noticeably fails this test: raise maxTokens with it.
-    const ESTIMATE_CHARS_PER_TOKEN = 3.5;
+    // A conservative 3 characters per token (English prose is nearer 4). The largest output is
+    // about 6,900 characters, about 2,300 tokens. Raising a cap past the budget fails here:
+    // raise REPORT_MAX_TOKENS with it.
+    const ESTIMATE_CHARS_PER_TOKEN = 3;
     expect(chars / ESTIMATE_CHARS_PER_TOKEN).toBeLessThan(req.maxTokens);
   });
 
