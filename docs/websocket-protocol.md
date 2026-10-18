@@ -42,7 +42,7 @@ In local mode the server trusts loopback peers. A reverse proxy on the same host
 | `failed` | The session ended but the report could not be generated or stored. |
 | `abandoned` | The socket closed before `session_end`, or the session idled out. |
 
-A session leaves `active` exactly once. If the socket closes after `session_end` has been sent, the report is still generated and the session can still become `complete`.
+A session leaves `active` exactly once. If the socket closes after `session_end` has been sent, the report is still generated and the session can still become `complete`. Ending is bounded: if the in-flight turn and the report have not finished within `limits.reportTimeoutMs` (90 seconds by default) of `session_end`, both are aborted, the session becomes `failed` and the server sends `session_failed` (if the socket is still open).
 
 ## Client → Server
 

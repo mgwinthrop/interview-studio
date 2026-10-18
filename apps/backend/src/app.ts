@@ -109,7 +109,9 @@ export function createApp(deps: AppDeps): App {
   const app = express();
   app.disable("x-powered-by");
   app.use(cors({ origin: config.allowedOrigins }));
-  // Every route is behind the authenticator. Never log req.url: it can carry ?token=.
+  // Every route is behind the authenticator. CORS preflight (OPTIONS) is answered by cors()
+  // above before this runs, which is correct: browsers send no credentials on preflight.
+  // Never log req.url: it can carry ?token=.
   app.use((req, res, next) => {
     const result = authenticate(req);
     if (!result.ok) {

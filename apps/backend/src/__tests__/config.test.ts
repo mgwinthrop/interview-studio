@@ -16,6 +16,7 @@ describe("loadConfig", () => {
       maxConcurrentSessionsPerOwner: 2,
       maxTurnsPerSession: 200,
       idleTimeoutMs: 15 * 60 * 1000,
+      reportTimeoutMs: 90_000,
     });
   });
 

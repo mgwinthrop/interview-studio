@@ -23,6 +23,8 @@ export interface Config {
     maxConcurrentSessionsPerOwner: number;
     maxTurnsPerSession: number;
     idleTimeoutMs: number;
+    /** Upper bound on end(): the in-flight turn plus report generation. */
+    reportTimeoutMs: number;
   };
   debugLogText: boolean;
   retentionDays?: number;
@@ -109,6 +111,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
       maxConcurrentSessionsPerOwner: 2,
       maxTurnsPerSession: 200,
       idleTimeoutMs: 15 * 60 * 1000,
+      reportTimeoutMs: 90_000,
     },
     debugLogText: e.DEBUG_LOG_TEXT === "true" || e.DEBUG_LOG_TEXT === "1",
     retentionDays: e.RETENTION_DAYS,

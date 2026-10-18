@@ -21,6 +21,7 @@ const baseConfig: Config = {
     maxConcurrentSessionsPerOwner: 1,
     maxTurnsPerSession: 1,
     idleTimeoutMs: 1,
+    reportTimeoutMs: 1,
   },
   debugLogText: false,
 };

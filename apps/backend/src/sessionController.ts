@@ -356,11 +356,55 @@ export class SessionController {
 
   // ── End ────────────────────────────────────────────────────────────────────
 
+  /**
+   * Bounds end(): if the in-flight turn plus the report have not finished within
+   * limits.reportTimeoutMs, everything is aborted and the session ends as failed. The
+   * deadline does not rely on providers honouring the abort: the outcome is decided by
+   * whichever settles first, and a late report can no longer change it (the status
+   * write is refused and onEnded fires once).
+   */
   private async finish(): Promise<"complete" | "failed"> {
-    const { persist } = this.deps;
     const reportAbort = new AbortController();
     this.reportAbort = reportAbort;
     if (this.abandoned) reportAbort.abort();
+
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const deadline = new Promise<"timeout">((resolve) => {
+      timer = setTimeout(() => resolve("timeout"), this.deps.config.limits.reportTimeoutMs);
+      if (typeof timer === "object" && typeof timer.unref === "function") timer.unref();
+    });
+    const work = this.produceReport(reportAbort);
+    const outcome = await Promise.race([work, deadline]);
+    if (timer) clearTimeout(timer);
+
+    let result: "complete" | "failed";
+    if (outcome === "timeout") {
+      this.log("report deadline reached");
+      this.cancelTurn();
+      reportAbort.abort();
+      // The abandoned work may still settle later; its rejection is already handled.
+      void work.catch(() => undefined);
+      try {
+        await this.deps.persist.persistSessionStatus(this.sessionId, "failed");
+      } catch (writeErr) {
+        this.log("persistSessionStatus error", writeErr);
+      }
+      result = "failed";
+    } else {
+      result = outcome;
+    }
+
+    this.reportAbort = null;
+    this._state = "idle";
+    this.finished = true;
+    // An abandon() during end() reports the outcome itself once its own write lands.
+    if (!this.abandoned) this.notifyEnded(result);
+    return result;
+  }
+
+  /** Waits for the in-flight turn, then generates and stores the report and the status. */
+  private async produceReport(reportAbort: AbortController): Promise<"complete" | "failed"> {
+    const { persist } = this.deps;
     let result: "complete" | "failed";
     try {
       while (this.active) await this.active;
@@ -386,11 +430,6 @@ export class SessionController {
       }
       result = "failed";
     }
-    this.reportAbort = null;
-    this._state = "idle";
-    this.finished = true;
-    // An abandon() during end() reports the outcome itself once its own write lands.
-    if (!this.abandoned) this.notifyEnded(result);
     return result;
   }
 

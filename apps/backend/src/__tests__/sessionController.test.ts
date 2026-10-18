@@ -801,3 +801,76 @@ describe("SessionController onEnded", () => {
     expect(logged).not.toContain("transport gone");
   });
 });
+
+describe("SessionController report deadline", () => {
+  it("ends failed after reportTimeoutMs when the report never resolves", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const providers = createMockProviders({ llmReplies: [LONG_REPLY] });
+    let reportSignal: AbortSignal | undefined;
+    // Ignores the abort on purpose: the deadline must not rely on the provider.
+    providers.llm.structured = (_req, signal) => {
+      reportSignal = signal;
+      return new Promise<never>(() => {});
+    };
+    const { ctl, persist, onEnded } = setup({ providers, limits: { reportTimeoutMs: 5000 } });
+    await ctl.start();
+    ctl.handleText(LONG_TEXT);
+    await ctl.settled();
+
+    const ending = ctl.end();
+    await vi.advanceTimersByTimeAsync(4999);
+    expect(onEnded).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(ending).resolves.toBe("failed");
+    expect(onEnded.mock.calls).toEqual([["failed"]]);
+    expect(persist.persistSessionStatus.mock.calls).toEqual([["s-1", "failed"]]);
+    expect(reportSignal?.aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+
+    ctl.abandon();
+    await ctl.settled();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(onEnded).toHaveBeenCalledTimes(1);
+  });
+
+  it("aborts an in-flight turn that never finishes and ends failed at the deadline", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const providers = createMockProviders({ llmReplies: [LONG_REPLY], structured: REPORT });
+    const gate = gateTts(providers, SENTENCE_1, { ignoreAbort: true });
+    const { ctl, onEnded, persist } = setup({ providers, limits: { reportTimeoutMs: 5000 } });
+    await ctl.start();
+    gate.arm();
+    ctl.handleText(LONG_TEXT);
+    await gate.reached;
+
+    const ending = ctl.end();
+    await vi.advanceTimersByTimeAsync(5000);
+    await expect(ending).resolves.toBe("failed");
+    expect(gate.signal()?.aborted).toBe(true);
+    expect(onEnded.mock.calls).toEqual([["failed"]]);
+    expect(persist.persistSessionStatus.mock.calls).toEqual([["s-1", "failed"]]);
+    expect(vi.getTimerCount()).toBe(0);
+    gate.release();
+  });
+
+  it("a report that lands just before the deadline completes and clears the timer", async () => {
+    vi.useFakeTimers();
+    const providers = createMockProviders({ llmReplies: [LONG_REPLY] });
+    providers.llm.structured = (req) =>
+      new Promise((resolve) => setTimeout(() => resolve(req.schema.parse(REPORT)), 4999));
+    const { ctl, persist, onEnded } = setup({ providers, limits: { reportTimeoutMs: 5000 } });
+    await ctl.start();
+    ctl.handleText(LONG_TEXT);
+    await ctl.settled();
+
+    const ending = ctl.end();
+    await vi.advanceTimersByTimeAsync(4999);
+    await expect(ending).resolves.toBe("complete");
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(onEnded.mock.calls).toEqual([["complete"]]);
+    expect(persist.persistSessionStatus.mock.calls).toEqual([["s-1", "complete"]]);
+  });
+});

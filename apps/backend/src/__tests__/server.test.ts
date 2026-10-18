@@ -7,6 +7,7 @@ import path from "node:path";
 import WebSocket from "ws";
 import type { Config } from "../config";
 import type { MockScript } from "../providers/mock";
+import type { Providers } from "../providers/types";
 
 const backendDir = path.resolve(__dirname, "../..");
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -28,6 +29,7 @@ let appMod: typeof import("../app");
 let configMod: typeof import("../config");
 let mockMod: typeof import("../providers/mock");
 let persistence: typeof import("../persistence");
+let registry: typeof import("../sessionRegistry");
 let prisma: typeof import("../db").default;
 
 beforeAll(async () => {
@@ -43,6 +45,7 @@ beforeAll(async () => {
   configMod = await import("../config");
   mockMod = await import("../providers/mock");
   persistence = await import("../persistence");
+  registry = await import("../sessionRegistry");
   prisma = (await import("../db")).default;
 }, 60_000);
 
@@ -96,7 +99,12 @@ function makeConfig(
 }
 
 async function start(
-  opts: { config?: Config; script?: MockScript } = {},
+  opts: {
+    config?: Config;
+    script?: MockScript;
+    customize?: (p: Providers) => void;
+    persist?: typeof import("../persistence");
+  } = {},
 ): Promise<Running> {
   const config = opts.config ?? makeConfig();
   const providers = mockMod.createMockProviders({
@@ -105,7 +113,8 @@ async function start(
     structured: VALID_REPORT,
     ...opts.script,
   });
-  const app = appMod.createApp({ config, providers });
+  opts.customize?.(providers);
+  const app = appMod.createApp({ config, providers, persist: opts.persist });
   await new Promise<void>((resolve) => app.server.listen(0, "127.0.0.1", resolve));
   const { port } = app.server.address() as AddressInfo;
   const r: Running = {
@@ -486,6 +495,89 @@ describe("full conversation", () => {
       expect((await prisma.session.findUnique({ where: { id } }))?.status).toBe("complete");
     });
     expect((await fetch(`${r.base}/api/session/${id}/report`)).status).toBe(200);
+  });
+});
+
+describe("end-of-session deadline", () => {
+  const hangReport = (p: Providers) => {
+    p.llm.structured = () => new Promise<never>(() => {});
+  };
+
+  async function endAfterOneTurn(c: Client): Promise<string> {
+    const id = await c.startSession();
+    await c.assistantFinal();
+    const mark = c.messages.length;
+    c.send({ type: "text_input", content: USER_TEXT });
+    await c.assistantFinal(mark);
+    c.send({ type: "session_end" });
+    return id;
+  }
+
+  it("a report that never resolves yields session_failed at the deadline and frees the slot", async () => {
+    const r = await start({
+      config: makeConfig({}, { limits: { reportTimeoutMs: 150, maxConcurrentSessionsPerOwner: 1 } }),
+      customize: hangReport,
+    });
+    const c = connect(r);
+    const id = await endAfterOneTurn(c);
+    const failed = await c.next((m) => m.type === "session_failed");
+    expect(failed.reason).toBe("report generation failed");
+    expect((await c.closed).code).toBe(1000);
+    expect((await prisma.session.findUnique({ where: { id } }))?.status).toBe("failed");
+    expect(registry.countForOwner("local")).toBe(0);
+
+    const next = connect(r);
+    const nextId = await next.startSession();
+    expect(nextId).not.toBe(id);
+    next.ws.close();
+    await next.closed;
+  });
+
+  it("session_end then an immediate disconnect still ends failed at the deadline and frees the slot", async () => {
+    const r = await start({
+      config: makeConfig({}, { limits: { reportTimeoutMs: 150 } }),
+      customize: hangReport,
+    });
+    const c = connect(r);
+    const id = await endAfterOneTurn(c);
+    c.ws.close();
+    await c.closed;
+    await vi.waitFor(
+      async () => {
+        expect((await prisma.session.findUnique({ where: { id } }))?.status).toBe("failed");
+        expect(registry.countForOwner("local")).toBe(0);
+      },
+      { timeout: 3000 },
+    );
+
+    const fresh = Array.from({ length: makeConfig().limits.maxConcurrentSessionsPerOwner }, () => connect(r));
+    const ids = await Promise.all(fresh.map((f) => f.startSession()));
+    expect(new Set(ids).size).toBe(fresh.length);
+    for (const f of fresh) f.ws.close();
+    await Promise.all(fresh.map((f) => f.closed));
+  });
+});
+
+describe("session creation failure", () => {
+  it("closes 1011 without session_started or a registry entry; a later start works", async () => {
+    const persist = {
+      ...persistence,
+      persistSessionCreate: vi
+        .fn(persistence.persistSessionCreate)
+        .mockRejectedValueOnce(new Error("db down")),
+    };
+    const r = await start({ persist });
+    const c = connect(r);
+    await c.opened;
+    c.send({ type: "session_start", topicId: TOPIC });
+    expect((await c.closed).code).toBe(1011);
+    expect(c.messages.some((m) => m.type === "session_started")).toBe(false);
+    expect(registry.countForOwner("local")).toBe(0);
+
+    const ok = connect(r);
+    await ok.startSession();
+    ok.ws.close();
+    await ok.closed;
   });
 });
 
