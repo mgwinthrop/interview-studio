@@ -1,6 +1,7 @@
 import prisma from "./db";
 import { parseInterviewerDefinition, type InterviewerDefinition } from "./interviewer/schema";
-import { ConversationTurn, Report, SessionStatus } from "./types";
+import type { TurnMetrics } from "./delivery/metrics";
+import type { AnyReport, ConversationTurn, ReportV1, ReportV2, SessionStatus } from "./types";
 
 // ── Read helpers (post-restart fallback for HTTP endpoints) ──────────────────
 // Every query goes through the owning session so one owner never sees another's data.
@@ -13,6 +14,99 @@ function parseSnapshot(json: string | null): InterviewerDefinition | null {
   if (json === null) return null;
   try {
     return parseInterviewerDefinition(JSON.parse(json));
+  } catch {
+    return null;
+  }
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+const isNumOrNull = (v: unknown): boolean => v === null || isNum(v);
+const isStr = (v: unknown): v is string => typeof v === "string";
+const isStrArray = (v: unknown): v is string[] => Array.isArray(v) && v.every(isStr);
+const isArrayOf = (v: unknown, check: (item: Record<string, unknown>) => boolean): boolean =>
+  Array.isArray(v) && v.every((item) => isRecord(item) && check(item));
+
+/** Parses stored turn metrics. Null when absent, unparsable or the wrong shape; never throws or logs. */
+function parseMetrics(json: string | null): TurnMetrics | null {
+  if (json === null) return null;
+  try {
+    const m: unknown = JSON.parse(json);
+    if (
+      isRecord(m) &&
+      isNum(m.wordCount) &&
+      isNum(m.timedWordCount) &&
+      isNumOrNull(m.durationSec) &&
+      isNumOrNull(m.wordsPerMinute) &&
+      isNumOrNull(m.pauseCount) &&
+      isNumOrNull(m.longestPauseSec) &&
+      isNumOrNull(m.responseGapMs) &&
+      isNumOrNull(m.fillerCount)
+    ) {
+      return m as unknown as TurnMetrics;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Parses a stored v2 report, reviving generatedAt. Checks the structure the readers rely on;
+ * null when absent, unparsable or invalid. Never throws and never logs its text.
+ */
+function parseReportV2(json: string | null): ReportV2 | null {
+  if (json === null) return null;
+  try {
+    const r: unknown = JSON.parse(json);
+    if (!isRecord(r) || r.format !== 2 || !isStr(r.sessionId) || !isStr(r.generatedAt)) return null;
+    const generatedAt = new Date(r.generatedAt);
+    if (Number.isNaN(generatedAt.getTime()) || !isStrArray(r.nextSteps)) return null;
+    if (r.content !== undefined) {
+      const c = r.content;
+      if (
+        !isRecord(c) ||
+        !isStr(c.summary) ||
+        !isArrayOf(c.strengths, (x) => isStr(x.area) && isStr(x.quote) && isStr(x.note)) ||
+        !isArrayOf(c.developAreas, (x) => isStr(x.area) && isStr(x.suggestion))
+      ) {
+        return null;
+      }
+    }
+    if (r.delivery !== undefined) {
+      const d = r.delivery;
+      if (!isRecord(d) || !isStr(d.reading) || !isRecord(d.summary) || !Array.isArray(d.summary.perTurn)) {
+        return null;
+      }
+    }
+    return { ...(r as unknown as ReportV2), generatedAt };
+  } catch {
+    return null;
+  }
+}
+
+/** The v1 report from the older columns. Null if their JSON is unreadable. */
+function olderReport(row: {
+  sessionId: string;
+  summary: string;
+  strengthsJson: string;
+  improvementsJson: string;
+  highlightsJson: string;
+  overallAssessment: string;
+  generatedAt: Date;
+}): ReportV1 | null {
+  try {
+    return {
+      format: 1,
+      sessionId: row.sessionId,
+      summary: row.summary,
+      strengths: JSON.parse(row.strengthsJson),
+      improvements: JSON.parse(row.improvementsJson),
+      highlights: JSON.parse(row.highlightsJson),
+      overallAssessment: row.overallAssessment,
+      generatedAt: row.generatedAt,
+    };
   } catch {
     return null;
   }
@@ -47,7 +141,7 @@ export async function readSnapshot(
 export async function readReportFromDb(
   sessionId: string,
   ownerId: string
-): Promise<{ report: Report | null; sessionStatus: string; interviewerName: string | null } | null> {
+): Promise<{ report: AnyReport | null; sessionStatus: string; interviewerName: string | null } | null> {
   const session = await prisma.session.findFirst({
     where: { id: sessionId, ownerId },
     include: { report: true },
@@ -55,15 +149,7 @@ export async function readReportFromDb(
   if (!session) return null;
 
   const report = session.report
-    ? ({
-        sessionId: session.report.sessionId,
-        summary: session.report.summary,
-        strengths: JSON.parse(session.report.strengthsJson),
-        improvements: JSON.parse(session.report.improvementsJson),
-        highlights: JSON.parse(session.report.highlightsJson),
-        overallAssessment: session.report.overallAssessment,
-        generatedAt: session.report.generatedAt,
-      } satisfies Report)
+    ? (parseReportV2(session.report.reportJson) ?? olderReport(session.report))
     : null;
 
   return {
@@ -93,6 +179,7 @@ export async function readTurnsFromDb(
     content: r.content,
     phase: r.phase,
     timestamp: r.timestamp,
+    metrics: parseMetrics(r.metricsJson),
   }));
 }
 
@@ -151,11 +238,15 @@ export async function persistSessionCreate(
 }
 
 export async function persistTurn(turn: ConversationTurn): Promise<void> {
+  // Absent metrics leave the column NULL on create and untouched on update.
+  const metricsJson =
+    typeof turn.metrics === "object" && turn.metrics !== null ? JSON.stringify(turn.metrics) : undefined;
   await prisma.conversationTurn.upsert({
     where: { id: turn.id },
     update: {
       content: turn.content,
       phase: turn.phase,
+      metricsJson,
     },
     create: {
       id: turn.id,
@@ -164,6 +255,7 @@ export async function persistTurn(turn: ConversationTurn): Promise<void> {
       content: turn.content,
       phase: turn.phase,
       timestamp: turn.timestamp,
+      metricsJson,
     },
   });
 }
@@ -207,14 +299,22 @@ export async function abandonStaleActiveSessions(): Promise<number> {
   return result.count;
 }
 
-/** Stores the report. Does not change the session status. */
-export async function persistReport(sessionId: string, report: Report): Promise<void> {
+/**
+ * Stores the report as JSON and also fills the older columns (which are NOT NULL), so older
+ * readers keep working. Does not change the session status.
+ */
+export async function persistReport(sessionId: string, report: ReportV2): Promise<void> {
   const data = {
-    summary: report.summary,
-    strengthsJson: JSON.stringify(report.strengths),
-    improvementsJson: JSON.stringify(report.improvements),
-    highlightsJson: JSON.stringify(report.highlights),
-    overallAssessment: report.overallAssessment,
+    reportJson: JSON.stringify(report),
+    summary: report.content?.summary ?? "",
+    strengthsJson: JSON.stringify(
+      (report.content?.strengths ?? []).map((s) => ({ area: s.area, evidence: s.quote }))
+    ),
+    improvementsJson: JSON.stringify(
+      (report.content?.developAreas ?? []).map((d) => ({ area: d.area, suggestion: d.suggestion }))
+    ),
+    highlightsJson: "[]",
+    overallAssessment: report.nextSteps.join(" "),
     generatedAt: report.generatedAt,
   };
   await prisma.report.upsert({

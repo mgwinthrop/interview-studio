@@ -1054,14 +1054,17 @@ describe("sessions from before interviewers", () => {
         endedAt: new Date(),
       },
     });
-    await persistence.persistReport("legacy-1", {
-      sessionId: "legacy-1",
-      summary: "An earlier summary.",
-      strengths: [],
-      improvements: [],
-      highlights: [],
-      overallAssessment: "Fine.",
-      generatedAt: new Date(),
+    // A report row as written before report v2: only the older columns, no reportJson.
+    await prisma.report.create({
+      data: {
+        sessionId: "legacy-1",
+        summary: "An earlier summary.",
+        strengthsJson: "[]",
+        improvementsJson: "[]",
+        highlightsJson: "[]",
+        overallAssessment: "Fine.",
+        generatedAt: new Date(),
+      },
     });
     const list = (await (await fetch(`${r.base}/api/sessions`)).json()) as { sessions: Record<string, unknown>[] };
     expect(list.sessions.find((s) => s.id === "legacy-1")).toMatchObject({
