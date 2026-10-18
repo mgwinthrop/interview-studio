@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import prisma from "./db";
 import { parseInterviewerDefinition, type InterviewerDefinition } from "./interviewer/schema";
 import type { TurnMetrics } from "./delivery/metrics";
@@ -304,6 +305,15 @@ export async function abandonStaleActiveSessions(): Promise<number> {
  * readers keep working. Does not change the session status.
  */
 export async function persistReport(sessionId: string, report: ReportV2): Promise<void> {
+  await upsertReport(prisma, sessionId, report);
+}
+
+/** The report upsert shared by persistReport and completeFailedSession (client or transaction). */
+async function upsertReport(
+  db: Pick<Prisma.TransactionClient, "report">,
+  sessionId: string,
+  report: ReportV2
+): Promise<void> {
   const data = {
     reportJson: JSON.stringify(report),
     summary: report.content?.summary ?? "",
@@ -317,11 +327,44 @@ export async function persistReport(sessionId: string, report: ReportV2): Promis
     overallAssessment: report.nextSteps.join(" "),
     generatedAt: report.generatedAt,
   };
-  await prisma.report.upsert({
+  await db.report.upsert({
     where: { sessionId },
     update: data,
     create: { sessionId, ...data },
   });
+}
+
+/** Thrown inside completeFailedSession's transaction to roll it back; never escapes. */
+class NotFailed extends Error {}
+
+/**
+ * Regenerate's write: in one transaction, stores the report (as persistReport does) and moves
+ * the session from "failed" to "complete", only when it is failed and owned by ownerId. If the
+ * status does not change (any other status, another owner's or an unknown session) the whole
+ * transaction is rolled back, so no report is left behind, and the result is false. endedAt is
+ * kept. This is the only way out of "failed"; persistSessionStatus's rule is unchanged.
+ */
+export async function completeFailedSession(
+  sessionId: string,
+  ownerId: string,
+  report: ReportV2
+): Promise<boolean> {
+  try {
+    await prisma.$transaction(async (tx) => {
+      await upsertReport(tx, sessionId, report);
+      const changed = await tx.session.updateMany({
+        where: { id: sessionId, ownerId, status: "failed" },
+        data: { status: "complete" },
+      });
+      if (changed.count === 0) throw new NotFailed();
+    });
+    return true;
+  } catch (err) {
+    if (err instanceof NotFailed) return false;
+    // The session was deleted meanwhile (or never existed): the report's foreign key fails.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2003") return false;
+    throw err;
+  }
 }
 
 // ── Deletion (cascades in code, one transaction) ─────────────────────────────

@@ -442,3 +442,74 @@ describe("report v2", () => {
     });
   });
 });
+
+describe("completeFailedSession", () => {
+  async function seedStatus(id: string, owner: string, status: "failed" | "complete" | "abandoned" | "active") {
+    await p.persistSessionCreate(id, owner, INTERVIEWER);
+    if (status !== "active") await p.persistSessionStatus(id, status);
+  }
+
+  it("writes the report and moves a failed session to complete, keeping endedAt", async () => {
+    await seedStatus("cf-ok", "a", "failed");
+    const before = await prisma.session.findUnique({ where: { id: "cf-ok" } });
+    const r = report("cf-ok");
+    expect(await p.completeFailedSession("cf-ok", "a", r)).toBe(true);
+    const row = await prisma.session.findUnique({ where: { id: "cf-ok" } });
+    expect(row?.status).toBe("complete");
+    expect(row?.endedAt?.getTime()).toBe(before?.endedAt?.getTime());
+    expect((await p.readReportFromDb("cf-ok", "a"))?.report).toEqual(r);
+    // The same legacy-column mapping as persistReport.
+    const rep = await prisma.report.findUnique({ where: { sessionId: "cf-ok" } });
+    expect(rep).toMatchObject({ summary: "s", overallAssessment: "one two", highlightsJson: "[]" });
+    expect(JSON.parse(rep?.strengthsJson ?? "")).toEqual([{ area: "a", evidence: "q" }]);
+  });
+
+  it("replaces an older report row on the failed session", async () => {
+    await seedStatus("cf-replace", "a", "failed");
+    await p.persistReport("cf-replace", { ...report("cf-replace"), nextSteps: ["old"] });
+    expect(await p.completeFailedSession("cf-replace", "a", report("cf-replace"))).toBe(true);
+    expect(await prisma.report.count({ where: { sessionId: "cf-replace" } })).toBe(1);
+    expect(((await p.readReportFromDb("cf-replace", "a"))?.report as ReportV2).nextSteps).toEqual(["one", "two"]);
+  });
+
+  it.each(["complete", "abandoned", "active"] as const)(
+    "returns false for a %s session and writes no report row",
+    async (status) => {
+      const id = `cf-${status}`;
+      await seedStatus(id, "a", status);
+      expect(await p.completeFailedSession(id, "a", report(id))).toBe(false);
+      expect((await prisma.session.findUnique({ where: { id } }))?.status).toBe(status);
+      expect(await prisma.report.count({ where: { sessionId: id } })).toBe(0);
+    },
+  );
+
+  it("is owner-scoped: false for another owner's failed session, which stays failed with no report", async () => {
+    await seedStatus("cf-foreign", "a", "failed");
+    expect(await p.completeFailedSession("cf-foreign", "b", report("cf-foreign"))).toBe(false);
+    expect((await prisma.session.findUnique({ where: { id: "cf-foreign" } }))?.status).toBe("failed");
+    expect(await prisma.report.count({ where: { sessionId: "cf-foreign" } })).toBe(0);
+  });
+
+  it("rolls back: a refused call leaves an existing report row unchanged", async () => {
+    await seedStatus("cf-keep", "a", "complete");
+    const original = { ...report("cf-keep"), nextSteps: ["original"] };
+    await p.persistReport("cf-keep", original);
+    expect(await p.completeFailedSession("cf-keep", "a", report("cf-keep"))).toBe(false);
+    expect((await p.readReportFromDb("cf-keep", "a"))?.report).toEqual(original);
+  });
+
+  it("returns false for an unknown session", async () => {
+    expect(await p.completeFailedSession("cf-no-such", "a", report("cf-no-such"))).toBe(false);
+    expect(await prisma.report.count({ where: { sessionId: "cf-no-such" } })).toBe(0);
+  });
+
+  it("succeeds for only one of two concurrent calls on the same failed session", async () => {
+    await seedStatus("cf-twice", "a", "failed");
+    const results = await Promise.all([
+      p.completeFailedSession("cf-twice", "a", report("cf-twice")),
+      p.completeFailedSession("cf-twice", "a", { ...report("cf-twice"), nextSteps: ["second"] }),
+    ]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect((await prisma.session.findUnique({ where: { id: "cf-twice" } }))?.status).toBe("complete");
+  });
+});
