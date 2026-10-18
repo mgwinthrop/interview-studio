@@ -143,6 +143,19 @@ export async function persistSessionStatus(
   return result.count > 0;
 }
 
+/**
+ * Startup sweep for a single-instance server: no session is live at boot, so any row still
+ * "active" was left by a crash or restart. Marks them abandoned with endedAt now (so the
+ * report route stops answering 202 and retention can purge them). Returns the count.
+ */
+export async function abandonStaleActiveSessions(): Promise<number> {
+  const result = await prisma.session.updateMany({
+    where: { status: "active" },
+    data: { status: "abandoned", endedAt: new Date() },
+  });
+  return result.count;
+}
+
 /** Stores the report. Does not change the session status. */
 export async function persistReport(sessionId: string, report: Report): Promise<void> {
   const data = {

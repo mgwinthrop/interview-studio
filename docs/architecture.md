@@ -135,7 +135,8 @@ Ending is bounded by `limits.reportTimeoutMs` (90 seconds). If the in-flight tur
 - Active session state lives in memory. SQLite (Prisma) is written when a session is created, on each completed turn, on phase changes, and when the session ends (status and report). `DATABASE_URL` selects the file; never hardcode or commit it.
 - `DELETE /api/session/:sessionId` removes a session with its turns and report. The dashboard offers it with a confirmation. A live session cannot be deleted (409).
 - `RETENTION_DAYS` is off by default. When set, sessions that ended more than that many days ago are deleted once at startup (`retention.ts`).
-- Migrations are applied at startup (`migrate.ts`).
+- Migrations are applied at startup (`migrate.ts`). If they fail, the server prints the last lines of Prisma's error output with the `DATABASE_URL` value and any `user:pass@` credentials redacted, and exits 1.
+- At startup, after migrations, any session still `active` is marked `abandoned` with `endedAt` set (a crash or restart left it; the server is single-instance, so nothing is live at boot). Only the count is logged. This lets the report route answer and retention purge those rows.
 
 ## Operating notes
 

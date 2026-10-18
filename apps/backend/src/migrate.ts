@@ -10,6 +10,22 @@ const execFileAsync = promisify(execFile);
 const backendDir = path.resolve(__dirname, "..");
 
 /**
+ * Makes migration tool output safe to print: replaces the literal DATABASE_URL value and
+ * any `scheme://user:pass@` credential segment, and keeps only the last `maxLines`
+ * non-empty lines. Never pass it the environment.
+ */
+export function redactMigrationOutput(text: string, databaseUrl: string, maxLines = 10): string {
+  let out = text;
+  if (databaseUrl) out = out.split(databaseUrl).join("<DATABASE_URL>");
+  out = out.replace(/:\/\/[^@\s/]*@/g, "://***@");
+  return out
+    .split(/\r?\n/)
+    .filter((line) => line.trim() !== "")
+    .slice(-maxLines)
+    .join("\n");
+}
+
+/**
  * Applies pending Prisma migrations, then enables WAL for SQLite file databases.
  * Rejects on any failure: the caller must not start the server on a stale schema.
  */

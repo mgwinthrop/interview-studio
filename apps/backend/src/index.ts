@@ -23,14 +23,28 @@ async function main(): Promise<void> {
   // database client is loaded (the modules below are imported only after this line).
   process.env.DATABASE_URL = config.databaseUrl;
 
-  const { runMigrations } = await import("./migrate");
+  const { runMigrations, redactMigrationOutput } = await import("./migrate");
   try {
     await runMigrations(config);
     console.log("Database migrations applied");
   } catch (err) {
-    const code = (err as { code?: unknown }).code;
+    const { code, stderr } = err as { code?: unknown; stderr?: unknown };
     console.error(`Migration failed: ${errName(err)}${typeof code === "number" ? ` (exit ${code})` : ""}`);
+    const output =
+      typeof stderr === "string" || Buffer.isBuffer(stderr)
+        ? redactMigrationOutput(stderr.toString(), config.databaseUrl)
+        : "";
+    if (output) console.error(output);
     process.exit(1);
+  }
+
+  // Single instance: nothing is live at boot, so any "active" row was left by a crash.
+  try {
+    const { abandonStaleActiveSessions } = await import("./persistence");
+    const count = await abandonStaleActiveSessions();
+    console.log(`[startup] marked ${count} stale active session(s) abandoned`);
+  } catch (err) {
+    console.error(`Stale session sweep failed: ${errName(err)}`);
   }
 
   try {

@@ -158,3 +158,49 @@ describe("purgeOlderThan", () => {
     expect(await prisma.session.count({ where: { id: "p-new" } })).toBe(1);
   });
 });
+
+describe("abandonStaleActiveSessions", () => {
+  it("marks every active row abandoned with endedAt set, leaves ended rows alone, returns the count", async () => {
+    for (const id of ["st-active-1", "st-active-2", "st-complete", "st-failed"]) {
+      await p.persistSessionCreate(id, "a", "ai-se-delivery", "intro");
+    }
+    await p.persistSessionStatus("st-complete", "complete");
+    await p.persistSessionStatus("st-failed", "failed");
+    const ended = await prisma.session.findMany({
+      where: { id: { in: ["st-complete", "st-failed"] } },
+      orderBy: { id: "asc" },
+    });
+    const activeBefore = await prisma.session.count({ where: { status: "active" } });
+    expect(activeBefore).toBeGreaterThanOrEqual(2);
+
+    const before = Date.now();
+    expect(await p.abandonStaleActiveSessions()).toBe(activeBefore);
+    expect(await prisma.session.count({ where: { status: "active" } })).toBe(0);
+
+    for (const id of ["st-active-1", "st-active-2"]) {
+      const row = await prisma.session.findUnique({ where: { id } });
+      expect(row?.status).toBe("abandoned");
+      expect(row?.endedAt?.getTime()).toBeGreaterThanOrEqual(before - 1000);
+    }
+    const endedAfter = await prisma.session.findMany({
+      where: { id: { in: ["st-complete", "st-failed"] } },
+      orderBy: { id: "asc" },
+    });
+    expect(endedAfter).toEqual(ended);
+    expect(await p.abandonStaleActiveSessions()).toBe(0);
+  });
+
+  it("lets purgeOlderThan remove a swept row once it is old enough", async () => {
+    await seed("st-crashed", "a");
+    await p.abandonStaleActiveSessions();
+    expect(await p.purgeOlderThan(1)).toBe(0);
+    await prisma.session.update({
+      where: { id: "st-crashed" },
+      data: { endedAt: new Date(Date.now() - 2 * 24 * 3600 * 1000) },
+    });
+    expect(await p.purgeOlderThan(1)).toBe(1);
+    expect(await prisma.session.count({ where: { id: "st-crashed" } })).toBe(0);
+    expect(await prisma.conversationTurn.count({ where: { sessionId: "st-crashed" } })).toBe(0);
+    expect(await prisma.report.count({ where: { sessionId: "st-crashed" } })).toBe(0);
+  });
+});
