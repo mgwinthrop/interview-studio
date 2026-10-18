@@ -1,28 +1,24 @@
 "use client";
 
 import { Suspense, useEffect, useRef, useState } from "react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { apiUrl } from "../../lib/config";
-import { getTopicConfig } from "../../lib/topics";
 import { Nav } from "../../components/Nav";
 import { FlowStepper } from "../../components/FlowStepper";
 import { ReportView } from "../../components/ReportView";
-import type { Report } from "../../types";
-import type { TopicDisplayConfig } from "../../lib/topics";
+import type { Report, ReportResponse } from "../../types";
 
 type Status = "loading" | "ready" | "abandoned" | "error";
 
-// Inner component — must be inside <Suspense> because it calls useSearchParams()
+// Inner component, rendered inside <Suspense> by the page wrapper.
 function ReportPageInner() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const topicConfig: TopicDisplayConfig | undefined = getTopicConfig(
-    searchParams.get("topicId") ?? ""
-  );
 
   const [status, setStatus] = useState<Status>("loading");
   const [report, setReport] = useState<Report | null>(null);
+  // null for sessions stored before interviewers had names.
+  const [interviewerName, setInterviewerName] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollCountRef = useRef(0);
   // Set on the first terminal result so overlapping in-flight polls change nothing after it.
@@ -69,8 +65,9 @@ function ReportPageInner() {
     if (res.status === 200) {
       stoppedRef.current = true;
       clearPoll();
-      const data = (await res.json()) as Report;
+      const { interviewerName: name, ...data } = (await res.json()) as ReportResponse;
       setReport(data);
+      setInterviewerName(name ?? null);
       setStatus("ready");
     } else if (res.status === 202) {
       // Still generating — keep polling (ceiling enforced above)
@@ -160,7 +157,7 @@ function ReportPageInner() {
       <FlowStepper currentStep={4} />
       <ReportView
         report={report!}
-        topicConfig={topicConfig}
+        interviewerName={interviewerName}
         sessionId={sessionId}
         onNewSession={() => router.push("/mic-check")}
       />
@@ -168,7 +165,7 @@ function ReportPageInner() {
   );
 }
 
-// Page wrapper — Suspense required for useSearchParams() in App Router
+// Page wrapper — keeps the Suspense boundary and loading fallback
 export default function ReportPage() {
   return (
     <Suspense fallback={

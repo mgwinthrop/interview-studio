@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import type { Phase, TranscriptEntry, ServerMessage, ClientMessage } from "../types";
+import type { TranscriptEntry, ServerMessage, ClientMessage } from "../types";
 
 export type ConnectionState = "connecting" | "connected" | "disconnected" | "error";
 
@@ -15,7 +15,8 @@ const CLOSE_REASONS: Record<number, string> = {
 
 interface UseWebSocketReturn {
   connectionState: ConnectionState;
-  phase: Phase;
+  /** Current phase name from the last phase_change; "" until the first one arrives. */
+  phase: string;
   transcript: TranscriptEntry[];
   aiSpeaking: boolean;
   sessionComplete: { reportId: string } | null;
@@ -31,7 +32,7 @@ interface UseWebSocketReturn {
 }
 
 export function useWebSocket(
-  topicId: string,
+  interviewerId: string,
   demo: boolean,
   onAudioChunk?: (chunk: ArrayBuffer) => void,
   onTtsEnd?: () => void,
@@ -40,7 +41,7 @@ export function useWebSocket(
   // The server issues the session id in session_started. Every connection is a new session.
   const [sessionId, setSessionId] = useState<string>("");
   const [connectionState, setConnectionState] = useState<ConnectionState>("connecting");
-  const [phase, setPhase] = useState<Phase>("intro");
+  const [phase, setPhase] = useState<string>("");
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [aiSpeaking, setAiSpeaking] = useState(false);
   const [sessionComplete, setSessionComplete] = useState<{ reportId: string } | null>(null);
@@ -91,15 +92,15 @@ export function useWebSocket(
 
   useEffect(() => {
     const wsUrl = process.env.NEXT_PUBLIC_WS_URL;
-    if (!wsUrl || !topicId) {
-      console.error(!wsUrl ? "NEXT_PUBLIC_WS_URL is not set" : "topicId is required");
+    if (!wsUrl || !interviewerId) {
+      console.error(!wsUrl ? "NEXT_PUBLIC_WS_URL is not set" : "interviewerId is required");
       setConnectionState("error");
       return;
     }
 
     // A new connection is a new session: clear everything from the previous one.
     setSessionId("");
-    setPhase("intro");
+    setPhase("");
     setTranscript([]);
     setAiSpeaking(false);
     setSessionComplete(null);
@@ -116,7 +117,7 @@ export function useWebSocket(
 
     ws.onopen = () => {
       setConnectionState("connected");
-      const startMsg: ClientMessage = { type: "session_start", topicId, demo };
+      const startMsg: ClientMessage = { type: "session_start", interviewerId, demo };
       ws.send(JSON.stringify(startMsg));
     };
 
@@ -240,7 +241,7 @@ export function useWebSocket(
       ws.close();
       wsRef.current = null;
     };
-    // demo/topicId are read once at mount — intentional.
+    // demo/interviewerId are read once at mount — intentional.
     // reconnectTrigger increments on explicit reconnect, which opens a new session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reconnectTrigger]);

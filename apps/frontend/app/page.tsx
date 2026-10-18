@@ -4,11 +4,18 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Nav } from "./components/Nav";
 import { FlowStepper } from "./components/FlowStepper";
-import { TOPICS } from "./lib/topics";
+import { fetchInterviewers, type InterviewerSummary } from "./lib/interviewers";
+
+type ListState =
+  | { status: "loading" }
+  | { status: "error" }
+  | { status: "ready"; interviewers: InterviewerSummary[] };
 
 export default function HomePage() {
   const router = useRouter();
   const [ready, setReady] = useState(false);
+  const [list, setList] = useState<ListState>({ status: "loading" });
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   // Guard: redirect to mic-check if user hasn't come through it
   useEffect(() => {
@@ -20,8 +27,25 @@ export default function HomePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function handleSelect(topicId: string) {
-    router.push(`/session?topicId=${topicId}`);
+  // Load the interviewers once the page is shown, and again on Retry.
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
+    setList({ status: "loading" });
+    fetchInterviewers()
+      .then((interviewers) => {
+        if (!cancelled) setList({ status: "ready", interviewers });
+      })
+      .catch(() => {
+        if (!cancelled) setList({ status: "error" });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, loadAttempt]);
+
+  function handleSelect(interviewerId: string) {
+    router.push(`/session?interviewerId=${encodeURIComponent(interviewerId)}`);
   }
 
   if (!ready) return null;
@@ -84,63 +108,73 @@ export default function HomePage() {
           Choose one of the available interviewers to begin.
         </p>
 
-        {/* Phase flow strip */}
-        <div
-          className="phase-flow-strip"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            marginTop: 40,
-          }}
-        >
-          {(["Intro", "Share work", "Deep dive", "Wrap up"] as const).map((label, i, arr) => (
-            <div key={label} style={{ display: "flex", alignItems: "center" }}>
-              {/* Numbered circle */}
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
-                <div
-                  style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: "50%",
-                    background: "#087E8B",
-                    color: "#FFFFFF",
-                    fontSize: 13,
-                    fontWeight: 700,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  {i + 1}
+        {/* Phase flow strip — the preset interviewers' phases; custom ones can differ */}
+        <div className="phase-flow-strip" style={{ marginTop: 40 }}>
+          <p
+            style={{
+              fontSize: 13,
+              color: "#93C9C4",
+              margin: "0 0 16px",
+              fontWeight: 500,
+            }}
+          >
+            A typical conversation
+          </p>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            {(["Intro", "Share", "Deep dive", "Wrap up"] as const).map((label, i, arr) => (
+              <div key={label} style={{ display: "flex", alignItems: "center" }}>
+                {/* Numbered circle */}
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+                  <div
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: "50%",
+                      background: "#087E8B",
+                      color: "#FFFFFF",
+                      fontSize: 13,
+                      fontWeight: 700,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    {i + 1}
+                  </div>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      letterSpacing: "0.06em",
+                      textTransform: "uppercase",
+                      color: "#D8F0EC",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {label}
+                  </span>
                 </div>
-                <span
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 600,
-                    letterSpacing: "0.06em",
-                    textTransform: "uppercase",
-                    color: "#D8F0EC",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {label}
-                </span>
+                {/* Connector line — not after last step */}
+                {i < arr.length - 1 && (
+                  <div
+                    style={{
+                      width: 60,
+                      height: 2,
+                      background: "#D9D9D9",
+                      opacity: 0.4,
+                      marginBottom: 20, // aligns with circle centre, offset for label
+                    }}
+                  />
+                )}
               </div>
-              {/* Connector line — not after last step */}
-              {i < arr.length - 1 && (
-                <div
-                  style={{
-                    width: 60,
-                    height: 2,
-                    background: "#D9D9D9",
-                    opacity: 0.4,
-                    marginBottom: 20, // aligns with circle centre, offset for label
-                  }}
-                />
-              )}
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
 
@@ -158,24 +192,62 @@ export default function HomePage() {
           padding: "48px 32px",
         }}
       >
-        {TOPICS.map((topic) => (
-          <PersonaCard
-            key={topic.id}
-            topic={topic}
-            onSelect={() => handleSelect(topic.id)}
-          />
-        ))}
+        {list.status === "loading" && (
+          <p role="status" style={listMessageStyle}>
+            Loading interviewers…
+          </p>
+        )}
+        {list.status === "error" && (
+          <div role="alert" style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+            <p style={listMessageStyle}>Could not load the interviewers.</p>
+            <button
+              onClick={() => setLoadAttempt((n) => n + 1)}
+              style={{
+                padding: "12px 28px",
+                borderRadius: 8,
+                background: "#087E8B",
+                color: "#FFFFFF",
+                fontSize: 15,
+                fontWeight: 600,
+                border: "none",
+                cursor: "pointer",
+                letterSpacing: "0.02em",
+              }}
+            >
+              Retry
+            </button>
+          </div>
+        )}
+        {list.status === "ready" && list.interviewers.length === 0 && (
+          <p style={listMessageStyle}>No interviewers are available yet.</p>
+        )}
+        {list.status === "ready" &&
+          list.interviewers.map((interviewer) => (
+            <PersonaCard
+              key={interviewer.id}
+              interviewer={interviewer}
+              onSelect={() => handleSelect(interviewer.id)}
+            />
+          ))}
       </div>
     </div>
   );
 }
 
+const listMessageStyle: React.CSSProperties = {
+  fontSize: 16,
+  color: "#4B5563",
+  lineHeight: 1.65,
+  margin: 0,
+  textAlign: "center",
+};
+
 interface PersonaCardProps {
-  topic: { id: string; interviewerTitle: string; sessionGoal: string };
+  interviewer: Pick<InterviewerSummary, "name" | "purpose">;
   onSelect: () => void;
 }
 
-function PersonaCard({ topic, onSelect }: PersonaCardProps) {
+function PersonaCard({ interviewer, onSelect }: PersonaCardProps) {
   return (
     <div
       style={{
@@ -233,10 +305,10 @@ function PersonaCard({ topic, onSelect }: PersonaCardProps) {
           letterSpacing: "-0.01em",
         }}
       >
-        {topic.interviewerTitle}
+        {interviewer.name}
       </h2>
 
-      {/* Session goal */}
+      {/* Purpose */}
       <p
         style={{
           fontSize: 16,
@@ -247,7 +319,7 @@ function PersonaCard({ topic, onSelect }: PersonaCardProps) {
           fontWeight: 400,
         }}
       >
-        {topic.sessionGoal}
+        {interviewer.purpose}
       </p>
 
       {/* CTA */}
@@ -273,7 +345,7 @@ function PersonaCard({ topic, onSelect }: PersonaCardProps) {
           ((e.currentTarget as HTMLButtonElement).style.background = "#087E8B")
         }
       >
-        Start assessment →
+        Start conversation →
       </button>
     </div>
   );

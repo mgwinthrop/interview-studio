@@ -1,8 +1,6 @@
 // Shared client-side types for the AI Interview Tool frontend.
 // These must stay in sync with the backend protocol defined in spec §5.3.
 
-export type Phase = "intro" | "share_work" | "deep_dive" | "wrap_up";
-
 // Orb state — drives AgentPanel visual (spec §7 Agent Panel)
 export type OrbState = "listening" | "thinking" | "speaking" | "interrupted";
 
@@ -24,13 +22,20 @@ export interface Report {
   generatedAt: string;
 }
 
+// The report endpoints return the report fields plus the interviewer's name.
+// interviewerName is null for sessions stored before interviewers had names.
+export interface ReportResponse extends Report {
+  interviewerName: string | null;
+}
+
 // Discriminated union of all server → client message types (spec §5.3)
 export type ServerMessage =
   | { type: "tts_start" }
   | { type: "tts_end" }
   | { type: "tts_chunk"; data: ArrayBuffer }
   | { type: "transcript"; text: string; role: "user" | "assistant"; partial?: boolean }
-  | { type: "phase_change"; phase: Phase }
+  // Phase NAME from the session's interviewer; interviewers define their own phases.
+  | { type: "phase_change"; phase: string }
   | { type: "session_started"; sessionId: string }
   | { type: "session_complete"; reportId: string }
   | { type: "session_failed"; reason: string }
@@ -39,8 +44,8 @@ export type ServerMessage =
 
 // Discriminated union of all client → server message types (spec §5.3)
 export type ClientMessage =
-  // The server issues the session id (session_started) and always starts at "intro".
-  | { type: "session_start"; topicId: string; demo: boolean }
+  // The server issues the session id (session_started) and starts at the interviewer's first phase.
+  | { type: "session_start"; interviewerId: string; demo: boolean }
   | { type: "session_end" }
   | { type: "interrupt" }
   | { type: "text_input"; content: string }

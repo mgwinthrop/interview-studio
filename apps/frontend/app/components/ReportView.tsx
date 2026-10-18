@@ -3,16 +3,17 @@
 import { useState } from "react";
 import { apiUrl } from "../lib/config";
 import type { Report } from "../types";
-import type { TopicDisplayConfig } from "../lib/topics";
+import { EARLIER_INTERVIEW_LABEL } from "../lib/interviewers";
 
 interface ReportViewProps {
   report: Report;
-  topicConfig?: TopicDisplayConfig;
+  /** From the report endpoint; null for sessions stored before interviewers had names. */
+  interviewerName: string | null;
   sessionId: string;
   onNewSession: () => void;
 }
 
-export function ReportView({ report, topicConfig, sessionId, onNewSession }: ReportViewProps) {
+export function ReportView({ report, interviewerName, sessionId, onNewSession }: ReportViewProps) {
   const [activeTab, setActiveTab] = useState<"report" | "transcript">("report");
 
   const generatedDate = new Date(report.generatedAt);
@@ -26,8 +27,7 @@ export function ReportView({ report, topicConfig, sessionId, onNewSession }: Rep
     day: "numeric",
   });
 
-  const topicShort =
-    topicConfig?.interviewerTitle?.replace(" Interviewer", "") ?? "Interview";
+  const interviewerLabel = interviewerName ?? EARLIER_INTERVIEW_LABEL;
 
   return (
     <div style={{ fontFamily: "var(--font-manrope), sans-serif", background: "#F4F5F1", minHeight: "calc(100vh - 94px)" }}>
@@ -55,7 +55,7 @@ export function ReportView({ report, topicConfig, sessionId, onNewSession }: Rep
             Assessment report
           </h1>
           <p style={{ margin: "3px 0 0", fontSize: 13, color: "#6B7A8D", fontWeight: 400 }}>
-            {topicShort} — {headerDate}
+            {interviewerLabel} — {headerDate}
           </p>
         </div>
         <button
@@ -122,7 +122,7 @@ export function ReportView({ report, topicConfig, sessionId, onNewSession }: Rep
               }}
             >
               <span style={{ fontSize: 13, fontWeight: 700, color: "#087E8B" }}>
-                {topicShort}
+                {interviewerLabel}
               </span>
               <span style={{ fontSize: 11, color: "#6B7A8D", fontWeight: 400, flexShrink: 0, marginLeft: 8 }}>
                 {cardDate}

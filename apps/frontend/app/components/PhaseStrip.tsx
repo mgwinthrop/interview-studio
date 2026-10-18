@@ -1,21 +1,22 @@
 "use client";
 
 import React from "react";
-import type { Phase } from "../types";
 
-const PHASES: { id: Phase; label: string }[] = [
-  { id: "intro",      label: "Intro" },
-  { id: "share_work", label: "Share work" },
-  { id: "deep_dive",  label: "Deep dive" },
-  { id: "wrap_up",    label: "Wrap up" },
-];
-
-interface PhaseStripProps {
-  currentPhase: Phase;
+/** "deep_dive" -> "Deep dive": underscores become spaces, first letter upper-cased, rest as typed. */
+function phaseLabel(name: string): string {
+  const spaced = name.replace(/_/g, " ");
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
-export function PhaseStrip({ currentPhase }: PhaseStripProps) {
-  const currentIndex = PHASES.findIndex((p) => p.id === currentPhase);
+interface PhaseStripProps {
+  /** The interviewer's phase names, in order. */
+  phases: string[];
+  /** Current phase name; a name not in `phases` highlights nothing. */
+  currentPhase: string;
+}
+
+export function PhaseStrip({ phases, currentPhase }: PhaseStripProps) {
+  const currentIndex = phases.indexOf(currentPhase);
 
   return (
     <div
@@ -23,25 +24,27 @@ export function PhaseStrip({ currentPhase }: PhaseStripProps) {
       style={{
         display: "flex",
         alignItems: "center",
-        justifyContent: "center",
         width: "100%",
         padding: "14px 48px",
+        // Interviewers can have many phases: scroll rather than squash when they do not fit.
+        overflowX: "auto",
         borderBottom: "1px solid #E2E6EA",
         background: "#FFFFFF",
         flexShrink: 0,
         boxSizing: "border-box",
       }}
     >
-      <div className="phase-strip-inner" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%" }}>
-      {PHASES.map((phase, index) => {
+      <div className="phase-strip-inner" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", minWidth: "max-content" }}>
+      {phases.map((name, index) => {
         const isCompleted = index < currentIndex;
         const isActive    = index === currentIndex;
-        const isLast      = index === PHASES.length - 1;
+        const isLast      = index === phases.length - 1;
 
         return (
-          <React.Fragment key={phase.id}>
+          <React.Fragment key={`${index}-${name}`}>
             {/* Node + label */}
             <div
+              aria-current={isActive ? "step" : undefined}
               style={{
                 display: "flex",
                 flexDirection: "column",
@@ -77,7 +80,7 @@ export function PhaseStrip({ currentPhase }: PhaseStripProps) {
                   fontFamily: "var(--font-manrope), sans-serif",
                 }}
               >
-                {phase.label}
+                {phaseLabel(name)}
               </span>
             </div>
 

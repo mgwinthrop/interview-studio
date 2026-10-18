@@ -5,14 +5,15 @@ import { useRouter } from "next/navigation";
 import { Nav } from "../components/Nav";
 import { ReportView } from "../components/ReportView";
 import { apiUrl } from "../lib/config";
-import { getTopicConfig } from "../lib/topics";
+import { EARLIER_INTERVIEW_LABEL } from "../lib/interviewers";
 import type { Report } from "../types";
 
+// One row of GET /api/sessions.
 interface SessionListItem {
   id: string;
-  topicId: string;
-  status: string;
-  phase: string;
+  interviewerId: string;
+  /** null for sessions stored before interviewers had names. */
+  interviewerName: string | null;
   startedAt: string;
   endedAt?: string;
   turnCount: number;
@@ -133,7 +134,7 @@ export default function DashboardPage() {
   }
 
   // Footer stats
-  const personasUsed = new Set(sessions.map((s) => s.topicId)).size;
+  const personasUsed = new Set(sessions.map((s) => s.interviewerId)).size;
   const completedWithEnd = sessions.filter((s) => s.endedAt);
   const avgMinutes =
     completedWithEnd.length > 0
@@ -148,9 +149,7 @@ export default function DashboardPage() {
       : null;
 
   const selectedSession = sessions.find((s) => s.id === selectedId);
-  const topicConfig = selectedSession
-    ? getTopicConfig(selectedSession.topicId)
-    : undefined;
+  const selectedInterviewerName = selectedSession?.interviewerName ?? null;
 
   const isEmptyDashboard = !loadingSessions && sessions.length === 0;
 
@@ -275,7 +274,6 @@ export default function DashboardPage() {
               </div>
             ) : (
               sessions.map((s) => {
-                const topic = getTopicConfig(s.topicId);
                 const isSelected = s.id === selectedId;
                 const isHovered = hoveredId === s.id && !isSelected;
                 const date = new Date(s.startedAt).toLocaleDateString(
@@ -320,7 +318,7 @@ export default function DashboardPage() {
                         marginBottom: 3,
                       }}
                     >
-                      {topic?.sessionLabel ?? s.topicId}
+                      {s.interviewerName ?? EARLIER_INTERVIEW_LABEL}
                     </div>
                     <div
                       style={{
@@ -404,7 +402,7 @@ export default function DashboardPage() {
             ) : report ? (
               <ReportView
                 report={report}
-                topicConfig={topicConfig}
+                interviewerName={selectedInterviewerName}
                 sessionId={selectedId}
                 onNewSession={() => router.push("/")}
               />

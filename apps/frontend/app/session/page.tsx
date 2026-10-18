@@ -10,7 +10,7 @@ import { Nav } from "../components/Nav";
 import { PhaseStrip } from "../components/PhaseStrip";
 import { AgentPanel } from "../components/AgentPanel";
 import { LiveTranscript } from "../components/LiveTranscript";
-import { getTopicConfig } from "../lib/topics";
+import { fetchInterviewer, type InterviewerDetail } from "../lib/interviewers";
 import type { OrbState } from "../types";
 
 // Full-screen error state shared by "connection lost" and "session failed".
@@ -60,20 +60,92 @@ const overlaySecondaryStyle: React.CSSProperties = {
   background: "transparent",
 };
 
-// Inner component — must be inside <Suspense> because it calls useSearchParams()
+function LoadingScreen() {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        height: "100vh",
+        background: "#F4F5F1",
+        color: "#6B7A8D",
+        fontSize: 16,
+      }}
+    >
+      Loading…
+    </div>
+  );
+}
+
+// Inner component — must be inside <Suspense> because it calls useSearchParams().
+// Loads the interviewer first; the conversation (and its WebSocket) mounts only once
+// the interviewer is known to exist, so an unknown id never opens a session.
 function SessionPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const topicId = searchParams.get("topicId") ?? "";
+  // Links from before interviewers existed have no interviewerId, so they redirect home below.
+  const interviewerId = searchParams.get("interviewerId") ?? "";
   const demo = searchParams.get("demo") === "true";
 
-  // Guard: redirect to persona selection if topicId is missing or unrecognised
+  const [interviewer, setInterviewer] = useState<InterviewerDetail | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+
+  // Guard: redirect to interviewer selection if the id is missing or unknown.
   useEffect(() => {
-    if (!getTopicConfig(topicId)) {
+    if (!interviewerId) {
       router.replace("/");
+      return;
     }
+    let cancelled = false;
+    setLoadFailed(false);
+    fetchInterviewer(interviewerId)
+      .then((found) => {
+        if (cancelled) return;
+        if (found) setInterviewer(found);
+        else router.replace("/");
+      })
+      .catch(() => {
+        if (!cancelled) setLoadFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // runs once on mount — topicId doesn't change during a session
+  }, [loadAttempt]); // interviewerId doesn't change during a session
+
+  if (loadFailed) {
+    return (
+      <div role="alert" style={overlayStyle}>
+        <h2 style={overlayTitleStyle}>Could not load the interviewer</h2>
+        <p style={overlayBodyStyle}>Check your connection, then try again.</p>
+        <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+          <button onClick={() => setLoadAttempt((n) => n + 1)} style={overlayPrimaryStyle}>
+            Try again
+          </button>
+          <Link href="/" style={overlaySecondaryStyle}>
+            Back to start
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  if (!interviewer) return <LoadingScreen />;
+
+  return <SessionView interviewer={interviewer} demo={demo} />;
+}
+
+interface SessionViewProps {
+  interviewer: InterviewerDetail;
+  demo: boolean;
+}
+
+// The live conversation. Mounted only after the interviewer has loaded.
+function SessionView({ interviewer, demo }: SessionViewProps) {
+  const router = useRouter();
+  const interviewerId = interviewer.id;
 
   // Track actual playback, including buffered speech after tts_end.
   const [audioPlaying, setAudioPlaying] = useState(false);
@@ -100,8 +172,6 @@ function SessionPageInner() {
     setTimeout(() => setSttError(false), 3000);
   }, []);
 
-  const topicConfig = getTopicConfig(topicId);
-
   const {
     connectionState,
     phase,
@@ -114,7 +184,11 @@ function SessionPageInner() {
     closeReason,
     sendMessage,
     reconnect,
-  } = useWebSocket(topicId, demo, handleAudioChunk, handleTtsEnd, handleSttError);
+  } = useWebSocket(interviewerId, demo, handleAudioChunk, handleTtsEnd, handleSttError);
+
+  // Sessions start in the interviewer's first phase; phase_change then names the current one.
+  const phaseNames = interviewer.phases.map((p) => p.name);
+  const currentPhase = phase || (phaseNames[0] ?? "");
 
   // Orb state — 4 states: listening / thinking / speaking / interrupted (spec §7)
   const [orbState, setOrbState] = useState<OrbState>("listening");
@@ -253,14 +327,14 @@ function SessionPageInner() {
   // Redirect to report page when session_complete received
   useEffect(() => {
     if (sessionComplete) {
-      router.push(`/report/${sessionComplete.reportId}?topicId=${topicId}`);
+      router.push(`/report/${sessionComplete.reportId}`);
     }
-  }, [sessionComplete, router, topicId]);
+  }, [sessionComplete, router]);
 
   // The report page needs the server-issued id; before session_started there is none.
   const goToReportOrHome = useCallback(() => {
-    router.push(sessionId ? `/report/${sessionId}?topicId=${topicId}` : "/");
-  }, [router, sessionId, topicId]);
+    router.push(sessionId ? `/report/${sessionId}` : "/");
+  }, [router, sessionId]);
 
   function handleEndSession() {
     audioQueueRef.current?.flush();
@@ -334,7 +408,7 @@ function SessionPageInner() {
       <Nav />
 
       {/* Phase strip — interview phases (spec §7) */}
-      <PhaseStrip currentPhase={phase} />
+      <PhaseStrip phases={phaseNames} currentPhase={currentPhase} />
 
       {/* Session header bar */}
       <div
@@ -349,9 +423,9 @@ function SessionPageInner() {
           flexShrink: 0,
         }}
       >
-        {/* Topic title */}
+        {/* Interviewer name */}
         <span style={{ fontSize: 15, fontWeight: 700, color: "#000000" }}>
-          {topicConfig?.sessionLabel ?? "Interview Session"}
+          {interviewer.name}
         </span>
 
         {/* Session ID — hidden on mobile */}
@@ -670,21 +744,7 @@ function SessionPageInner() {
 // Page wrapper — Suspense required for useSearchParams() in App Router
 export default function SessionPage() {
   return (
-    <Suspense fallback={
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          height: "100vh",
-          background: "#F4F5F1",
-          color: "#6B7A8D",
-          fontSize: 16,
-        }}
-      >
-        Loading…
-      </div>
-    }>
+    <Suspense fallback={<LoadingScreen />}>
       <SessionPageInner />
     </Suspense>
   );
