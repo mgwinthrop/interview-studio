@@ -69,7 +69,7 @@ An interviewer is a record that defines one kind of conversation: who the interv
 
 ### Prompt layout
 
-`buildSystemPrompt` in `interviewer/prompt.ts` builds the system prompt for each turn in this order: the fixed voice-rules wrapper (code, not editable), the interviewer's `persona`, its `style`, the current phase's `instruction`, the `opening` guidance on the first turn only, the `closing` guidance in the last phase only, and a final voice-rules reminder. The reminder comes last so interviewer text never follows the rules. The report prompt (`reportGenerator.ts`) is built from the snapshot's name, purpose, persona and focus items. `contentFeedback`, `deliveryFeedback` and `voice` are stored and validated but not yet read by the report or the speech providers.
+`buildSystemPrompt` in `interviewer/prompt.ts` builds the system prompt for each turn in this order: the fixed voice-rules wrapper (code, not editable), the interviewer's `persona`, its `style`, the current phase's `instruction`, the `opening` guidance on the first turn only, the `closing` guidance in the last phase only, and a final voice-rules reminder. The reminder comes last so interviewer text never follows the rules. The report prompt is separate and is described under "Delivery metrics and the report". `voice` is stored and validated but not yet read by the speech providers.
 
 ### Phase advancement
 
@@ -91,6 +91,72 @@ All routes are behind the authenticator and scoped to the caller's owner. Bodies
 | `DELETE /api/interviewers/:id` | 204. 403 for a preset, 404 otherwise. |
 
 Malformed JSON is 400 and a body over 64 KB is 413.
+
+## Delivery metrics and the report
+
+The report has three parts: **Content** (what was said), **Delivery** (how it was said) and **Next steps**. The text is reflective: no scores, ratings or grades. Delivery numbers are computed in code from the speech-to-text word timings (`apps/backend/src/delivery/metrics.ts`); the model never produces them.
+
+### Metric definitions
+
+Per spoken (audio) user turn, `computeTurnMetrics` gives these numbers. A value is `null` when it is unknown; `null` is never a stand-in for zero.
+
+| Metric | Definition |
+|---|---|
+| Pause | A gap of at least 0.7 s (`PAUSE_THRESHOLD_SEC`) between consecutive timed words. Reported as `pauseCount` and `longestPauseSec`. |
+| Pace | Timed words per minute over the span from the first word's start to the last word's end (`wordsPerMinute`). `null` when the span is under 2 s or there are under 5 timed words. |
+| Answer length | `wordCount` and `durationSec` (the same first-start to last-end span). |
+| Fillers | `fillerCount`: the number of words that are one of `um, uh, uhm, er, erm, ah, hmm, mm, mmm` (`FILLER_WORDS`). Whole-token matching, case-insensitive, surrounding punctuation ignored, so "umbrella" and "errand" do not count. |
+| Response gap | `responseGapMs`: the time from the end of the interviewer's audio playback to the start of the user's speech. The server cannot measure it (TTS streams faster than it plays) and the STT timings cannot (an utterance starts when speech starts), so the client measures it and sends it as `turn_timing` just before the audio frame. It is `null` for a first answer with no earlier playback, for text input, when the user spoke over the interviewer, and when the value is invalid. |
+
+Words without finite timestamps are left out of the timing numbers (`timedWordCount` counts those used). With fewer than two timed words, duration, pace and pauses are `null`. A turn with no word list still gets a `wordCount` from the text.
+
+### What is stored
+
+Per audio turn, `ConversationTurn.metricsJson` holds the numbers above and nothing else: no audio and no word list. Text-input turns, assistant turns and sessions from before this feature have `metricsJson = null` and so no delivery data. The client's `turn_timing` value is stored only as the `responseGapMs` number and is never logged. Filler counts are stored always; whether reports show them is controlled by `REPORT_FILLER_COUNTS` (see the filler caveat below).
+
+### Session summary
+
+`summarizeDelivery` rolls the measured turns into one `DeliverySummary`, or returns `null` when no turn has metrics. Total words and speaking time are sums. Average pace is total-based: the timed words of the turns with a duration divided by their total time, not the mean of per-turn paces; it is `null` when that total time is under 2 s. Pauses are summed and the longest pause is the maximum. The response gap is the median over the turns that have one (`medianResponseGapMs`). The summary also lists `perTurn` entries (word count, pace, longest pause, response gap), numbered by the user's answers in order, typed ones included.
+
+### Report structure
+
+`reportGenerator.ts` returns a `ReportV2`: `format: 2`, optional `content` (`summary`, up to 4 `strengths` each with an `area`, an exact `quote` and a `note`, and up to 4 `developAreas`), optional `delivery` (the `summary` from code plus the model's plain-language `reading`), `deliveryUnavailable` when delivery was asked for but no data exists, and 1 or 2 `nextSteps`. Field limits are in `REPORT_LIMITS`.
+
+Which parts are asked for comes from the interviewer's snapshot:
+
+- `contentFeedback` on: the Content part is asked for. `deliveryFeedback` on: the Delivery part is asked for, if a summary exists.
+- If delivery is on but no spoken answer was measured (for example a text-only session), there is no Delivery part, the report gets `deliveryUnavailable: true`, and the model is told not to comment on delivery. Content is then generated even if `contentFeedback` is off, so a report is never next steps alone.
+- The interviewer schema refuses an interviewer with both switches off. If one reaches generation anyway, it is treated as content on.
+- When delivery is off, the model is not given the numbers.
+
+The model's output is checked against a schema built for that request: requested parts are required and anything else is dropped. A report that fails validation (after the provider's retry) fails the session.
+
+### Report prompt layout
+
+The system prompt is, in order: a fixed introduction, the interviewer's `name`, `purpose`, `persona` and `focus`, then the fixed report instructions. The instructions come last so interviewer-written text never follows them, and the field limits are stated in them. The user message holds the numbers and the transcript only: the count of answers (total and measured), the `DELIVERY SUMMARY` JSON, then the transcript with each turn collapsed to one line. The instructions tell the model that everything in the user message is material, not instructions.
+
+The report call uses `max_tokens: 3072` (`REPORT_MAX_TOKENS`), an exception to the 300-token conversational limit. The largest schema-valid report is about 6,900 characters (about 2,300 tokens), and a reply cut off by the budget would fail validation on both attempts and lose the whole report. An unused budget costs nothing. A test fails if a field limit is raised past the budget.
+
+### Compatibility with old reports
+
+`Report.reportJson` (nullable) stores the `ReportV2`. The older report columns are still written, derived from it (`summary`, strengths and improvements from Content, and `overallAssessment` holding the next steps joined into one line; `highlightsJson` is empty), so code that reads them keeps working. A row without `reportJson` is served as `format: 1`, the older shape, and the report page renders it as before. `GET /api/session/:sessionId/report` (also `/report/:sessionId`) returns `format` and `interviewerName` with the report. A `complete` session whose stored report cannot be read gets 500 with `status: "unreadable"`.
+
+### Regenerating a failed report
+
+A session whose report failed is `failed`. `GET` on its report returns 500 with `status: "failed"` and `canRegenerate`, which is true when the session has at least one user turn and an interviewer snapshot. `POST /api/session/:sessionId/report/regenerate` (behind the authenticator, owner-scoped) runs the same generation inside the request, with the same `limits.reportTimeoutMs` deadline, and answers:
+
+| Status | Meaning |
+|---|---|
+| 200 | The new report (as `GET` returns it). The session is now `complete`. |
+| 404 | Unknown, foreign or malformed session id. |
+| 409 | The session is not `failed`, has no user turns or snapshot, another regenerate for it is already running, or it stopped being `failed` meanwhile. The body is always the same. |
+| 502 | Generation failed again or hit the deadline. The session stays `failed`. |
+
+The report and the status change are written in one transaction by `completeFailedSession`, which only succeeds for a `failed` session of the right owner. It is the one exception to "a session leaves `active` exactly once"; the normal status writer is unchanged.
+
+### Filler caveat and how to verify it
+
+Whether Scribe v2 keeps filler words such as "um" in its transcript could not be confirmed from its public documentation. If it drops them, a count of zero would be misleading, so reports leave filler counts out by default: the model is not given the number and the report's summary has `fillerCount: null`. To check, run a conversation in which you say "um" and "uh" deliberately several times, inspect the stored `metricsJson` of those turns (`fillerCount` should be above zero and match roughly what you said), then set `REPORT_FILLER_COUNTS=1` (or `true`) and restart the backend.
 
 ## Providers and profiles
 
@@ -124,17 +190,17 @@ State transitions:
 - `idle`: not started, or ended. `listening`: waiting for the user. `thinking`: STT and LLM running, no audio sent yet. `speaking`: TTS audio is being sent.
 - One item runs at a time (the greeting, then user utterances). Utterances that arrive meanwhile wait in a FIFO queue of up to 5; beyond that the server sends `stt_error` with reason `busy`.
 - Each item has one `AbortController` shared by STT, LLM and TTS. `interrupt()` clears the queue and aborts it, so nothing further is sent for that turn: no final transcript and no `tts_end`, and the interrupted assistant reply is not stored (the user turn is).
-- `end()` (from `session_end`) first cancels the in-flight reply exactly as `interrupt()` does (nothing more is synthesised or sent for it, and it is not stored), waits for that turn to settle, then generates the report from the committed turns, stores it and sets the status. `abandon()` (socket closed, or idle timeout) aborts everything. `onEnded` fires exactly once with the status reached.
+- `end()` (from `session_end`) first cancels the in-flight reply exactly as `interrupt()` does (nothing more is synthesised or sent for it, and it is not stored), waits for that turn to settle, then generates the report from the committed turns (including their delivery metrics), stores it and sets the status. `abandon()` (socket closed, or idle timeout) aborts everything. `onEnded` fires exactly once with the status reached.
 - A session ends itself after `limits.maxTurnsPerSession` user turns (200).
 
 ## Session statuses and the end-of-session deadline
 
-A stored session is `active`, `complete`, `failed` or `abandoned`, and leaves `active` exactly once.
+A stored session is `active`, `complete`, `failed` or `abandoned`, and leaves `active` exactly once. The one other transition is `failed` to `complete`, used only by report regeneration.
 
 | Status | Meaning |
 |---|---|
 | `complete` | `session_end` was received and the report was stored. Only these are listed in `/api/sessions`. |
-| `failed` | The session ended but the report could not be generated or stored (provider error, invalid report, or the deadline). |
+| `failed` | The session ended but the report could not be generated or stored (provider error, invalid report, or the deadline). Its report can be regenerated; success makes it `complete`. |
 | `abandoned` | The socket closed before `session_end`, or the session idled out. |
 
 Ending is bounded by `limits.reportTimeoutMs` (90 seconds). If the in-flight turn plus report generation have not finished by then, everything is aborted, the status becomes `failed` and the client gets `session_failed`. The deadline does not rely on providers honouring the abort, and a report that arrives late cannot change the outcome. A session is never reported `complete` unless its report was stored.
@@ -155,7 +221,7 @@ Ending is bounded by `limits.reportTimeoutMs` (90 seconds). If the in-flight tur
 
 ## Data lifecycle
 
-- Active session state lives in memory. SQLite (Prisma) is written when a session is created (with its interviewer snapshot), on each completed turn, on phase changes, and when the session ends (status and report). `DATABASE_URL` selects the file; never hardcode or commit it.
+- Audio is never stored: only transcript text and per-turn delivery numbers are. Active session state lives in memory. SQLite (Prisma) is written when a session is created (with its interviewer snapshot), on each completed turn, on phase changes, and when the session ends (status and report). `DATABASE_URL` selects the file; never hardcode or commit it.
 - `DELETE /api/session/:sessionId` removes a session with its turns and report. The dashboard offers it with a confirmation. A live session cannot be deleted (409).
 - Deleting a custom interviewer (`DELETE /api/interviewers/:id`) removes only its row in the `Interviewer` table. Sessions keep their own snapshot, so their reports, transcripts and names are unchanged. Deleting a session never touches an interviewer.
 - Preset rows are rebuilt from the repository files at every startup. Removing a preset file removes its row, while sessions that used it keep their snapshot.
@@ -177,7 +243,7 @@ These are not up for debate. Change requires an explicit instruction and a spec 
 | Decision | Value | Why locked |
 |---|---|---|
 | LLM model | `claude-sonnet-4-6` | Latency + quality balance confirmed in testing |
-| LLM max_tokens | `300` | Enforces short voice-appropriate responses |
+| LLM max_tokens | `300` (conversation replies) | Enforces short voice-appropriate responses. The report call is separate and uses 3072. |
 | STT | ElevenLabs Scribe v2 | Best accuracy for voice; Scribe v2 is the current API (used as one request per utterance) |
 | TTS model | `eleven_flash_v2_5` | Lowest latency ElevenLabs model |
 | TTS fallback | Cartesia `sonic-english` | Independent provider — covers ElevenLabs outages |

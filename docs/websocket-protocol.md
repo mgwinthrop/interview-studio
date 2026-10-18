@@ -48,7 +48,7 @@ When the session is created, the server copies the full interviewer definition i
 | `failed` | The session ended but the report could not be generated or stored. |
 | `abandoned` | The socket closed before `session_end`, or the session idled out. |
 
-A session leaves `active` exactly once. If the socket closes after `session_end` has been sent, the report is still generated and the session can still become `complete`. Ending is bounded: if the in-flight turn and the report have not finished within `limits.reportTimeoutMs` (90 seconds by default) of `session_end`, both are aborted, the session becomes `failed` and the server sends `session_failed` (if the socket is still open).
+A session leaves `active` exactly once. The only other transition is `failed` to `complete`, made over HTTP when a failed report is regenerated (`POST /api/session/:sessionId/report/regenerate`, see `architecture.md`); it is not a WebSocket message. If the socket closes after `session_end` has been sent, the report is still generated and the session can still become `complete`. Ending is bounded: if the in-flight turn and the report have not finished within `limits.reportTimeoutMs` (90 seconds by default) of `session_end`, both are aborted, the session becomes `failed` and the server sends `session_failed` (if the socket is still open).
 
 ## Client → Server
 
