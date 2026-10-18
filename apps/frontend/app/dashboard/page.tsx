@@ -64,6 +64,8 @@ export default function DashboardPage() {
   const [reportError, setReportError] = useState(false);
   const [loadingSessions, setLoadingSessions] = useState(true);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Fetch session list once on mount
   useEffect(() => {
@@ -95,6 +97,40 @@ export default function DashboardPage() {
       .catch(() => setReportError(true))
       .finally(() => setLoadingReport(false));
   }, [selectedId]);
+
+  // A different selection clears any earlier delete error
+  useEffect(() => {
+    setDeleteError(null);
+  }, [selectedId]);
+
+  async function handleDelete() {
+    if (!selectedId || deleting) return;
+    const id = selectedId;
+    if (
+      !window.confirm(
+        "Delete this session? Its transcript and report will be permanently removed."
+      )
+    ) {
+      return;
+    }
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const r = await fetch(`${apiUrl}/api/session/${id}`, { method: "DELETE" });
+      if (r.status === 409) {
+        setDeleteError("This session is still active and cannot be deleted.");
+        return;
+      }
+      if (!r.ok && r.status !== 404) throw new Error("delete failed");
+      setSessions((prev) => prev.filter((s) => s.id !== id));
+      setSelectedId(null);
+      setReport(null);
+    } catch {
+      setDeleteError("Could not delete session.");
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   // Footer stats
   const personasUsed = new Set(sessions.map((s) => s.topicId)).size;
@@ -322,6 +358,41 @@ export default function DashboardPage() {
 
           {/* Right: report panel */}
           <div style={{ flex: 1, overflowY: "auto" }}>
+            {selectedId && (
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  alignItems: "center",
+                  gap: 12,
+                  padding: "10px 24px 0",
+                }}
+              >
+                {deleteError && (
+                  <span role="alert" style={{ fontSize: 13, color: "#B3261E" }}>
+                    {deleteError}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  style={{
+                    padding: "6px 14px",
+                    borderRadius: 8,
+                    background: "#FFFFFF",
+                    color: "#B3261E",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    border: "1px solid #B3261E",
+                    cursor: deleting ? "default" : "pointer",
+                    fontFamily: "var(--font-manrope), sans-serif",
+                  }}
+                >
+                  {deleting ? "Deleting…" : "Delete session"}
+                </button>
+              </div>
+            )}
             {loadingReport ? (
               <CenteredMessage>Loading report…</CenteredMessage>
             ) : reportError ? (
