@@ -458,6 +458,7 @@ export class SessionController {
         this.deps.interviewer,
         this.deps.providers.llm,
         reportAbort.signal,
+        { showFillerCounts: this.deps.config.reportFillerCounts },
       );
       reportAbort.signal.throwIfAborted();
       await persist.persistReport(this.sessionId, report);

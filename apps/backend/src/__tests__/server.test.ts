@@ -20,11 +20,13 @@ const USER_TEXT = "zebra-marmalade I lead a delivery team that uses AI assistant
 const STT_TEXT = "quokka-lantern we pair on prompts and keep a shared library of review checks.";
 const LLM_REPLY = "Thanks for sharing that with me. Could you tell me a little more about it?";
 const VALID_REPORT = {
-  summary: "A short summary.",
-  strengths: [{ area: "Delivery", evidence: "Leads a team." }],
-  improvements: [{ area: "Metrics", suggestion: "Track outcomes." }],
-  highlights: ["uses AI assistants"],
-  overall_assessment: "Solid.",
+  content: {
+    summary: "A short summary.",
+    strengths: [{ area: "Delivery", quote: "I lead a delivery team", note: "Leads a team." }],
+    developAreas: [{ area: "Metrics", suggestion: "Track outcomes." }],
+  },
+  deliveryReading: "An even pace.",
+  nextSteps: ["Track one outcome next time."],
 };
 
 let tmpDir: string;
@@ -684,8 +686,10 @@ describe("full conversation", () => {
       const res = await fetch(`${r.base}${p}`);
       expect(res.status).toBe(200);
       expect(await res.json()).toMatchObject({
+        format: 2,
         sessionId: id,
-        summary: VALID_REPORT.summary,
+        content: { summary: VALID_REPORT.content.summary },
+        nextSteps: VALID_REPORT.nextSteps,
         interviewerName: PRESET.name,
       });
     }
@@ -1200,10 +1204,13 @@ describe("turn_timing", () => {
     c.send({ type: "interrupt" });
     await audioTurn(c);
     const turns = await storedUserTurns(id, 2);
-    expect(turns[0].content).toBe(USER_TEXT);
-    expect(turns[0].metrics ?? null).toBeNull();
+    // Found by content: turns stored in the same millisecond have no defined order.
+    const typed = turns.find((t) => t.content === USER_TEXT);
+    const spoken = turns.find((t) => t.content === STT_TEXT);
+    expect(typed).toBeDefined();
+    expect(typed!.metrics ?? null).toBeNull();
     // The interrupt discarded the pending gap.
-    expect(turns[1].metrics).toMatchObject({ responseGapMs: null });
+    expect(spoken?.metrics).toMatchObject({ responseGapMs: null });
     c.ws.close();
     await c.closed;
   });

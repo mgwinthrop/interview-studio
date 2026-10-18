@@ -23,11 +23,13 @@ const TEXT_2 = "kestrel-pudding we review every change with a shared checklist."
 const STT_TEXT = "quokka-lantern we pair on prompts and keep a library of review checks.";
 const REPLY = "Thanks for sharing that with me.";
 const REPORT = {
-  summary: "A short summary.",
-  strengths: [{ area: "Delivery", evidence: "Leads a team." }],
-  improvements: [{ area: "Metrics", suggestion: "Track outcomes." }],
-  highlights: ["uses AI assistants"],
-  overall_assessment: "Solid.",
+  content: {
+    summary: "A short summary.",
+    strengths: [{ area: "Delivery", quote: "I lead a delivery team", note: "Leads a team." }],
+    developAreas: [{ area: "Metrics", suggestion: "Track outcomes." }],
+  },
+  deliveryReading: "An even pace.",
+  nextSteps: ["Track one outcome next time."],
 };
 
 let tmpDir: string;
@@ -214,7 +216,13 @@ describe("keyless conversation", () => {
 
       const report = await fetch(`${base}/api/session/${sessionId}/report`);
       expect(report.status).toBe(200);
-      expect(await report.json()).toMatchObject({ sessionId, summary: REPORT.summary, interviewerName: PRESET.name });
+      expect(await report.json()).toMatchObject({
+        format: 2,
+        sessionId,
+        content: { summary: REPORT.content.summary },
+        nextSteps: REPORT.nextSteps,
+        interviewerName: PRESET.name,
+      });
 
       const transcript = await fetch(`${base}/api/session/${sessionId}/transcript`);
       expect(transcript.status).toBe(200);
@@ -248,7 +256,10 @@ describe("keyless conversation", () => {
       PRESET,
       createProviders(config).llm,
       new AbortController().signal,
+      { showFillerCounts: config.reportFillerCounts },
     );
-    expect(report.summary).toContain("Mock report");
+    expect(report.format).toBe(2);
+    expect(report.content?.summary).toContain("Mock report");
+    expect(report.nextSteps).toEqual(["Mock next step."]);
   });
 });

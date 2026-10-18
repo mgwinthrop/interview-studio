@@ -7,7 +7,7 @@ import { PRESETS } from "../interviewer/presets";
 import type { InterviewerDefinition, PhaseDefinition } from "../interviewer/schema";
 import type {
   ConversationTurn,
-  Report,
+  ReportV2,
   ServerToClientMessage,
   SessionStatus,
 } from "../types";
@@ -18,9 +18,9 @@ const LONG_TEXT =
 
 type Event = { kind: "json"; msg: ServerToClientMessage } | { kind: "audio"; bytes: number };
 
-function makeConfig(limits: Partial<Config["limits"]> = {}): Config {
+function makeConfig(limits: Partial<Config["limits"]> = {}, overrides: Partial<Config> = {}): Config {
   const base = loadConfig({ PROFILE: "mock" });
-  return { ...base, limits: { ...base.limits, ...limits } };
+  return { ...base, ...overrides, limits: { ...base.limits, ...limits } };
 }
 
 function makePersist() {
@@ -28,7 +28,7 @@ function makePersist() {
     persistTurn: vi.fn(async (_t: ConversationTurn) => {}),
     persistPhaseTransition: vi.fn(async (_id: string, _phase: string) => {}),
     persistSessionStatus: vi.fn(async (_id: string, _status: SessionStatus) => true),
-    persistReport: vi.fn(async (_id: string, _report: Report) => {}),
+    persistReport: vi.fn(async (_id: string, _report: ReportV2) => {}),
   };
 }
 
@@ -85,6 +85,7 @@ function setup(
     providers?: ControllerDeps["providers"];
     onEnded?: ControllerDeps["onEnded"];
     interviewer?: InterviewerDefinition;
+    config?: Partial<Config>;
   } = {},
 ) {
   const events: Event[] = [];
@@ -96,7 +97,7 @@ function setup(
     interviewer: opts.interviewer ?? PRESETS[0],
     demo: opts.demo ?? false,
     providers: opts.providers ?? createMockProviders({ llmReplies: [LONG_REPLY], ...opts.script }),
-    config: makeConfig(opts.limits),
+    config: makeConfig(opts.limits, opts.config),
     sendJson: (msg) => events.push({ kind: "json", msg }),
     sendAudio: (chunk) => events.push({ kind: "audio", bytes: chunk.length }),
     persist,
@@ -119,11 +120,13 @@ function assistantFinals(events: Event[]): string[] {
 }
 
 const REPORT = {
-  summary: "A good conversation.",
-  strengths: [{ area: "Clarity", evidence: "Explained the team setup" }],
-  improvements: [{ area: "Depth", suggestion: "Give a concrete metric" }],
-  highlights: ["We use AI for review"],
-  overall_assessment: "Thoughtful and concrete.",
+  content: {
+    summary: "A good conversation.",
+    strengths: [{ area: "Clarity", quote: "We use AI for review", note: "Explained the team setup" }],
+    developAreas: [{ area: "Depth", suggestion: "Give a concrete metric" }],
+  },
+  deliveryReading: "An even pace throughout.",
+  nextSteps: ["Thoughtful and concrete: lead with one example."],
 };
 
 afterEach(() => {
@@ -695,7 +698,11 @@ describe("SessionController end and abandon", () => {
     expect(persist.persistReport).toHaveBeenCalledTimes(1);
     const report = persist.persistReport.mock.calls[0][1];
     expect(report.sessionId).toBe("s-1");
-    expect(report.overallAssessment).toBe("Thoughtful and concrete.");
+    expect(report.format).toBe(2);
+    expect(report.content?.summary).toBe("A good conversation.");
+    expect(report.nextSteps).toEqual(["Thoughtful and concrete: lead with one example."]);
+    // A text-only session has no delivery data, so no delivery part.
+    expect(report.delivery).toBeUndefined();
     expect(persist.persistSessionStatus.mock.calls).toEqual([["s-1", "complete"]]);
     const reportOrder = persist.persistReport.mock.invocationCallOrder[0];
     const statusOrder = persist.persistSessionStatus.mock.invocationCallOrder[0];
@@ -1246,6 +1253,25 @@ describe("SessionController delivery metrics", () => {
     for (const v of Object.values(turn.metrics!)) expect(v === null || typeof v === "number").toBe(true);
     // The in-memory turn carries the same metrics.
     expect(userTurns(ctl.turns)[0].metrics).toEqual(turn.metrics);
+  });
+
+  it.each([
+    [false, null],
+    [true, 1],
+  ])("end() persists a ReportV2 with delivery, fillerCount shown only when reportFillerCounts=%s", async (flag, fillers) => {
+    const { ctl, persist } = setup({
+      script: { sttTexts: ["um I think we ship weekly and it works well for the team"], structured: REPORT },
+      config: { reportFillerCounts: flag },
+    });
+    await ctl.start();
+    ctl.handleAudio(Buffer.alloc(320));
+    await ctl.settled();
+    await expect(ctl.end()).resolves.toBe("complete");
+    const report = persist.persistReport.mock.calls[0][1];
+    expect(report.format).toBe(2);
+    expect(report.delivery?.reading).toBe("An even pace throughout.");
+    expect(report.delivery?.summary.turnsMeasured).toBe(1);
+    expect(report.delivery?.summary.fillerCount).toBe(fillers);
   });
 
   it("an audio turn with no noted gap has responseGapMs null", async () => {
