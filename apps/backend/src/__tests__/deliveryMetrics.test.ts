@@ -14,10 +14,11 @@ function evenWords(n: number, step = 0.3) {
   return Array.from({ length: n }, (_, i) => w(`w${i}`, i * step, i * step + 0.25));
 }
 
+/** Hand-built metrics; timedWordCount defaults to wordCount when timed, else 0. */
 function metrics(over: Partial<TurnMetrics> = {}): TurnMetrics {
-  return {
+  const base = {
     wordCount: 10,
-    durationSec: 5,
+    durationSec: 5 as number | null,
     wordsPerMinute: 120,
     pauseCount: 0,
     longestPauseSec: 0,
@@ -25,6 +26,7 @@ function metrics(over: Partial<TurnMetrics> = {}): TurnMetrics {
     fillerCount: 0,
     ...over,
   };
+  return { timedWordCount: base.durationSec === null ? 0 : base.wordCount, ...base };
 }
 
 describe("constants", () => {
@@ -207,6 +209,7 @@ describe("computeTurnMetrics", () => {
     const m = computeTurnMetrics({ text: "  hello   there\nfriend ", words: [] });
     expect(m).toEqual({
       wordCount: 3,
+      timedWordCount: 0,
       durationSec: null,
       wordsPerMinute: null,
       pauseCount: null,
@@ -271,6 +274,35 @@ describe("summarizeDelivery", () => {
     ])!;
     expect(s.totalWords).toBe(60);
     expect(s.averageWordsPerMinute).toBe(120); // 10 / (5/60)
+  });
+
+  it("average pace uses timed words only, matching the turn's own pace", () => {
+    const timedWords = Array.from({ length: 6 }, (_, i) => w(`t${i}`, i * 2, i * 2 + 1));
+    const untimed = Array.from({ length: 14 }, (_, i) => w(`u${i}`, NaN, NaN));
+    const m = computeTurnMetrics({ text: "", words: [...timedWords, ...untimed] });
+    expect(m.timedWordCount).toBe(6);
+    expect(m.wordsPerMinute).toBe(32.7);
+    const s = summarizeDelivery([{ role: "user", metrics: m }])!;
+    expect(s.totalWords).toBe(20);
+    expect(s.averageWordsPerMinute).toBe(32.7); // not 20 / (11/60) = 109.1
+  });
+
+  it("zero-duration turns contribute neither words nor time to average pace", () => {
+    const flat = computeTurnMetrics({ text: "", words: [w("a", 1, 1), w("b", 1, 1), w("c", 1, 1)] });
+    expect(flat.durationSec).toBe(0);
+    expect(flat.timedWordCount).toBe(3);
+    const normal = metrics({ wordCount: 10, durationSec: 5, wordsPerMinute: 120 });
+    const s = summarizeDelivery([
+      { role: "user", metrics: flat },
+      { role: "user", metrics: normal },
+    ])!;
+    expect(s.totalWords).toBe(13);
+    expect(s.averageWordsPerMinute).toBe(120);
+  });
+
+  it("reports timedWordCount 0 when fewer than 2 words are timed", () => {
+    expect(computeTurnMetrics({ text: "hi", words: [w("hi", 1, 1.4)] }).timedWordCount).toBe(0);
+    expect(computeTurnMetrics({ text: "a b", words: [] }).timedWordCount).toBe(0);
   });
 
   it("average pace threshold at exactly 2.0 s total is float-robust", () => {

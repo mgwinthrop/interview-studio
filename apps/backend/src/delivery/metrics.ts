@@ -16,6 +16,8 @@ const EPSILON = 1e-9;
 /** `null` means unknown; it is never used as a stand-in for zero. */
 export interface TurnMetrics {
   wordCount: number;
+  /** Words with finite timestamps used for timing; 0 when timing is unknown. */
+  timedWordCount: number;
   durationSec: number | null;
   wordsPerMinute: number | null;
   pauseCount: number | null;
@@ -72,6 +74,7 @@ export function computeTurnMetrics(input: {
   if (words.length === 0) {
     return {
       wordCount: text.split(/\s+/).filter(Boolean).length,
+      timedWordCount: 0,
       durationSec: null,
       wordsPerMinute: null,
       pauseCount: null,
@@ -96,6 +99,7 @@ export function computeTurnMetrics(input: {
   if (timed.length < 2) {
     return {
       wordCount,
+      timedWordCount: 0,
       durationSec: null,
       wordsPerMinute: null,
       pauseCount: null,
@@ -119,6 +123,7 @@ export function computeTurnMetrics(input: {
   const durationSec = round(Math.max(0, latestEnd - timed[0].start), 2);
   return {
     wordCount,
+    timedWordCount: timed.length,
     durationSec,
     // Pace uses only the words that have timing.
     wordsPerMinute: paceOrNull(timed.length, durationSec),
@@ -152,8 +157,10 @@ export function summarizeDelivery(
 
   const totalWords = measured.reduce((n, m) => n + m.wordCount, 0);
   const speakingTimeSec = measured.reduce((n, m) => n + (m.durationSec ?? 0), 0);
-  // Only turns with a known duration contribute words to the average pace.
-  const timedWords = measured.reduce((n, m) => n + (m.durationSec !== null ? m.wordCount : 0), 0);
+  // Average pace uses only turns with a positive duration: their timed words over their time.
+  const paceTurns = measured.filter((m) => m.durationSec !== null && m.durationSec > 0);
+  const timedWords = paceTurns.reduce((n, m) => n + m.timedWordCount, 0);
+  const paceTimeSec = paceTurns.reduce((n, m) => n + (m.durationSec ?? 0), 0);
   const pauseCount = measured.reduce((n, m) => n + (m.pauseCount ?? 0), 0);
   const longestPauseSec = measured.reduce((max, m) => Math.max(max, m.longestPauseSec ?? 0), 0);
 
@@ -174,7 +181,7 @@ export function summarizeDelivery(
     totalWords,
     speakingTimeSec,
     averageWordsPerMinute:
-      round(speakingTimeSec, 2) < MIN_PACE_DURATION_SEC ? null : round(timedWords / (speakingTimeSec / 60), 1),
+      round(paceTimeSec, 2) < MIN_PACE_DURATION_SEC ? null : round(timedWords / (paceTimeSec / 60), 1),
     pauseCount,
     longestPauseSec,
     medianResponseGapMs,
