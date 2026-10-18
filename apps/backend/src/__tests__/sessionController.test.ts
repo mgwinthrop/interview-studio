@@ -1401,14 +1401,14 @@ describe("SessionController delivery metrics", () => {
     expect(turns[1].metrics).toMatchObject({ responseGapMs: null });
   });
 
-  it("a text turn does not consume a pending gap: the next audio still gets it", async () => {
+  it("a text turn discards a pending gap: the next audio does not get it", async () => {
     const { ctl, storedTurns } = setup({ script: { ttsDelayMs: 5 } });
     await ctl.start();
     ctl.noteResponseGap(640);
     ctl.handleText("typed first");
     ctl.handleAudio(Buffer.alloc(320));
     await ctl.settled();
-    expect(gaps(storedTurns())).toEqual([null, 640]);
+    expect(gaps(storedTurns())).toEqual([null, null]);
   });
 
   it("a gap consumed by an audio item whose STT fails does not carry to the next audio", async () => {

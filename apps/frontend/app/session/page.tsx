@@ -320,6 +320,8 @@ function SessionView({ interviewer, demo }: SessionViewProps) {
   const handlePause = useCallback(async () => {
     pauseMic();
     await audioQueueRef.current?.suspend();
+    // The pause is not thinking time: an answer after it has no measured gap before answering.
+    lastPlaybackEndedAtRef.current = null;
     setIsPaused(true);
   }, [pauseMic]);
 

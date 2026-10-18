@@ -143,6 +143,8 @@ export class SessionController {
   handleText(text: string): void {
     const trimmed = text.trim();
     if (!trimmed) return;
+    // A text turn means any waiting note belongs to no audio.
+    this.pendingGapMs = null;
     this.enqueue({ kind: "text", text: trimmed, receivedAt: Date.now() });
   }
 
