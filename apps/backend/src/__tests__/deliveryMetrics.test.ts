@@ -233,6 +233,28 @@ describe("summarizeDelivery", () => {
     ).toBeNull();
   });
 
+  it("reports unknown speaking time, pauses and longest pause as null, never zero", () => {
+    const untimed = metrics({ wordCount: 1, durationSec: null, pauseCount: null, longestPauseSec: null });
+    const s = summarizeDelivery([
+      { role: "user", metrics: untimed },
+      { role: "user", metrics: untimed },
+    ])!;
+    expect(s.turnsMeasured).toBe(2);
+    expect(s.speakingTimeSec).toBeNull();
+    expect(s.pauseCount).toBeNull();
+    expect(s.longestPauseSec).toBeNull();
+  });
+
+  it("sums only the known values and keeps a real zero as zero", () => {
+    const s = summarizeDelivery([
+      { role: "user", metrics: metrics({ durationSec: null, pauseCount: null, longestPauseSec: null }) },
+      { role: "user", metrics: metrics({ durationSec: 4, pauseCount: 0, longestPauseSec: 0 }) },
+    ])!;
+    expect(s.speakingTimeSec).toBe(4);
+    expect(s.pauseCount).toBe(0);
+    expect(s.longestPauseSec).toBe(0);
+  });
+
   it("ignores assistant turns and numbers turns by user index including unmeasured", () => {
     const s = summarizeDelivery([
       { role: "assistant", metrics: metrics({ wordCount: 999 }) },
@@ -325,7 +347,7 @@ describe("summarizeDelivery", () => {
     const none = summarizeDelivery([
       { role: "user", metrics: metrics({ wordCount: 3, durationSec: null, wordsPerMinute: null }) },
     ])!;
-    expect(none.speakingTimeSec).toBe(0);
+    expect(none.speakingTimeSec).toBeNull();
     expect(none.averageWordsPerMinute).toBeNull();
   });
 
@@ -340,8 +362,8 @@ describe("summarizeDelivery", () => {
     const empty = summarizeDelivery([
       { role: "user", metrics: metrics({ pauseCount: null, longestPauseSec: null }) },
     ])!;
-    expect(empty.pauseCount).toBe(0);
-    expect(empty.longestPauseSec).toBe(0);
+    expect(empty.pauseCount).toBeNull();
+    expect(empty.longestPauseSec).toBeNull();
   });
 
   it("computes median response gap for odd and even counts", () => {

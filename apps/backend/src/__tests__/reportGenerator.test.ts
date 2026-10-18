@@ -250,6 +250,20 @@ describe("generateReport", () => {
     expect(req.system).toMatch(/cannot act on/);
   });
 
+  it("forbids norm comparison and judgement of delivery only when delivery is requested", async () => {
+    const sentences = [
+      /not against any typical, average or ideal range/,
+      /Treat pauses as neutral: they are often thinking time/,
+      /Never say that pace, pauses or gaps are good, bad, too fast or too slow/,
+      /Do not refer to accent, fluency, language background or how the speech sounds/,
+      /Only say what changed across the participant's own answers/,
+    ];
+    const on = await run(withSwitches(true, true));
+    for (const re of sentences) expect(on.req.system).toMatch(re);
+    const off = await run(withSwitches(true, false));
+    for (const re of sentences) expect(off.req.system).not.toMatch(re);
+  });
+
   it("uses no ranking or verdict words in the code-controlled prompt text", async () => {
     const neutral: InterviewerDefinition = {
       ...INTERVIEWER,

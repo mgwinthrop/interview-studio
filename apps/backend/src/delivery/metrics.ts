@@ -29,10 +29,10 @@ export interface TurnMetrics {
 export interface DeliverySummary {
   turnsMeasured: number;
   totalWords: number;
-  speakingTimeSec: number;
+  speakingTimeSec: number | null;
   averageWordsPerMinute: number | null;
-  pauseCount: number;
-  longestPauseSec: number;
+  pauseCount: number | null;
+  longestPauseSec: number | null;
   medianResponseGapMs: number | null;
   fillerCount: number | null;
   perTurn: {
@@ -156,13 +156,17 @@ export function summarizeDelivery(
   if (measured.length === 0) return null;
 
   const totalWords = measured.reduce((n, m) => n + m.wordCount, 0);
-  const speakingTimeSec = measured.reduce((n, m) => n + (m.durationSec ?? 0), 0);
+  // Unknown is never zero: each of these is null when no measured turn has the underlying value.
+  const durations = measured.map((m) => m.durationSec).filter((v): v is number => v !== null);
+  const speakingTimeSec = durations.length === 0 ? null : durations.reduce((a, b) => a + b, 0);
   // Average pace uses only turns with a positive duration: their timed words over their time.
   const paceTurns = measured.filter((m) => m.durationSec !== null && m.durationSec > 0);
   const timedWords = paceTurns.reduce((n, m) => n + m.timedWordCount, 0);
   const paceTimeSec = paceTurns.reduce((n, m) => n + (m.durationSec ?? 0), 0);
-  const pauseCount = measured.reduce((n, m) => n + (m.pauseCount ?? 0), 0);
-  const longestPauseSec = measured.reduce((max, m) => Math.max(max, m.longestPauseSec ?? 0), 0);
+  const pauseCounts = measured.map((m) => m.pauseCount).filter((v): v is number => v !== null);
+  const pauseCount = pauseCounts.length === 0 ? null : pauseCounts.reduce((a, b) => a + b, 0);
+  const longest = measured.map((m) => m.longestPauseSec).filter((v): v is number => v !== null);
+  const longestPauseSec = longest.length === 0 ? null : Math.max(...longest);
 
   const gaps = measured
     .map((m) => m.responseGapMs)
