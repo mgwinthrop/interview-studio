@@ -1216,6 +1216,31 @@ describe("turn_timing", () => {
     await c.closed;
   });
 
+  it("a gap and a spoken answer reach the saved report's delivery summary; the typed answer adds nothing", async () => {
+    const r = await start();
+    const c = connect(r);
+    const id = await c.startSession();
+    await c.assistantFinal();
+    c.send({ type: "turn_timing", responseGapMs: 2468 });
+    await audioTurn(c);
+    await textTurn(c);
+    c.send({ type: "session_end" });
+    await c.next((m) => m.type === "session_complete");
+    await c.closed;
+    const res = await fetch(`${r.base}/api/session/${id}/report`);
+    expect(res.status).toBe(200);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const body = (await res.json()) as any;
+    expect(body.format).toBe(2);
+    const summary = body.delivery.summary;
+    expect(summary.turnsMeasured).toBe(1);
+    expect(summary.perTurn).toHaveLength(1);
+    expect(summary.perTurn[0]).toMatchObject({ turn: 1, responseGapMs: 2468 });
+    expect(typeof summary.speakingTimeSec).toBe("number");
+    expect(typeof summary.pauseCount).toBe("number");
+    expect(typeof summary.longestPauseSec).toBe("number");
+  });
+
   it("never logs the gap value during a conversation", async () => {
     const r = await start();
     const c = connect(r);
@@ -1540,10 +1565,16 @@ describe("POST /api/session/:sessionId/report/regenerate", () => {
     });
     const r = await start({ customize });
     await seedStored("rg-race2", "local", "failed");
-    const both = Promise.all([regenerate(r, "rg-race2"), regenerate(r, "rg-race2")]);
+    let answeredEarly = 0;
+    const track = async () => {
+      const res = await regenerate(r, "rg-race2");
+      if (res.status === 409) answeredEarly++;
+      return res;
+    };
+    const both = Promise.all([track(), track()]);
     await vi.waitFor(() => expect(calls.n).toBe(1));
-    // Give the other request time to be answered before the gate opens.
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    // The other request is answered (409) while the gate is still closed.
+    await vi.waitFor(() => expect(answeredEarly).toBe(1));
     release();
     const statuses = (await both).map((res) => res.status).sort();
     expect(statuses).toEqual([200, 409]);
@@ -1599,14 +1630,20 @@ describe("POST /api/session/:sessionId/report/regenerate", () => {
 
   it("aborts the report call at the deadline, and a late result does not write or change the status", async () => {
     const seen: { signal?: AbortSignal } = {};
+    let releaseLate!: () => void;
+    const lateGate = new Promise<void>((resolve) => (releaseLate = resolve));
+    let lateDone!: () => void;
+    const lateFinished = new Promise<void>((resolve) => (lateDone = resolve));
     const r = await start({
       config: makeConfig({}, { limits: { reportTimeoutMs: 100 } }),
       customize: (p) => {
         p.llm.structured = (async (req: Parameters<Providers["llm"]["structured"]>[0], signal: AbortSignal) => {
           seen.signal = signal;
           // Ignores the abort and answers late.
-          await new Promise((resolve) => setTimeout(resolve, 400));
-          return req.schema.parse(VALID_REPORT);
+          await lateGate;
+          const out = req.schema.parse(VALID_REPORT);
+          lateDone();
+          return out;
         }) as Providers["llm"]["structured"];
       },
     });
@@ -1614,7 +1651,10 @@ describe("POST /api/session/:sessionId/report/regenerate", () => {
     const res = await regenerate(r, "rg-late");
     expect(res.status).toBe(502);
     expect(seen.signal?.aborted).toBe(true);
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    // The late result arrives after the deadline; let the event loop drain before checking.
+    releaseLate();
+    await lateFinished;
+    for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve));
     expect(await statusOf("rg-late")).toBe("failed");
     expect(await prisma.report.count({ where: { sessionId: "rg-late" } })).toBe(0);
   });
