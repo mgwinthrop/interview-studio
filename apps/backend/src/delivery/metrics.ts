@@ -92,7 +92,8 @@ export function computeTurnMetrics(input: {
     .map((word) => ({ start: word.start, end: Math.max(word.start, word.end) }))
     .sort((a, b) => a.start - b.start);
 
-  if (timed.length === 0) {
+  // Fewer than two timed words: no span or gap can be measured, so timing is unknown.
+  if (timed.length < 2) {
     return {
       wordCount,
       durationSec: null,
@@ -114,11 +115,13 @@ export function computeTurnMetrics(input: {
     latestEnd = Math.max(latestEnd, timed[i].end);
   }
 
-  const duration = Math.max(0, latestEnd - timed[0].start);
+  // Round before comparing with the 2 s threshold so float error cannot flip the result.
+  const durationSec = round(Math.max(0, latestEnd - timed[0].start), 2);
   return {
     wordCount,
-    durationSec: round(duration, 2),
-    wordsPerMinute: paceOrNull(wordCount, duration),
+    durationSec,
+    // Pace uses only the words that have timing.
+    wordsPerMinute: paceOrNull(timed.length, durationSec),
     pauseCount,
     longestPauseSec: round(longestPause, 2),
     responseGapMs,
@@ -149,6 +152,8 @@ export function summarizeDelivery(
 
   const totalWords = measured.reduce((n, m) => n + m.wordCount, 0);
   const speakingTimeSec = measured.reduce((n, m) => n + (m.durationSec ?? 0), 0);
+  // Only turns with a known duration contribute words to the average pace.
+  const timedWords = measured.reduce((n, m) => n + (m.durationSec !== null ? m.wordCount : 0), 0);
   const pauseCount = measured.reduce((n, m) => n + (m.pauseCount ?? 0), 0);
   const longestPauseSec = measured.reduce((max, m) => Math.max(max, m.longestPauseSec ?? 0), 0);
 
@@ -169,7 +174,7 @@ export function summarizeDelivery(
     totalWords,
     speakingTimeSec,
     averageWordsPerMinute:
-      speakingTimeSec < MIN_PACE_DURATION_SEC ? null : round(totalWords / (speakingTimeSec / 60), 1),
+      round(speakingTimeSec, 2) < MIN_PACE_DURATION_SEC ? null : round(timedWords / (speakingTimeSec / 60), 1),
     pauseCount,
     longestPauseSec,
     medianResponseGapMs,

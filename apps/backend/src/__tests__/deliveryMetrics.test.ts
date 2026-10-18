@@ -59,6 +59,15 @@ describe("computeTurnMetrics", () => {
     expect(below.longestPauseSec).toBe(0.69);
   });
 
+  it("counts float-error gaps just under 0.7 and rejects 0.69", () => {
+    const gap = 2.3 - 1.6;
+    expect(gap).toBeLessThan(0.7);
+    const under = computeTurnMetrics({ text: "", words: [w("a", 0, 1.6), w("b", 2.3, 3)] });
+    expect(under.pauseCount).toBe(1);
+    const no = computeTurnMetrics({ text: "", words: [w("a", 0, 1.6), w("b", 2.29, 3)] });
+    expect(no.pauseCount).toBe(0);
+  });
+
   it("reports the longest pause", () => {
     const words = [w("a", 0, 1), w("b", 2, 2.5), w("c", 4.25, 5), w("d", 5.1, 5.5)];
     const m = computeTurnMetrics({ text: "", words });
@@ -84,14 +93,53 @@ describe("computeTurnMetrics", () => {
     expect(m.wordCount).toBe(9);
   });
 
-  it("handles one word", () => {
+  it("handles one word: timing is unknown, counts are known", () => {
     const m = computeTurnMetrics({ text: "hi", words: [w("hi", 1, 1.4)] });
     expect(m.wordCount).toBe(1);
-    expect(m.durationSec).toBe(0.4);
+    expect(m.durationSec).toBeNull();
     expect(m.wordsPerMinute).toBeNull();
-    expect(m.pauseCount).toBe(0);
-    expect(m.longestPauseSec).toBe(0);
+    expect(m.pauseCount).toBeNull();
+    expect(m.longestPauseSec).toBeNull();
     expect(m.fillerCount).toBe(0);
+  });
+
+  it("returns null timing when only one of many words has finite timestamps", () => {
+    const words = [w("w0", 0, 2.5), ...Array.from({ length: 19 }, (_, i) => w(`x${i}`, NaN, NaN))];
+    const m = computeTurnMetrics({ text: "", words });
+    expect(m.wordCount).toBe(20);
+    expect(m.durationSec).toBeNull();
+    expect(m.wordsPerMinute).toBeNull();
+    expect(m.pauseCount).toBeNull();
+    expect(m.longestPauseSec).toBeNull();
+    expect(m.fillerCount).toBe(0);
+  });
+
+  it("computes pace from timed words only when some timestamps are non-finite", () => {
+    const timedWords = Array.from({ length: 6 }, (_, i) => w(`t${i}`, i * 2, i * 2 + 1)); // span 0..11
+    const untimed = Array.from({ length: 14 }, (_, i) => w(`u${i}`, NaN, NaN));
+    const m = computeTurnMetrics({ text: "", words: [...timedWords, ...untimed] });
+    expect(m.wordCount).toBe(20);
+    expect(m.durationSec).toBe(11);
+    expect(m.wordsPerMinute).toBe(32.7); // 6 / (11/60), not 20 / (11/60)
+  });
+
+  it("pace threshold at 2.0 s is robust to float error", () => {
+    const span = 2.3 - 0.3; // 1.9999999999999998
+    expect(span).toBeLessThan(2);
+    const five = (end: number) => [w("a", 0, 0.1), w("b", 0.2, 0.3), w("c", 0.4, 0.5), w("d", 0.6, 0.7), w("e", 0.8, end)];
+    expect(computeTurnMetrics({ text: "", words: five(span) }).wordsPerMinute).toBe(150);
+    expect(computeTurnMetrics({ text: "", words: five(1.99) }).wordsPerMinute).toBeNull();
+    const four = five(2).slice(0, 3).concat(w("d", 0.6, 2));
+    expect(four).toHaveLength(4);
+    expect(computeTurnMetrics({ text: "", words: four }).wordsPerMinute).toBeNull();
+  });
+
+  it("pins filler tokenisation: hyphenated forms are not fillers (intentional for now)", () => {
+    const m = (t: string) => computeTurnMetrics({ text: "", words: [w(t, 0, 0.5)] }).fillerCount;
+    expect(m("um-hm")).toBe(0);
+    expect(m("mm-hmm")).toBe(0);
+    expect(m("don't")).toBe(0);
+    expect(m("hmm,")).toBe(1);
   });
 
   it("handles equal timestamps without NaN or negatives", () => {
@@ -214,6 +262,27 @@ describe("summarizeDelivery", () => {
     ])!;
     expect(s.speakingTimeSec).toBe(62);
     expect(s.averageWordsPerMinute).toBe(96.8); // 100 / (62/60); mean of means would be 195
+  });
+
+  it("average pace ignores words from untimed turns", () => {
+    const s = summarizeDelivery([
+      { role: "user", metrics: metrics({ wordCount: 10, durationSec: 5, wordsPerMinute: 120 }) },
+      { role: "user", metrics: metrics({ wordCount: 50, durationSec: null, wordsPerMinute: null }) },
+    ])!;
+    expect(s.totalWords).toBe(60);
+    expect(s.averageWordsPerMinute).toBe(120); // 10 / (5/60)
+  });
+
+  it("average pace threshold at exactly 2.0 s total is float-robust", () => {
+    const at = summarizeDelivery([
+      { role: "user", metrics: metrics({ wordCount: 2, durationSec: 0.7 }) },
+      { role: "user", metrics: metrics({ wordCount: 1, durationSec: 0.6 }) },
+      { role: "user", metrics: metrics({ wordCount: 2, durationSec: 0.7 }) },
+    ])!;
+    expect(at.speakingTimeSec).toBeLessThan(2); // 1.9999999999999998
+    expect(at.averageWordsPerMinute).toBe(150);
+    const below = summarizeDelivery([{ role: "user", metrics: metrics({ wordCount: 5, durationSec: 1.99 }) }])!;
+    expect(below.averageWordsPerMinute).toBeNull();
   });
 
   it("returns null average pace under 2 s total speaking time", () => {
