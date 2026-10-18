@@ -1,0 +1,340 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── MG Studio Color Tokens ─────────────────────────────────────────── */
+:root {
+  /* Primary */
+  --studio-blue:           #087E8B;
+  --studio-black:          #000000;
+  --studio-white:          #FFFFFF;
+
+  /* Secondary */
+  --studio-dark-blue:      #102B33;
+  --studio-orange:         #E9784A;
+  --studio-yellow:         #E8BB61;
+  --studio-grey:           #D9D9D9;
+
+  /* Tints & Shades */
+  --studio-blue-tint:      #D8F0EC;
+  --studio-dark-blue-tint: #DCE8EA;
+  --studio-orange-shade:   #CF370B;
+  --studio-orange-tint:    #FFCEB9;
+  --studio-yellow-tint:    #FDF1D0;
+  --studio-light-grey:     #F4F5F1;
+  --studio-mid-grey:       #6B7A8D;
+  --studio-border:         #E2E6EA;
+  /* Accessible variant — passes 4.5:1 on both #FFFFFF and #F4F5F1 */
+  --studio-mid-grey-accessible: #4B5563;
+}
+
+body {
+  font-family: var(--font-manrope), -apple-system, "Helvetica Neue", sans-serif;
+  background: var(--studio-light-grey);
+  color: var(--studio-black);
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+/* ── Orb Ring Pulse Animations — MG palette (spec §7 Agent Panel) ── */
+
+/* Ring pulse — generic, delay applied per-ring via inline style */
+@keyframes ring-pulse {
+  0%, 100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.4;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.06);
+    opacity: 0.9;
+  }
+}
+
+/* Interrupt flash — instant, no animation */
+@keyframes orb-interrupt {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.7; }
+}
+
+/* Typing cursor blink — current AI question card (LiveTranscript) */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
+/* ── Focus indicator — keyboard navigation (WCAG 2.1 AA) ──────────────────── */
+:focus-visible {
+  outline: 2px solid #087E8B;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ── Responsive layout utilities ──────────────────────────────────────────── */
+/* These classes are added to layout containers; media queries override inline  */
+/* styles with !important since inline styles have higher specificity.          */
+
+/* Session page — stack/collapse on mobile */
+.session-root {
+  /* desktop: height 100vh set inline; mobile: switch to dvh for keyboard safety */
+}
+.session-agent-aside {
+  /* desktop: width 240px set inline */
+}
+.session-header-bar {
+  /* desktop: padding 10px 24px set inline */
+}
+.session-timer-display {
+  /* desktop: fontSize 20px set inline */
+}
+.session-id-label {
+  /* desktop: visible */
+}
+.session-text-input-bar {
+  /* desktop: bottom 53px set inline */
+}
+.session-footer {
+  /* desktop padding set inline */
+}
+
+/* Nav */
+.nav-root {
+  /* desktop: padding 0 24px set inline */
+}
+.nav-links-group {
+  /* desktop: visible */
+}
+
+/* Agent panel — orb content hidden on mobile, compact bar shown */
+.agent-panel-orb-content {
+  /* desktop: visible */
+}
+.agent-panel-mobile-bar {
+  display: none; /* hidden on desktop */
+}
+
+/* Home page — persona grid and hero */
+.hero-section {
+  /* desktop: padding 64px 32px 80px set inline */
+}
+.phase-flow-strip {
+  /* desktop: visible */
+}
+.persona-grid {
+  /* desktop: flex row set inline */
+}
+
+/* Mic check page */
+.mic-check-content {
+  /* desktop: padding 48px 32px set inline */
+}
+.mic-check-cards {
+  /* desktop: flex row set inline */
+}
+
+/* Phase strip — horizontal scroll on mobile */
+.phase-strip-root {
+  /* desktop: padding 14px 48px set inline */
+}
+.phase-strip-inner {
+  /* desktop: normal flow */
+}
+
+/* Report page — sidebar stacks on mobile */
+.report-layout {
+  /* desktop: flex row set inline */
+}
+.report-sidebar {
+  /* desktop: width 240px set inline */
+}
+.report-content-panel {
+  /* desktop: padding 24px 32px set inline */
+}
+
+/* ── Mobile breakpoint: max-width 767px ───────────────────────────────────── */
+@media (max-width: 767px) {
+
+  /* Session root — use dynamic viewport height so keyboard doesn't clip content */
+  .session-root {
+    height: 100dvh !important;
+  }
+
+  /* Agent panel: collapse sidebar into a top strip */
+  .session-agent-aside {
+    width: 100% !important;
+    height: auto !important;
+    border-right: none !important;
+    border-bottom: 1px solid #23464D !important;
+    flex-direction: row !important;
+    flex-shrink: 0;
+  }
+
+  /* Main content area: stack vertically */
+  .session-main {
+    flex-direction: column !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+  }
+
+  /* Hide full orb content on mobile */
+  .agent-panel-orb-content {
+    display: none !important;
+  }
+
+  /* Show compact mobile bar */
+  .agent-panel-mobile-bar {
+    display: flex !important;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    width: 100%;
+  }
+
+  /* Session header: reduce padding, hide session ID */
+  .session-header-bar {
+    padding: 8px 12px !important;
+    gap: 8px !important;
+  }
+  .session-id-label {
+    display: none !important;
+  }
+  .session-timer-display {
+    font-size: 15px !important;
+  }
+
+  /* Text input bar: anchor to bottom of screen with safe-area inset */
+  .session-text-input-bar {
+    bottom: 0 !important;
+    padding: 8px 12px !important;
+    padding-bottom: max(8px, env(safe-area-inset-bottom)) !important;
+  }
+
+  /* Session footer: safe-area padding for iPhone home indicator */
+  .session-footer {
+    padding-bottom: max(12px, env(safe-area-inset-bottom)) !important;
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+    gap: 8px !important;
+    flex-wrap: wrap;
+  }
+
+  /* Nav: reduce padding, hide links */
+  .nav-root {
+    padding: 0 12px !important;
+  }
+  .nav-links-group {
+    display: none !important;
+  }
+
+  /* Home page: stack persona cards and reduce hero padding */
+  .hero-section {
+    padding: 32px 16px 40px !important;
+  }
+  .phase-flow-strip {
+    display: none !important;
+  }
+  .persona-grid {
+    flex-direction: column !important;
+    padding: 24px 16px !important;
+    align-items: stretch !important;
+  }
+  .persona-grid > * {
+    max-width: 100% !important;
+    flex: none !important;
+  }
+
+  /* Mic check: stack the two cards vertically */
+  .mic-check-content {
+    padding: 24px 16px !important;
+  }
+  .mic-check-cards {
+    flex-direction: column !important;
+  }
+
+  /* Phase strip: horizontal scroll */
+  .phase-strip-root {
+    padding: 10px 12px !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .phase-strip-root::-webkit-scrollbar {
+    display: none;
+  }
+  .phase-strip-inner {
+    min-width: max-content !important;
+  }
+
+  /* Report layout: stack sidebar above content */
+  .report-layout {
+    flex-direction: column !important;
+  }
+  .report-sidebar {
+    width: 100% !important;
+    border-right: none !important;
+    border-bottom: 1px solid #E2E6EA !important;
+    flex-shrink: 0;
+  }
+  .report-content-panel {
+    padding: 16px !important;
+  }
+}
+
+/* ── Tablet: 768px–1023px (minor adjustments) ─────────────────────────────── */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .session-agent-aside {
+    width: 180px !important;
+  }
+  .report-sidebar {
+    width: 180px !important;
+  }
+  .hero-section {
+    padding: 48px 24px 60px !important;
+  }
+  .phase-strip-root {
+    padding: 14px 24px !important;
+  }
+}
+
+/* MG's animated interviewer. All movement respects the device preference. */
+.interviewer-panel { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px; padding:24px 16px; height:100%; background:#102B33; color:#EFF5EC; text-align:center; }
+.interviewer-heading h2 { font-size:26px; font-weight:700; margin:8px 0; letter-spacing:-.04em; }
+.interviewer-eyebrow { font-size:10px; letter-spacing:.15em; color:#93C9C4; font-weight:600; }
+.interviewer-heading p,.interviewer-caption { font-size:12px; line-height:1.6; color:#B5CDCE; max-width:190px; margin:0; }
+.interviewer-avatar { color:#87D6C8; width:min(100%,220px); flex-shrink:0; }
+.interviewer-avatar svg { width:100%; height:auto; display:block; }
+.interviewer-avatar .avatar-mouth,.interviewer-avatar .avatar-thought { display:none; }
+.avatar-eyes { transform-box:fill-box; transform-origin:center; animation:avatar-blink 6s infinite; }
+.avatar-head { transform-origin:120px 150px; }
+.interviewer-avatar[data-state="listening"] .avatar-head { animation:avatar-nod 5s ease-in-out infinite; }
+.interviewer-avatar[data-state="thinking"] { color:#E8BB61; }
+.interviewer-avatar[data-state="thinking"] .avatar-head { transform:rotate(-6deg); }
+.interviewer-avatar[data-state="thinking"] .avatar-thought { display:block; animation:avatar-consider 1.8s ease-in-out infinite; }
+.interviewer-avatar[data-state="speaking"] .avatar-mouth { display:block; transform-box:fill-box; transform-origin:center; animation:avatar-talk .35s ease-in-out infinite alternate; }
+.interviewer-avatar[data-state="speaking"] .avatar-smile { display:none; }
+.interviewer-avatar[data-state="interrupted"] { color:#E9784A; }
+.interviewer-avatar[data-state="connecting"],.interviewer-avatar[data-state="disconnected"],.interviewer-avatar[data-state="error"],.interviewer-avatar[data-state="paused"] { color:#93A6AA; opacity:.65; }
+.interviewer-avatar[data-state="paused"] *,.interviewer-avatar[data-state="disconnected"] *,.interviewer-avatar[data-state="error"] * { animation:none; }
+.interviewer-status { display:flex; align-items:center; gap:8px; font-size:14px; font-weight:600; }
+.interviewer-status-dot { width:7px; height:7px; border-radius:50%; background:#87D6C8; }
+.interviewer-status-dot[data-state="thinking"] { background:#E8BB61; }
+.interviewer-status-dot[data-state="interrupted"],.interviewer-status-dot[data-state="error"] { background:#E9784A; }
+.interviewer-status-dot[data-state="paused"],.interviewer-status-dot[data-state="disconnected"],.interviewer-status-dot[data-state="connecting"] { background:#93A6AA; }
+.interviewer-latency,.interviewer-session { color:#B5CDCE; font-size:10px; margin:0; }
+.interviewer-session { margin-top:auto; padding-top:16px; word-break:break-all; }
+@keyframes avatar-blink { 0%,43%,47%,100% { transform:scaleY(1); } 45% { transform:scaleY(.1); } }
+@keyframes avatar-nod { 0%,100% { transform:rotate(0); } 50% { transform:rotate(3deg); } }
+@keyframes avatar-talk { from { transform:scaleY(.35); } to { transform:scaleY(1); } }
+@keyframes avatar-consider { 0%,100% { opacity:.4; } 50% { opacity:1; } }
+@media (max-width:767px) {
+  .interviewer-panel { width:100%; padding:10px 16px; display:grid; grid-template-columns:64px 1fr; gap:4px 14px; text-align:left; }
+  .interviewer-panel .interviewer-avatar { grid-column:1; grid-row:1 / 3; width:64px; }
+  .interviewer-status,.interviewer-caption { grid-column:2; max-width:none; }
+  .interviewer-heading,.interviewer-session,.interviewer-latency { display:none; }
+}
+@media (prefers-reduced-motion:reduce) {
+  .interviewer-avatar * { animation:none !important; transition:none !important; }
+}

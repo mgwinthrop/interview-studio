@@ -1,0 +1,24 @@
+.env
+.env.local
+.env*.local
+node_modules/
+.next/
+dist/
+.vercel
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Local credentials, data and generated assets
+.env*
+!.env.example
+*.pem
+*.key
+*.log
+*.tsbuildinfo
+.DS_Store
+coverage/
+apps/frontend/public/*.wasm
+apps/frontend/public/*.onnx
+apps/frontend/public/vad.worklet.bundle.min.js

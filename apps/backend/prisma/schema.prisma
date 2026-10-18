@@ -1,0 +1,43 @@
+// prisma/schema.prisma
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  topicId   String
+  status    String   @default("active")
+  phase     String   @default("intro")
+  startedAt DateTime @default(now())
+  endedAt   DateTime?
+  turns     ConversationTurn[]
+  report    Report?
+}
+
+model ConversationTurn {
+  id        String   @id @default(uuid())
+  sessionId String
+  role      String
+  content   String
+  phase     String
+  timestamp DateTime @default(now())
+  session   Session  @relation(fields: [sessionId], references: [id])
+}
+
+model Report {
+  id                String   @id @default(uuid())
+  sessionId         String   @unique
+  summary           String
+  strengthsJson     String   // JSON.stringify({ area, evidence }[])
+  improvementsJson  String   // JSON.stringify({ area, suggestion }[])
+  highlightsJson    String   // JSON.stringify(string[])
+  overallAssessment String
+  generatedAt       DateTime @default(now())
+  session           Session  @relation(fields: [sessionId], references: [id])
+}

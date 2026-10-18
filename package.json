@@ -1,0 +1,8 @@
+{
+  "name": "mg-interview-studio",
+  "private": true,
+  "scripts": {
+    "test": "cd apps/backend && npm test"
+  },
+  "description": "Voice-first interview practice with an animated AI interviewer"
+}
