@@ -12,6 +12,7 @@ Requires Node 20+. Install per app: `npm --prefix apps/backend ci` and `npm --pr
 
 Backend (`apps/backend`):
 - `npx prisma generate` — required once after install, and after schema changes
+- Upgrading an existing database (migrations run at startup, `prisma generate` does not): see "Upgrading an existing install" in `docs/local-setup.md`
 - `npm run dev` — tsx watch on `127.0.0.1:3001`. With the default `PROFILE=cloud` it needs `ANTHROPIC_API_KEY` and `ELEVENLABS_API_KEY`; `PROFILE=mock npm run dev` runs a full conversation (greeting, replies, interrupt, report) with no keys
 - `npm test` — vitest unit tests plus the keyless end-to-end conversation test (`src/__tests__/conversation.test.ts`, mock providers, temp SQLite DB; no keys or running server) (also `npm test` at repo root); single file: `npx vitest run src/__tests__/orchestrator.test.ts`; single test: `npx vitest run -t "name"`
 - `npm run test:integration` — opt-in run of a real session against real providers over WebSocket with an LLM judge. Needs the backend already running with `PROFILE=cloud` and real API keys (also `ANTHROPIC_API_KEY` in the test's environment for the judge); sets `INTEGRATION_TEST=1`; `TEST_WS_URL` overrides the default `ws://localhost:3001`. Excluded from `npm test`.

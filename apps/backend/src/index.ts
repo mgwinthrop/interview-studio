@@ -46,8 +46,8 @@ async function main(): Promise<void> {
     const r = await syncPresets(PRESETS);
     console.log(`[startup] presets synced: ${r.inserted} inserted, ${r.updated} updated, ${r.removed} removed`);
   } catch (err) {
-    const detail = err instanceof PresetValidationError ? `: ${err.message}` : "";
-    console.error(`Preset sync failed: ${errName(err)}${detail}`);
+    const { describeStartupFailure } = await import("./startupFailure");
+    for (const line of describeStartupFailure(err, err instanceof PresetValidationError)) console.error(line);
     process.exit(1);
   }
 

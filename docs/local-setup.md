@@ -4,6 +4,17 @@ See the root README for installation and local startup. Environment examples con
 
 `DATABASE_URL=file:./local.db` creates a SQLite database relative to the Prisma schema directory. The backend applies migrations on startup. Run `npx prisma generate` after backend installation if needed.
 
+## Upgrading an existing install
+
+This release migrates existing sessions to the new interviewer model, and the migration runs automatically at backend startup. Old sessions keep their transcripts and reports and appear as "Earlier interview". The change is one-way: to go back, restore your backup. Only one backend process may use a database file at a time.
+
+1. Stop every running backend, including `npm run dev` watchers. A second server migrating the database under a running one breaks the running server and loses its in-flight session.
+2. Copy the SQLite file (the file named by `DATABASE_URL`, `apps/backend/prisma/local.db` by default) to a backup.
+3. Run `npm --prefix apps/backend ci` (new dependencies may have been added), then `cd apps/backend && npx prisma generate`. Migrations do not regenerate the Prisma client; with a stale client, startup stops with `Preset sync failed: TypeError`.
+4. Start the backend once and watch for "Database migrations applied".
+
+If the migration fails or the process stops part-way, stop the backend, restore the backup and start again. Do not delete the `_prisma_migrations` table. `cd apps/backend && npx prisma migrate status` shows which migrations are applied or failed.
+
 Frontend configuration: `NEXT_PUBLIC_WS_URL=ws://localhost:3001`.
 Backend configuration: `ALLOWED_ORIGIN=http://localhost:3000`, plus your own API keys.
 
