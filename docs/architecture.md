@@ -101,7 +101,7 @@ idle ─────────────▶ thinking ◀──────�
 - `idle`: not started, or ended. `listening`: waiting for the user. `thinking`: STT and LLM running, no audio sent yet. `speaking`: TTS audio is being sent.
 - One item runs at a time (the greeting, then user utterances). Utterances that arrive meanwhile wait in a FIFO queue of up to 5; beyond that the server sends `stt_error` with reason `busy`.
 - Each item has one `AbortController` shared by STT, LLM and TTS. `interrupt()` clears the queue and aborts it, so nothing further is sent for that turn: no final transcript and no `tts_end`, and the interrupted assistant reply is not stored (the user turn is).
-- `end()` (from `session_end`) waits for the in-flight turn, generates the report, stores it and sets the status. `abandon()` (socket closed, or idle timeout) aborts everything. `onEnded` fires exactly once with the status reached.
+- `end()` (from `session_end`) first cancels the in-flight reply exactly as `interrupt()` does (nothing more is synthesised or sent for it, and it is not stored), waits for that turn to settle, then generates the report from the committed turns, stores it and sets the status. `abandon()` (socket closed, or idle timeout) aborts everything. `onEnded` fires exactly once with the status reached.
 - A session ends itself after `limits.maxTurnsPerSession` user turns (200).
 
 ## Session statuses and the end-of-session deadline

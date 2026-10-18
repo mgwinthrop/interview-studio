@@ -128,9 +128,11 @@ export class SessionController {
   }
 
   /**
-   * Waits for the in-flight turn, generates and stores the report. Idempotent.
-   * Utterances still queued are dropped deliberately: the session is over, and the
-   * outcome reaches the transport through onEnded.
+   * Ends the session: cancels the in-flight reply exactly as interrupt() does (an aborted
+   * reply is neither finalised nor stored, so nothing more is synthesised or sent for it),
+   * waits for that turn to settle, then generates and stores the report from the turns
+   * already committed. Idempotent. Utterances still queued are dropped deliberately: the
+   * session is over, and the outcome reaches the transport through onEnded.
    */
   end(): Promise<"complete" | "failed"> {
     if (this.ending) return this.ending;
@@ -138,6 +140,7 @@ export class SessionController {
     this.closed = true;
     this.clearIdle();
     this.queue.length = 0;
+    this.cancelTurn();
     this.ending = this.finish();
     return this.ending;
   }
@@ -360,8 +363,9 @@ export class SessionController {
    * Bounds end(): if the in-flight turn plus the report have not finished within
    * limits.reportTimeoutMs, everything is aborted and the session ends as failed. The
    * deadline does not rely on providers honouring the abort: the outcome is decided by
-   * whichever settles first, and a late report can no longer change it (the status
-   * write is refused and onEnded fires once).
+   * whichever status write lands first, and a late report can no longer change it (its
+   * write is refused and onEnded fires once). If the deadline's own failed write is
+   * refused because the report's complete write won, the outcome is complete.
    */
   private async finish(): Promise<"complete" | "failed"> {
     const reportAbort = new AbortController();
@@ -384,12 +388,15 @@ export class SessionController {
       reportAbort.abort();
       // The abandoned work may still settle later; its rejection is already handled.
       void work.catch(() => undefined);
+      let refused = false;
       try {
-        await this.deps.persist.persistSessionStatus(this.sessionId, "failed");
+        refused = !(await this.deps.persist.persistSessionStatus(this.sessionId, "failed"));
       } catch (writeErr) {
         this.log("persistSessionStatus error", writeErr);
       }
-      result = "failed";
+      // Refused: another status landed first. If it was not abandon()'s, it was the work's
+      // own write, so the work is about to settle: report what it actually stored.
+      result = refused && !this.abandoned ? await work : "failed";
     } else {
       result = outcome;
     }
@@ -402,7 +409,7 @@ export class SessionController {
     return result;
   }
 
-  /** Waits for the in-flight turn, then generates and stores the report and the status. */
+  /** Waits for the (cancelled) in-flight turn, then generates and stores the report and the status. */
   private async produceReport(reportAbort: AbortController): Promise<"complete" | "failed"> {
     const { persist } = this.deps;
     let result: "complete" | "failed";

@@ -440,12 +440,13 @@ describe("SessionController end and abandon", () => {
     expect(err.mock.calls.flat().join(" ")).toContain("ReportError");
   });
 
-  it("end() waits for the in-flight turn, persists the report, then complete", async () => {
+  it("end() after a completed turn persists the report, then complete", async () => {
     const { ctl, persist, storedTurns } = setup({
       script: { structured: REPORT, ttsDelayMs: 5 },
     });
     await ctl.start();
     ctl.handleText(LONG_TEXT);
+    await ctl.settled();
     const result = await ctl.end();
     expect(result).toBe("complete");
     // The last assistant turn was stored before the report.
@@ -459,6 +460,66 @@ describe("SessionController end and abandon", () => {
     const statusOrder = persist.persistSessionStatus.mock.invocationCallOrder[0];
     expect(reportOrder).toBeLessThan(statusOrder);
     expect(ctl.state).toBe("idle");
+  });
+
+  it("end() during a speaking reply cancels it like interrupt and reports the committed turns", async () => {
+    const providers = createMockProviders({ llmReplies: [LONG_REPLY], structured: REPORT });
+    const gate = gateTts(providers, SENTENCE_1);
+    const structured = vi.spyOn(providers.llm, "structured");
+    const { ctl, events, persist, storedTurns, onEnded } = setup({ providers });
+    await ctl.start();
+    gate.arm();
+    ctl.handleText(LONG_TEXT);
+    await gate.reached;
+    expect(ctl.state).toBe("speaking");
+    const mark = events.length;
+
+    const ending = ctl.end();
+    // Cancelled at once, before end() waits for anything.
+    expect(gate.signal()?.aborted).toBe(true);
+    await expect(ending).resolves.toBe("complete");
+
+    const after = events.slice(mark);
+    expect(after.filter((e) => e.kind === "audio")).toHaveLength(0);
+    expect(after.map((e) => (e.kind === "audio" ? "audio" : e.msg.type))).not.toContain("tts_end");
+    expect(assistantFinals(after)).toEqual([]);
+    // The unheard reply is not stored; the report is built from the committed turns.
+    expect(storedTurns().map((t) => t.role)).toEqual(["assistant", "user"]);
+    expect(ctl.turns.map((t) => t.role)).toEqual(["assistant", "user"]);
+    expect(structured).toHaveBeenCalledTimes(1);
+    expect(persist.persistReport).toHaveBeenCalledTimes(1);
+    expect(persist.persistSessionStatus.mock.calls).toEqual([["s-1", "complete"]]);
+    expect(onEnded.mock.calls).toEqual([["complete"]]);
+  });
+
+  it("end() while the reply is still thinking aborts the LLM stream and stores no reply", async () => {
+    const providers = createMockProviders({ llmReplies: [LONG_REPLY], structured: REPORT });
+    let llmSignal: AbortSignal | undefined;
+    const realStream = providers.llm.stream.bind(providers.llm);
+    let calls = 0;
+    providers.llm.stream = (req, signal) => {
+      calls += 1;
+      if (calls === 1) return realStream(req, signal); // the greeting
+      llmSignal = signal;
+      return (async function* () {
+        await new Promise<void>((_res, rej) =>
+          signal.addEventListener("abort", () => rej(abortError()), { once: true }),
+        );
+        yield "never";
+      })();
+    };
+    const { ctl, types, storedTurns, onEnded } = setup({ providers });
+    await ctl.start();
+    const before = types().length;
+    ctl.handleText(LONG_TEXT);
+    const ending = ctl.end();
+    expect(llmSignal?.aborted).toBe(true);
+    await expect(ending).resolves.toBe("complete");
+    const after = types().slice(before);
+    expect(after).not.toContain("tts_start");
+    expect(after).not.toContain("audio");
+    expect(storedTurns().map((t) => t.role)).toEqual(["assistant", "user"]);
+    expect(onEnded.mock.calls).toEqual([["complete"]]);
   });
 
   it("end() resolves failed when report generation fails", async () => {
@@ -853,6 +914,34 @@ describe("SessionController report deadline", () => {
     expect(persist.persistSessionStatus.mock.calls).toEqual([["s-1", "failed"]]);
     expect(vi.getTimerCount()).toBe(0);
     gate.release();
+  });
+
+  it("reports complete when the deadline's failed write is refused because complete landed", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { ctl, persist, onEnded } = setup({
+      script: { structured: REPORT },
+      limits: { reportTimeoutMs: 5000 },
+    });
+    await ctl.start();
+    ctl.handleText(LONG_TEXT);
+    await ctl.settled();
+    // The complete write wins in the database but its promise settles after the deadline;
+    // the deadline's failed write is then refused.
+    persist.persistSessionStatus.mockImplementation(async (_id, status) => {
+      if (status !== "complete") return false;
+      await new Promise((r) => setTimeout(r, 6000));
+      return true;
+    });
+
+    const ending = ctl.end();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(onEnded).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1000);
+    await expect(ending).resolves.toBe("complete");
+    expect(onEnded.mock.calls).toEqual([["complete"]]);
+    expect(persist.persistSessionStatus.mock.calls.map((c) => c[1])).toEqual(["complete", "failed"]);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("a report that lands just before the deadline completes and clears the timer", async () => {

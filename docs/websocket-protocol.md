@@ -52,7 +52,7 @@ All client messages are JSON strings except `audio` frames which are **raw binar
 |---|---|---|
 | `audio` | Raw PCM16 binary frame | Sent as binary WebSocket frame, not JSON. 16kHz mono, one complete utterance (end of turn decided by the client VAD). Only accepted after `session_start`. At most `limits.maxPayloadBytes` (10 MiB, about 5.5 minutes); a larger frame closes the socket 1009. |
 | `session_start` | `{ type, topicId, demo? }` | Must be the first frame. **Must include `topicId`** — one of `"ai-se-delivery"`, `"experience-design"`, `"product-design-strategy"`. `demo` shortens intro to 1 turn. |
-| `session_end` | `{ type }` | Ends the session: waits for the in-flight turn, generates the report, then the server sends `session_complete` or `session_failed`. |
+| `session_end` | `{ type }` | Ends the session: cancels any in-flight reply as `interrupt` does (no further audio, no final transcript or `tts_end`, and the reply is not stored), generates the report from the committed turns, then the server sends `session_complete` or `session_failed`. |
 | `interrupt` | `{ type }` | Cancels in-flight STT, LLM and TTS and drops queued utterances. Server resets for next user turn. |
 | `text_input` | `{ type, content: string }` | Text fallback — bypasses STT. Treated identically to a completed voice turn. Empty or whitespace-only content is ignored. Content over 8192 UTF-8 bytes is ignored and answered with `stt_error` reason `too_long`. |
 
