@@ -7,6 +7,8 @@ import { WebSocket, WebSocketServer, type RawData } from "ws";
 import { createAuthenticator } from "./auth";
 import type { Config } from "./config";
 import prisma from "./db";
+import { createInterviewerRouter } from "./interviewerRoutes";
+import * as interviewerStore from "./interviewerStore";
 import * as persistence from "./persistence";
 import type { Providers } from "./providers/types";
 import { SessionController, type EndedStatus } from "./sessionController";
@@ -18,6 +20,7 @@ export interface AppDeps {
   config: Config;
   providers: Providers;
   persist?: typeof persistence;
+  interviewers?: typeof interviewerStore;
 }
 
 export interface App {
@@ -105,6 +108,7 @@ function ownerOf(res: express.Response): string {
 export function createApp(deps: AppDeps): App {
   const { config, providers } = deps;
   const persist = deps.persist ?? persistence;
+  const interviewers = deps.interviewers ?? interviewerStore;
   const authenticate = createAuthenticator(config);
 
   // ── HTTP ───────────────────────────────────────────────────────────────────
@@ -124,6 +128,8 @@ export function createApp(deps: AppDeps): App {
     res.locals.ownerId = result.ownerId;
     next();
   });
+
+  app.use("/api/interviewers", createInterviewerRouter({ store: interviewers, ownerOf }));
 
   app.get(
     "/health",
@@ -172,7 +178,7 @@ export function createApp(deps: AppDeps): App {
       return;
     }
     if (found.sessionStatus === "complete" && found.report) {
-      res.json(found.report);
+      res.json({ ...found.report, interviewerName: found.interviewerName });
       return;
     }
     const status = found.sessionStatus === "abandoned" ? "abandoned" : "failed";
@@ -210,7 +216,8 @@ export function createApp(deps: AppDeps): App {
         const endedAt = s.endedAt ?? s.startedAt;
         return {
           id: s.id,
-          topicId: s.topicId,
+          interviewerId: s.interviewerId,
+          interviewerName: s.interviewerName,
           startedAt: s.startedAt.toISOString(),
           endedAt: endedAt.toISOString(),
           durationMinutes: Math.round((endedAt.getTime() - s.startedAt.getTime()) / 60000),
@@ -219,7 +226,7 @@ export function createApp(deps: AppDeps): App {
         };
       });
       const totalSessions = sessions.length;
-      const personasUsed = new Set(sessions.map((s) => s.topicId)).size;
+      const personasUsed = new Set(sessions.map((s) => s.interviewerId)).size;
       const avgDurationMinutes =
         totalSessions > 0
           ? Math.round(sessions.reduce((sum, s) => sum + s.durationMinutes, 0) / totalSessions)

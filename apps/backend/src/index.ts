@@ -38,6 +38,19 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
+  // A bad preset is a build error: stop before serving. The message of a PresetValidationError
+  // names the preset id and field paths only; other errors (database) are named by class.
+  const { PresetValidationError, syncPresets } = await import("./interviewerStore");
+  try {
+    const { PRESETS } = await import("./interviewer/presets");
+    const r = await syncPresets(PRESETS);
+    console.log(`[startup] presets synced: ${r.inserted} inserted, ${r.updated} updated, ${r.removed} removed`);
+  } catch (err) {
+    const detail = err instanceof PresetValidationError ? `: ${err.message}` : "";
+    console.error(`Preset sync failed: ${errName(err)}${detail}`);
+    process.exit(1);
+  }
+
   // Single instance: nothing is live at boot, so any "active" row was left by a crash.
   try {
     const { abandonStaleActiveSessions } = await import("./persistence");
