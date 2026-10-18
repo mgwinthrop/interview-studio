@@ -76,9 +76,10 @@ describe("advancePhase", () => {
     expect(advancePhase(def, 2, 2, true)).toBe(3);
   });
 
-  it("counts are per phase, not cumulative", () => {
-    // Two turns in phase b (after two in phase a) is not enough for b's max of 3.
-    expect(advancePhase(def, 1, 2, false)).toBeNull();
+  it("judges only the current phase's own count against its own threshold", () => {
+    // The same count (2) ends phase a (max 2) but not phase c (max 4).
+    expect(advancePhase(def, 0, 2, false)).toBe(1);
+    expect(advancePhase(def, 2, 2, false)).toBeNull();
   });
 
   it("advances at most one phase per evaluation", () => {

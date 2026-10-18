@@ -489,13 +489,14 @@ export class SessionController {
   private maybeAdvancePhase(): void {
     const next = advancePhase(this.deps.interviewer, this.phaseIndex, this.phaseUserTurns, this.deps.demo);
     if (next === null) return;
-    const prev = this.phase;
+    const prev = this.phaseIndex;
     this.phaseIndex = next;
     this.phaseUserTurns = 0;
     const name = this.phase;
     this.track(this.deps.persist.persistPhaseTransition(this.sessionId, name), "persistPhaseTransition");
     this.deps.sendJson({ type: "phase_change", phase: name });
-    console.log(`[session ${this.sessionId}] phase ${prev} -> ${name}`);
+    // Indices only: phase names are interviewer-written text and never reach the logs.
+    console.log(`[session ${this.sessionId}] phase ${prev} -> ${next}`);
   }
 
   private setState(next: ControllerState): void {

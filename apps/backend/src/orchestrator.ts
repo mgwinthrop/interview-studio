@@ -21,6 +21,8 @@ export const GREETING_PRIME = "Hello";
  * same-role messages (left by an interrupted or failed turn) are merged.
  */
 export function buildTurnRequest(session: TurnSession): { system: string; messages: ChatMessage[] } {
+  // Deliberate: if the greeting is interrupted or fails before anything is stored, the
+  // opening guidance is not re-sent, because the next user turn is stored before its reply.
   const isFirstTurn = session.turns.length === 0;
   const system = buildSystemPrompt(session.interviewer, session.phaseIndex, isFirstTurn);
   const messages: ChatMessage[] = [];

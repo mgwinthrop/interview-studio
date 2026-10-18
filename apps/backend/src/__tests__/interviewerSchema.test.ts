@@ -203,6 +203,41 @@ describe("parseInterviewerInput", () => {
       v.phases[0].extra = 1;
       expect(paths(v)).toContain("phases.0");
     });
+    it("rejects an exact duplicate phase name on the later phase, without echoing it", () => {
+      const v = valid();
+      v.phases[2].name = "Intro";
+      const errs = errorsOf(v);
+      expect(errs).toEqual([{ path: "phases.2.name", message: "Phase names must be unique." }]);
+      expect(errs[0].message).not.toContain("Intro");
+    });
+    it("rejects a duplicate that differs only in case and surrounding spaces", () => {
+      const v = valid();
+      v.phases[1].name = "  iNTRO ";
+      expect(errorsOf(v)).toEqual([{ path: "phases.1.name", message: "Phase names must be unique." }]);
+    });
+    it("accepts unique phase names, including ones that share a prefix", () => {
+      const v = valid();
+      v.phases[1].name = "Intro 2";
+      expect(parseInterviewerInput(v).ok).toBe(true);
+    });
+    it("applies the uniqueness rule to stored definitions too", () => {
+      const v = {
+        ...valid(),
+        phases: [
+          { name: "Same", instruction: "A.", minTurns: 1, maxTurns: 2 },
+          { name: "same", instruction: "B." },
+        ],
+        id: "x",
+        source: "custom",
+        ownerId: "o",
+        version: 1,
+        createdAt: "2026-10-18T00:00:00.000Z",
+        updatedAt: "2026-10-18T00:00:00.000Z",
+        contentFeedback: true,
+        deliveryFeedback: true,
+      };
+      expect(() => parseInterviewerDefinition(v)).toThrow("phases.1.name");
+    });
   });
 
   describe("focus", () => {

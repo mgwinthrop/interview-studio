@@ -139,11 +139,16 @@ describe("buildSystemPrompt", () => {
     }
   });
 
-  it("contains no markdown fences or bullet lines in the wrapper", () => {
+  it("contains no markdown fences or bullet lines for any preset, phase or turn", () => {
     for (const def of PRESETS) {
-      const prompt = buildSystemPrompt(def, 0, true);
-      expect(prompt).not.toMatch(/^```/m);
-      expect(prompt).not.toMatch(/^\s*[-*•]\s/m);
+      def.phases.forEach((_phase, i) => {
+        for (const first of [true, false]) {
+          const prompt = buildSystemPrompt(def, i, first);
+          expect(prompt).not.toMatch(/^```/m);
+          expect(prompt).not.toMatch(/^\s*[-*•]\s/m);
+          if (i === def.phases.length - 1) expect(prompt).toContain("CLOSING GUIDANCE");
+        }
+      });
     }
   });
 

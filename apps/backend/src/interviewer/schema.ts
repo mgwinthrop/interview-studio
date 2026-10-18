@@ -57,6 +57,7 @@ const MSG = {
   integer: "Must be a whole number.",
   turnsRange: "Must be between 1 and 50.",
   maxBelowMin: "Must not be less than minTurns.",
+  duplicatePhase: "Phase names must be unique.",
   turnsRequired: "Required on every phase except the last.",
   turnsForbidden: "Not allowed on the last phase.",
   date: "Must be an ISO date string.",
@@ -103,6 +104,17 @@ const inputShape = {
     .min(1, "At least 1 phase is required.")
     .max(8, "At most 8 phases are allowed.")
     .superRefine((phases, ctx) => {
+      // Phase names identify phases on the wire and in stored turns, so they must be unique
+      // (case-insensitive; names are already trimmed). The later duplicate is reported.
+      const seen = new Set<string>();
+      phases.forEach((p, i) => {
+        if (typeof p.name !== "string") return;
+        const key = p.name.trim().toLowerCase();
+        if (seen.has(key)) {
+          ctx.addIssue({ code: "custom", path: [i, "name"], message: MSG.duplicatePhase });
+        }
+        seen.add(key);
+      });
       phases.forEach((p, i) => {
         const last = i === phases.length - 1;
         if (last) {

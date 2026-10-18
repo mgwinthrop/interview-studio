@@ -581,19 +581,44 @@ describe("SessionController phases", () => {
     for (const c of stream.mock.calls) expect(c[0].maxTokens).toBe(300);
   });
 
-  it("logs phase names and ids only, never interviewer text", async () => {
+  it("logs ids and phase indices only, never interviewer-written text", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const err = vi.spyOn(console, "error").mockImplementation(() => {});
-    const { ctl } = setup({ demo: true });
+    const interviewer: InterviewerDefinition = {
+      ...withPhases([
+        { name: "SENTINEL-PHASE-ALPHA", instruction: "SENTINEL-INSTR-ALPHA", minTurns: 1, maxTurns: 1 },
+        { name: "SENTINEL-PHASE-OMEGA", instruction: "SENTINEL-INSTR-OMEGA" },
+      ]),
+      name: "SENTINEL-NAME",
+      purpose: "SENTINEL-PURPOSE",
+      persona: "SENTINEL-PERSONA",
+      style: "SENTINEL-STYLE",
+      opening: "SENTINEL-OPENING",
+      closing: "SENTINEL-CLOSING",
+    };
+    const providers = createMockProviders({ llmReplies: [LONG_REPLY], structured: REPORT });
+    const gate = gateTts(providers, SENTENCE_1);
+    const { ctl, json } = setup({ providers, interviewer });
     await ctl.start();
     ctl.handleText("one");
     await ctl.settled();
-    const all = [...log.mock.calls, ...err.mock.calls].flat().join(" ");
-    expect(all).toContain("intro -> share");
-    const def = PRESETS[0];
-    for (const text of [def.persona, def.style, def.opening, def.phases[0].instruction]) {
-      expect(all).not.toContain(text);
-    }
+    gate.arm();
+    ctl.handleText("two");
+    await gate.reached;
+    await ctl.interrupt();
+    gate.release();
+    await ctl.settled();
+    // An STT failure exercises the controller's error log line too.
+    vi.spyOn(providers.stt, "transcribe").mockRejectedValueOnce(new TypeError("down"));
+    ctl.handleAudio(Buffer.alloc(320));
+    await ctl.settled();
+    await expect(ctl.end()).resolves.toBe("complete");
+    expect(err).toHaveBeenCalled();
+    expect(phaseChanges(json)).toEqual(["SENTINEL-PHASE-OMEGA"]);
+    const all = [...log.mock.calls, ...warn.mock.calls, ...err.mock.calls].flat().join(" ");
+    expect(all).toContain("phase 0 -> 1");
+    expect(all).not.toContain("SENTINEL");
   });
 });
 
