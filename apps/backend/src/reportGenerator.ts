@@ -1,34 +1,45 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { getSession, updateSession } from "./sessionStore";
+import { z } from "zod";
 import { getTopicConfig } from "./topic";
-import { Report } from "./types";
+import type { LlmProvider } from "./providers/types";
+import type { ConversationTurn, Report } from "./types";
 
-function getAnthropicClient() {
-  return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY ?? "" });
+export class ReportError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ReportError";
+  }
 }
 
-/**
- * Generate a post-session report via a single non-streaming LLM call (spec §6).
- * Stores the result on the session and returns it, or null on failure.
- */
-export async function generateReport(sessionId: string): Promise<Report | null> {
-  const session = getSession(sessionId);
-  if (!session) return null;
+const reportSchema = z.object({
+  summary: z.string(),
+  strengths: z.array(z.object({ area: z.string(), evidence: z.string() })),
+  improvements: z.array(z.object({ area: z.string(), suggestion: z.string() })),
+  highlights: z.array(z.string()),
+  overall_assessment: z.string(),
+});
 
-  const transcript = session.turns
+/**
+ * Generate a post-session report with one structured LLM call (spec §6).
+ * Rejects with ReportError when the transcript is too short, or with the provider's
+ * error (an AbortError on abort) when the call fails.
+ */
+export async function generateReport(
+  turns: readonly ConversationTurn[],
+  topicId: string,
+  llm: LlmProvider,
+  signal: AbortSignal,
+): Promise<Report> {
+  const transcript = turns
     .map((t) => `${t.role === "user" ? "Participant" : "Interviewer"}: ${t.content}`)
     .join("\n");
 
-  const userTurns = session.turns.filter((t) => t.role === "user").length;
-  if (userTurns < 1 || !transcript || transcript.trim().length < 50) {
-    console.error(
-      `[${sessionId}] Transcript too short for report generation (${userTurns} user turns, ${transcript.trim().length} chars)`
-    );
-    return null;
+  const userTurns = turns.filter((t) => t.role === "user").length;
+  if (userTurns < 1 || transcript.trim().length < 50) {
+    throw new ReportError("transcript too short");
   }
 
-  const topic = getTopicConfig(session.topicId);
-  const prompt = `You are evaluating a recorded interview on the following topic:
+  const topic = getTopicConfig(topicId);
+  const system = `You are evaluating a recorded interview on the following topic:
 ${topic.label}
 
 Context: ${topic.systemPromptContext}
@@ -47,72 +58,27 @@ Below is the full conversation transcript. Generate a structured assessment repo
   "overall_assessment": "1-2 sentences suitable for sharing with the participant"
 }
 
-Return only the JSON object. No preamble or markdown formatting.
+Return only the JSON object. No preamble or markdown formatting.`;
 
-TRANSCRIPT:
-${transcript}`;
+  const parsed = await llm.structured(
+    {
+      system,
+      messages: [{ role: "user", content: `TRANSCRIPT:\n${transcript}` }],
+      schema: reportSchema,
+      // 1024: intentional exception to the 300 conversational limit; a full JSON report
+      // needs the headroom. See AGENTS.md Report Generation Rules.
+      maxTokens: 1024,
+    },
+    signal,
+  );
 
-  let raw: string;
-  try {
-    const response = await getAnthropicClient().messages.create({
-      model: "claude-sonnet-4-6",
-      // max_tokens: 1024 — intentional exception to the 300 conversational limit
-      // Full JSON report (strengths + improvements + highlights + assessment) requires headroom
-      // See AGENTS.md Report Generation Rules
-      max_tokens: 1024,
-      messages: [{ role: "user", content: prompt }],
-    });
-
-    const block = response.content[0];
-    if (block.type !== "text") {
-      console.error(`[${sessionId}] Report: unexpected content block type: ${block.type}`);
-      return null;
-    }
-    raw = block.text.trim();
-  } catch (err) {
-    console.error(`[${sessionId}] Report LLM call failed:`, err);
-    return null;
-  }
-
-  // Strip markdown fences if present (Claude sometimes adds them despite instructions)
-  if (raw.startsWith("```")) {
-    raw = raw.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "").trim();
-  }
-
-  let parsed: Record<string, unknown>;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (err) {
-    console.error(`[${sessionId}] Report JSON parse failed:`, err, "\nRaw:", raw);
-    return null;
-  }
-
-  // Validate all required fields are present and array fields are arrays
-  const required = ["summary", "strengths", "improvements", "highlights", "overall_assessment"];
-  for (const key of required) {
-    if (!(key in parsed)) {
-      console.error(`[${sessionId}] Report missing field: ${key}`);
-      return null;
-    }
-  }
-  for (const key of ["strengths", "improvements", "highlights"] as const) {
-    if (!Array.isArray(parsed[key])) {
-      console.error(`[${sessionId}] Report field "${key}" is not an array`);
-      return null;
-    }
-  }
-
-  const report: Report = {
-    sessionId,
-    summary: parsed.summary as string,
-    strengths: parsed.strengths as { area: string; evidence: string }[],
-    improvements: parsed.improvements as { area: string; suggestion: string }[],
-    highlights: parsed.highlights as string[],
-    overallAssessment: parsed.overall_assessment as string,
+  return {
+    sessionId: turns[0].sessionId,
+    summary: parsed.summary,
+    strengths: parsed.strengths,
+    improvements: parsed.improvements,
+    highlights: parsed.highlights,
+    overallAssessment: parsed.overall_assessment,
     generatedAt: new Date(),
   };
-
-  updateSession(sessionId, { report });
-  console.log(`[${sessionId}] Report generated`);
-  return report;
 }

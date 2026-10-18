@@ -43,26 +43,3 @@ export interface SessionState {
 }
 
 export type SessionStatus = "active" | "complete" | "abandoned" | "failed";
-
-export interface Session {
-  id: string;
-  ownerId: string;
-  topicId: string;
-  status: SessionStatus;
-  phase: Phase;
-  startedAt: Date;
-  endedAt?: Date;
-  turns: ConversationTurn[];
-  report?: Report;
-}
-
-export interface RuntimeState {
-  turnInFlight: boolean;
-  activeTTSAborts: Array<() => void>;
-  activeTTSChain?: Promise<void>;
-  activeLLMAbort?: AbortController;
-  activeChunker?: import("./sentenceChunker").SentenceChunker;
-  demo?: boolean;
-  vadT0?: number; // Date.now() when onSpeechEnd fires (binary audio arrival or text_input)
-  activeTurnPromise?: Promise<void>; // Full handleTranscript promise — used by session_end to ensure assistant turn is stored
-}
