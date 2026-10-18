@@ -27,6 +27,8 @@ import Anthropic from "@anthropic-ai/sdk";
 const WS_URL = process.env.TEST_WS_URL ?? "ws://localhost:3001";
 const HTTP_URL = WS_URL.replace(/^ws/, "http");
 const RUN = !!process.env.INTEGRATION_TEST;
+/** A preset: present in every database after the startup preset sync. */
+const INTERVIEWER_ID = "tell-a-story";
 const AUTH_HEADERS: Record<string, string> = process.env.TEST_AUTH_TOKEN
   ? { Authorization: `Bearer ${process.env.TEST_AUTH_TOKEN}` }
   : {};
@@ -170,20 +172,20 @@ describe.skipIf(!RUN)(
       client = new WsClient(WS_URL);
       await client.opened;
 
-      // ── 1. Start session in demo mode (intro threshold = 1 turn) ─────────
+      // ── 1. Start session in demo mode (each phase ends at its minTurns: intro = 1 turn) ──
       // The server issues the session id; the client never chooses one.
-      client.send({ type: "session_start", topicId: "ai-se-delivery", demo: true });
+      client.send({ type: "session_start", interviewerId: INTERVIEWER_ID, demo: true });
       const started = await client.waitFor((m) => m.type === "session_started");
       sessionId = started.sessionId as string;
 
       // Wait for the AI greeting to fully arrive (tts_end = TTS chain complete)
       await client.waitFor((m) => m.type === "tts_end");
 
-      // ── 2. Send one user turn — in demo mode this triggers intro → share_work ──
+      // ── 2. Send one user turn — in demo mode this triggers intro → share ──
       client.send({
         type: "text_input",
         content:
-          "Hi, I'm Alex, a software engineer at a fintech startup. I've been using GitHub Copilot for about six months.",
+          "Hi, I'm Alex. I'd like to tell the story of the first time I gave a talk to a room full of strangers.",
       });
 
       // Wait for the AI response to complete: the second tts_end (the first was the greeting)
@@ -244,10 +246,10 @@ describe.skipIf(!RUN)(
       expect((aiAfter!.text as string).length).toBeGreaterThan(10);
     });
 
-    it("phase_change to share_work fires (demo intro = 1 turn)", () => {
+    it("phase_change to share fires (demo intro = 1 turn)", () => {
       const phaseChange = allMessages.find((m) => m.type === "phase_change");
       expect(phaseChange, "no phase_change received").toBeDefined();
-      expect(phaseChange!.phase).toBe("share_work");
+      expect(phaseChange!.phase).toBe("share");
     });
 
     it("latency_metric is emitted and is under 5 seconds", () => {

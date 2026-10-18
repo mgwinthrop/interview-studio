@@ -29,9 +29,14 @@ In local mode the server trusts loopback peers. A reverse proxy on the same host
 
 ## Sessions
 
-- The server issues session IDs. The client never chooses one: any `sessionId` or `phase` field in `session_start` is ignored, and every session starts in `intro`.
+- The server issues session IDs. The client never chooses one: any `sessionId` or `phase` field in `session_start` is ignored, and every session starts in its interviewer's first phase.
 - Sessions are single-connection. There is no reattach: a new connection is a new session with a new ID, and reconnecting after a drop starts a new conversation.
-- The first frame on a socket must be a valid JSON `session_start` with a known `topicId`. A second `session_start` on the same socket is ignored.
+- The first frame on a socket must be a valid JSON `session_start` with an `interviewerId` the caller can see: a preset ID (visible to everyone) or the ID of one of the caller's own custom interviewers. A second `session_start` on the same socket is ignored.
+- `topicId` is gone. A `session_start` that carries `topicId` but no `interviewerId` is treated as a missing ID and closed 1008.
+
+### Interviewer snapshot
+
+When the session is created, the server copies the full interviewer definition into the session row (the snapshot), in the same write that creates the row and before `session_started` is sent. The running session, its phases and its report use only that snapshot: editing or deleting the interviewer afterwards does not affect a session that has already started, or its report.
 - Malformed JSON text frames after `session_start` are ignored. Unknown message types are ignored.
 
 ### Session statuses
@@ -52,7 +57,7 @@ All client messages are JSON strings except `audio` frames which are **raw binar
 | Type | Payload | Notes |
 |---|---|---|
 | `audio` | Raw PCM16 binary frame | Sent as binary WebSocket frame, not JSON. 16kHz mono, one complete utterance (end of turn decided by the client VAD). Only accepted after `session_start`. At most `limits.maxPayloadBytes` (10 MiB, about 5.5 minutes); a larger frame closes the socket 1009. |
-| `session_start` | `{ type, topicId, demo? }` | Must be the first frame. **Must include `topicId`** — one of `"ai-se-delivery"`, `"experience-design"`, `"product-design-strategy"`. `demo` shortens intro to 1 turn. |
+| `session_start` | `{ type, interviewerId, demo? }` | Must be the first frame. **Must include `interviewerId`**: a string of 1 to 64 letters, digits, `_` or `-` naming a preset (`"tell-a-story"`, `"explain-an-idea"`, `"rehearse-an-interview"`, `"work-out-a-point-of-view"`) or one of the caller's custom interviewers (`GET /api/interviewers` lists both). `demo` makes every phase end at its `minTurns` instead of its `maxTurns`. |
 | `session_end` | `{ type }` | Ends the session: cancels any in-flight reply as `interrupt` does (no further audio, no final transcript or `tts_end`, and the reply is not stored), generates the report from the committed turns, then the server sends `session_complete` or `session_failed`. |
 | `interrupt` | `{ type }` | Cancels in-flight STT, LLM and TTS and drops queued utterances. Server resets for next user turn. |
 | `text_input` | `{ type, content: string }` | Text fallback — bypasses STT. Treated identically to a completed voice turn. Empty or whitespace-only content is ignored. Content over 8192 UTF-8 bytes is ignored and answered with `stt_error` reason `too_long`. |
@@ -68,7 +73,7 @@ All server messages are JSON strings except `tts_chunk` which is a **raw binary 
 | `tts_start` | `{ type }` | Before the first `tts_chunk` of a turn. Signals AI is now speaking. |
 | `tts_end` | `{ type }` | After the last `tts_chunk` of a turn. Signals AI has finished speaking. Suppressed if TTS is aborted. |
 | `transcript` | `{ type, text, role, partial? }` | User transcript after STT (`role: "user"`). AI transcript per sentence chunk (`role: "assistant"`, `partial: true` mid-turn, final without `partial` once the reply is complete). |
-| `phase_change` | `{ type, phase }` | When the server transitions to the next phase. `phase` is one of `"intro"`, `"share_work"`, `"deep_dive"`, `"wrap_up"`. |
+| `phase_change` | `{ type, phase }` | When the server transitions to the next phase. `phase` is the new phase's name, a string taken from the interviewer's snapshot. The presets use `"intro"`, `"share"`, `"deep_dive"` and `"wrap_up"`; a custom interviewer names its own phases (1 to 8 of them), so clients must not assume a fixed set. |
 | `session_complete` | `{ type, reportId }` | The session ended as `complete` and its report is stored. `reportId` is the session ID. The server then closes the socket normally (1000). |
 | `session_failed` | `{ type, reason }` | The session ended as `failed` (no report). `reason` is a short fixed string, never model output or transcript text. The server then closes the socket normally (1000). |
 | `stt_error` | `{ type, reason }` | Non-fatal input failure (`low_confidence`, `stt_failed`, `busy` when the utterance queue is full, or `too_long` when a `text_input` is over 8192 bytes). Client should show a toast; session continues. |
@@ -80,9 +85,9 @@ All server messages are JSON strings except `tts_chunk` which is a **raw binary 
 |---|---|---|
 | 1000 | `session complete` / `session failed` | After `session_complete` or `session_failed`. |
 | 1001 | `idle timeout` | The session received no client activity for the idle limit and was marked `abandoned`. No JSON message is sent first. (`server shutdown` when the server stops.) |
-| 1008 | `session_start required` / `unknown topicId` | The first frame was binary, malformed, another message type, or a `session_start` with an unknown `topicId`. |
+| 1008 | `session_start required` / `unknown interviewerId` | The first frame was binary, malformed or another message type (`session_start required`), or a `session_start` whose `interviewerId` is missing, not a string, empty, longer than 64 characters, malformed, unknown, or another owner's custom interviewer (`unknown interviewerId`; every one of these cases gets the same response). Nothing is created. |
 | 1009 | (set by the `ws` library) / `message too large` | A frame was larger than its limit: any frame over `limits.maxPayloadBytes` (10 MiB by default, about 5.5 minutes of 16 kHz PCM16 audio in one utterance) is closed by the `ws` library; a JSON text frame over `limits.maxTextFrameBytes` (64 KiB by default) is closed by the server with reason `message too large`. |
-| 1011 | `internal error` | The session could not be created (database write failed). |
+| 1011 | `internal error` | The session could not be created (the interviewer lookup or the database write failed). No `session_started` is sent. |
 | 1013 | `too many sessions` | The owner already has the maximum number of concurrent sessions (2 by default). Nothing is created. |
 
 ## Binary frame detection
@@ -106,7 +111,7 @@ The client sets `ws.binaryType = "arraybuffer"` so binary frames arrive as `Arra
 ```
 Client                          Server
   │  (upgrade: auth + origin check; 401/403 refuses before the handshake)
-  │── session_start ──────────────▶│  (first frame; otherwise close 1008)
+  │── session_start { interviewerId } ▶│  (first frame; otherwise close 1008)
   │◀─ session_started { sessionId } │
   │◀─ transcript (assistant, partial: true, greeting) ──│  (per sentence)
   │◀─ tts_start ────────────────────│
