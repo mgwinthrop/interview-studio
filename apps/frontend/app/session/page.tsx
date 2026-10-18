@@ -152,11 +152,22 @@ function SessionView({ interviewer, demo }: SessionViewProps) {
   // Track actual playback, including buffered speech after tts_end.
   const [audioPlaying, setAudioPlaying] = useState(false);
   const audioQueueRef = useRef<AudioQueue | null>(null);
+  // Response-gap timing: when the interviewer's playback last finished (null = no valid end),
+  // and a synchronous mirror of the playing state so VAD callbacks never read a stale render.
+  const lastPlaybackEndedAtRef = useRef<number | null>(null);
+  const audioPlayingRef = useRef(false);
+  const handlePlaybackChange = useCallback((playing: boolean) => {
+    if (audioPlayingRef.current && !playing) {
+      lastPlaybackEndedAtRef.current = performance.now();
+    }
+    audioPlayingRef.current = playing;
+    setAudioPlaying(playing);
+  }, []);
   useEffect(() => {
-    const queue = new AudioQueue(setAudioPlaying);
+    const queue = new AudioQueue(handlePlaybackChange);
     audioQueueRef.current = queue;
     return () => { queue.dispose(); audioQueueRef.current = null; };
-  }, []);
+  }, [handlePlaybackChange]);
 
   const handleAudioChunk = useCallback((chunk: ArrayBuffer) => {
     audioQueueRef.current?.enqueue(chunk);
@@ -203,6 +214,9 @@ function SessionView({ interviewer, demo }: SessionViewProps) {
   // Functional update: only reset to "listening" if we were "speaking" — never clobbers "interrupted"
   useEffect(() => {
     if (aiSpeaking) {
+      // The interviewer is speaking again: an earlier end-of-playback can no longer
+      // describe the gap before the next answer (that end is recorded when this reply finishes).
+      lastPlaybackEndedAtRef.current = null;
       // tts_start fired — clear thinking watchdog before snapping to speaking
       if (watchdogRef.current !== null) {
         clearTimeout(watchdogRef.current);
@@ -243,16 +257,31 @@ function SessionView({ interviewer, demo }: SessionViewProps) {
       sendMessage(msg);
       if (msg.type === "interrupt") {
         audioQueueRef.current?.flush();
+        // flush() reports playing=false, which stamps an end time; an interrupted reply
+        // never finished, so discard it (must come after the flush).
+        lastPlaybackEndedAtRef.current = null;
       }
     },
     [sendMessage]
   );
+
+  // Ms from the end of the interviewer's playback to the given speech start, or null when
+  // there is no valid end (still playing, interrupted, or already used by an earlier answer).
+  const getResponseGapMs = useCallback((speechStartedAtMs: number): number | null => {
+    const endedAt = lastPlaybackEndedAtRef.current;
+    if (endedAt === null) return null;
+    if (audioPlayingRef.current) return null;
+    // One gap per reply: back-to-back answers must not reuse the same end.
+    lastPlaybackEndedAtRef.current = null;
+    return Math.max(0, speechStartedAtMs - endedAt);
+  }, []);
 
   const { startMic, stopMic, pauseMic, resumeMic } = useVAD({
     sendMessage: sendMessageWithFlush,
     aiSpeaking: aiSpeaking || audioPlaying,
     onSpeechSent: handleSpeechSent,
     onInterrupt: handleInterrupt,
+    getResponseGapMs,
   });
 
   // Auto-start AudioContext + VAD using the landing page button click as the

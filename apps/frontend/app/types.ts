@@ -49,4 +49,6 @@ export type ClientMessage =
   | { type: "session_end" }
   | { type: "interrupt" }
   | { type: "text_input"; content: string }
+  // Sent just before the audio frame of an answer: ms between the interviewer finishing and the user starting.
+  | { type: "turn_timing"; responseGapMs: number }
   | { type: "audio"; data: ArrayBuffer };

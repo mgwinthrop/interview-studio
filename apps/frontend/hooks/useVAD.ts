@@ -18,6 +18,12 @@ interface UseVADOptions {
   onSpeechSent?: () => void;
   /** Fires in onSpeechStart when AI is not speaking — reserved for future use */
   onInterrupt?: () => void;
+  /**
+   * Given performance.now() at speech start, returns ms since the interviewer's playback
+   * finished, or null when there is no valid gap. Consulted only for answers that began
+   * while the interviewer was silent.
+   */
+  getResponseGapMs?: (speechStartedAtMs: number) => number | null;
 }
 
 interface UseVADReturn {
@@ -28,7 +34,7 @@ interface UseVADReturn {
   resumeMic: () => void;
 }
 
-export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt }: UseVADOptions): UseVADReturn {
+export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, getResponseGapMs }: UseVADOptions): UseVADReturn {
   const [micActive, setMicActive] = useState(false);
   const vadRef = useRef<Awaited<ReturnType<typeof MicVAD.new>> | null>(null);
   // Guards against StrictMode double-mount: callbacks check this before acting
@@ -45,6 +51,13 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt }: U
   useEffect(() => { onSpeechSentRef.current = onSpeechSent; }, [onSpeechSent]);
   const onInterruptRef = useRef(onInterrupt);
   useEffect(() => { onInterruptRef.current = onInterrupt; }, [onInterrupt]);
+  const getResponseGapMsRef = useRef(getResponseGapMs);
+  useEffect(() => { getResponseGapMsRef.current = getResponseGapMs; }, [getResponseGapMs]);
+
+  // Response-gap bookkeeping for the utterance currently in progress.
+  const speechStartedAtRef = useRef<number | null>(null);
+  // True when the interviewer was speaking as this utterance began (a barge-in): no gap is reported.
+  const startedDuringAiSpeechRef = useRef(false);
 
   const startMic = useCallback(async () => {
     if (vadRef.current) return; // already initialised
@@ -79,6 +92,8 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt }: U
 
       onSpeechStart() {
         if (destroyedRef.current) return;
+        speechStartedAtRef.current = performance.now();
+        startedDuringAiSpeechRef.current = aiSpeakingRef.current;
         // Only interrupt when AI is currently speaking — echo cancellation prevents
         // false positives from the AI's own audio triggering this path.
         // When AI is not speaking, onSpeechStart is a no-op: onSpeechEnd sends the audio.
@@ -94,12 +109,25 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt }: U
         for (let i = 0; i < audio.length; i++) {
           pcm16[i] = Math.max(-32768, Math.min(32767, Math.round(audio[i] * 32768)));
         }
+        // Report how long the user took to start answering, unless this was a barge-in.
+        const startedAt = speechStartedAtRef.current;
+        const wasBargeIn = startedDuringAiSpeechRef.current;
+        speechStartedAtRef.current = null;
+        startedDuringAiSpeechRef.current = false;
+        if (startedAt !== null && !wasBargeIn) {
+          const gap = getResponseGapMsRef.current?.(startedAt);
+          if (typeof gap === "number" && Number.isFinite(gap) && gap >= 0) {
+            sendMessageRef.current({ type: "turn_timing", responseGapMs: Math.round(gap) });
+          }
+        }
         sendMessageRef.current({ type: "audio", data: pcm16.buffer });
         onSpeechSentRef.current?.(); // orb transitions to "thinking"
       },
 
       onVADMisfire() {
-        // Short non-speech burst — ignore (spec §5.2)
+        // Short non-speech burst — ignore (spec §5.2); just drop the recorded start
+        speechStartedAtRef.current = null;
+        startedDuringAiSpeechRef.current = false;
       },
     });
 
