@@ -10,15 +10,18 @@ generator client {
 }
 
 model Session {
-  id        String   @id @default(uuid())
-  ownerId   String   @default("local")
-  topicId   String
-  status    String   @default("active")
-  phase     String   @default("intro")
-  startedAt DateTime @default(now())
-  endedAt   DateTime?
-  turns     ConversationTurn[]
-  report    Report?
+  id              String             @id @default(uuid())
+  ownerId         String             @default("local")
+  // Pre-existing rows keep their old topic id here and have a null snapshot.
+  interviewerId   String
+  // The full interviewer definition at session start (JSON); null on sessions from before interviewers.
+  interviewerJson String?
+  status          String             @default("active")
+  phase           String             @default("intro")
+  startedAt       DateTime           @default(now())
+  endedAt         DateTime?
+  turns           ConversationTurn[]
+  report          Report?
 
   @@index([ownerId])
 }
@@ -37,10 +40,24 @@ model Report {
   id                String   @id @default(uuid())
   sessionId         String   @unique
   summary           String
-  strengthsJson     String   // JSON.stringify({ area, evidence }[])
-  improvementsJson  String   // JSON.stringify({ area, suggestion }[])
-  highlightsJson    String   // JSON.stringify(string[])
+  strengthsJson     String // JSON.stringify({ area, evidence }[])
+  improvementsJson  String // JSON.stringify({ area, suggestion }[])
+  highlightsJson    String // JSON.stringify(string[])
   overallAssessment String
   generatedAt       DateTime @default(now())
   session           Session  @relation(fields: [sessionId], references: [id])
+}
+
+model Interviewer {
+  id             String   @id
+  ownerId        String
+  source         String // "preset" | "custom"
+  name           String
+  purpose        String
+  version        Int
+  definitionJson String // JSON.stringify(InterviewerDefinition)
+  createdAt      DateTime
+  updatedAt      DateTime
+
+  @@index([ownerId])
 }

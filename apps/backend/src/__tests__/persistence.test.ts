@@ -4,6 +4,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Report } from "../types";
+import type { InterviewerDefinition } from "../interviewer/schema";
+import { PRESETS } from "../interviewer/presets";
+
+const INTERVIEWER: InterviewerDefinition = PRESETS[0];
+const OTHER: InterviewerDefinition = PRESETS[1];
 
 const backendDir = path.resolve(__dirname, "../..");
 let tmpDir: string;
@@ -23,7 +28,7 @@ function report(sessionId: string): Report {
 }
 
 async function seed(id: string, owner: string) {
-  await p.persistSessionCreate(id, owner, "ai-se-delivery", "intro");
+  await p.persistSessionCreate(id, owner, INTERVIEWER);
   await p.persistTurn({
     id: `${id}-t1`,
     sessionId: id,
@@ -74,7 +79,7 @@ describe("owner scoping", () => {
 
 describe("statuses", () => {
   it("keeps abandoned status and does not change it when a report is persisted", async () => {
-    await p.persistSessionCreate("s-ab", "a", "ai-se-delivery", "intro");
+    await p.persistSessionCreate("s-ab", "a", INTERVIEWER);
     await p.persistSessionStatus("s-ab", "abandoned");
     await p.persistReport("s-ab", report("s-ab"));
     const row = await prisma.session.findUnique({ where: { id: "s-ab" } });
@@ -88,10 +93,10 @@ describe("statuses", () => {
       ["l-abandoned", "abandoned"],
       ["l-failed", "failed"],
     ] as const) {
-      await p.persistSessionCreate(id, "lister", "ai-se-delivery", "intro");
+      await p.persistSessionCreate(id, "lister", INTERVIEWER);
       await p.persistSessionStatus(id, status);
     }
-    await p.persistSessionCreate("l-other", "someone-else", "ai-se-delivery", "intro");
+    await p.persistSessionCreate("l-other", "someone-else", INTERVIEWER);
     await p.persistSessionStatus("l-other", "complete");
     const list = await p.listSessionsFromDb("lister");
     expect(list.map((s) => s.id)).toEqual(["l-complete"]);
@@ -100,7 +105,7 @@ describe("statuses", () => {
 
 describe("status transitions", () => {
   it("leaves complete untouched on a later abandoned write", async () => {
-    await p.persistSessionCreate("t-1", "a", "ai-se-delivery", "intro");
+    await p.persistSessionCreate("t-1", "a", INTERVIEWER);
     expect(await p.persistSessionStatus("t-1", "complete")).toBe(true);
     const first = await prisma.session.findUnique({ where: { id: "t-1" } });
     expect(await p.persistSessionStatus("t-1", "abandoned")).toBe(false);
@@ -110,7 +115,7 @@ describe("status transitions", () => {
   });
 
   it("leaves failed untouched on a later complete write", async () => {
-    await p.persistSessionCreate("t-2", "a", "ai-se-delivery", "intro");
+    await p.persistSessionCreate("t-2", "a", INTERVIEWER);
     expect(await p.persistSessionStatus("t-2", "failed")).toBe(true);
     expect(await p.persistSessionStatus("t-2", "complete")).toBe(false);
     const row = await prisma.session.findUnique({ where: { id: "t-2" } });
@@ -124,17 +129,79 @@ describe("status transitions", () => {
 
 describe("persistSessionCreate", () => {
   it("rejects a duplicate id, even under another owner, and keeps the original row", async () => {
-    await p.persistSessionCreate("c-dup", "a", "ai-se-delivery", "intro");
+    await p.persistSessionCreate("c-dup", "a", INTERVIEWER);
     await expect(
-      p.persistSessionCreate("c-dup", "a", "ai-se-delivery", "intro")
+      p.persistSessionCreate("c-dup", "a", INTERVIEWER)
     ).rejects.toThrow();
     await expect(
-      p.persistSessionCreate("c-dup", "b", "experience-design", "deep_dive")
+      p.persistSessionCreate("c-dup", "b", OTHER)
     ).rejects.toThrow();
     const row = await prisma.session.findUnique({ where: { id: "c-dup" } });
     expect(row?.ownerId).toBe("a");
-    expect(row?.topicId).toBe("ai-se-delivery");
-    expect(row?.phase).toBe("intro");
+    expect(row?.interviewerId).toBe(INTERVIEWER.id);
+    expect(row?.phase).toBe(INTERVIEWER.phases[0].name);
+  });
+});
+
+describe("interviewer snapshot", () => {
+  it("persistSessionCreate stores the interviewer id, the full snapshot and the first phase name", async () => {
+    await p.persistSessionCreate("snap-1", "a", INTERVIEWER);
+    const row = await prisma.session.findUnique({ where: { id: "snap-1" } });
+    expect(row?.interviewerId).toBe(INTERVIEWER.id);
+    expect(row?.phase).toBe(INTERVIEWER.phases[0].name);
+    expect(row?.status).toBe("active");
+    expect(JSON.parse(row?.interviewerJson ?? "null")).toEqual(INTERVIEWER);
+  });
+
+  it("listSessionsFromDb returns interviewerName from the snapshot, null without one, and no topicId", async () => {
+    await p.persistSessionCreate("name-new", "namer", INTERVIEWER);
+    await p.persistSessionStatus("name-new", "complete");
+    await prisma.session.create({
+      data: { id: "name-old", ownerId: "namer", interviewerId: "ai-se-delivery", status: "complete" },
+    });
+    await prisma.session.create({
+      data: {
+        id: "name-corrupt",
+        ownerId: "namer",
+        interviewerId: "x",
+        interviewerJson: "{not json",
+        status: "complete",
+      },
+    });
+    const list = await p.listSessionsFromDb("namer");
+    const byId = Object.fromEntries(list.map((s) => [s.id, s]));
+    expect(byId["name-new"]).toMatchObject({ interviewerId: INTERVIEWER.id, interviewerName: INTERVIEWER.name });
+    expect(byId["name-old"]).toMatchObject({ interviewerId: "ai-se-delivery", interviewerName: null });
+    expect(byId["name-corrupt"]).toMatchObject({ interviewerName: null });
+    for (const s of list) expect(s).not.toHaveProperty("topicId");
+  });
+
+  it("readReportFromDb returns interviewerName, null for a session without a snapshot", async () => {
+    await seed("rep-new", "a");
+    expect((await p.readReportFromDb("rep-new", "a"))?.interviewerName).toBe(INTERVIEWER.name);
+    await prisma.session.create({
+      data: { id: "rep-old", ownerId: "a", interviewerId: "experience-design", status: "complete" },
+    });
+    const old = await p.readReportFromDb("rep-old", "a");
+    expect(old).toMatchObject({ report: null, sessionStatus: "complete", interviewerName: null });
+  });
+
+  it("readSnapshot is owner-scoped and returns null for a missing or invalid snapshot", async () => {
+    await p.persistSessionCreate("rs-1", "a", INTERVIEWER);
+    expect(await p.readSnapshot("rs-1", "a")).toEqual(INTERVIEWER);
+    expect(await p.readSnapshot("rs-1", "b")).toBeNull();
+    expect(await p.readSnapshot("rs-unknown", "a")).toBeNull();
+    await prisma.session.create({ data: { id: "rs-old", ownerId: "a", interviewerId: "ai-se-delivery" } });
+    expect(await p.readSnapshot("rs-old", "a")).toBeNull();
+    await prisma.session.create({
+      data: {
+        id: "rs-invalid",
+        ownerId: "a",
+        interviewerId: "x",
+        interviewerJson: JSON.stringify({ ...INTERVIEWER, phases: [] }),
+      },
+    });
+    expect(await p.readSnapshot("rs-invalid", "a")).toBeNull();
   });
 });
 
@@ -162,7 +229,7 @@ describe("purgeOlderThan", () => {
 describe("abandonStaleActiveSessions", () => {
   it("marks every active row abandoned with endedAt set, leaves ended rows alone, returns the count", async () => {
     for (const id of ["st-active-1", "st-active-2", "st-complete", "st-failed"]) {
-      await p.persistSessionCreate(id, "a", "ai-se-delivery", "intro");
+      await p.persistSessionCreate(id, "a", INTERVIEWER);
     }
     await p.persistSessionStatus("st-complete", "complete");
     await p.persistSessionStatus("st-failed", "failed");

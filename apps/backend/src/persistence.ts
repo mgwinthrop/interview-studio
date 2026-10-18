@@ -1,18 +1,53 @@
 import prisma from "./db";
-import { ConversationTurn, Phase, Report, SessionStatus } from "./types";
+import { parseInterviewerDefinition, type InterviewerDefinition } from "./interviewer/schema";
+import { ConversationTurn, Report, SessionStatus } from "./types";
 
 // ── Read helpers (post-restart fallback for HTTP endpoints) ──────────────────
 // Every query goes through the owning session so one owner never sees another's data.
 
 /**
- * Returns { report, sessionStatus } for a session owned by ownerId, or null if
+ * Parses a stored interviewer snapshot. Null when there is none (sessions from before
+ * interviewers) or when it is unparsable or invalid; never throws and never logs its text.
+ */
+function parseSnapshot(json: string | null): InterviewerDefinition | null {
+  if (json === null) return null;
+  try {
+    return parseInterviewerDefinition(JSON.parse(json));
+  } catch {
+    return null;
+  }
+}
+
+/** The interviewer's name from a stored snapshot, or null (see parseSnapshot). */
+function snapshotName(json: string | null): string | null {
+  return parseSnapshot(json)?.name ?? null;
+}
+
+/**
+ * The interviewer definition a session was started with, for a session owned by ownerId.
+ * Null for another owner's or an unknown session, and for a missing or invalid snapshot.
+ */
+export async function readSnapshot(
+  sessionId: string,
+  ownerId: string
+): Promise<InterviewerDefinition | null> {
+  const session = await prisma.session.findFirst({
+    where: { id: sessionId, ownerId },
+    select: { interviewerJson: true },
+  });
+  return session ? parseSnapshot(session.interviewerJson) : null;
+}
+
+/**
+ * Returns { report, sessionStatus, interviewerName } for a session owned by ownerId, or null if
  * the session does not exist or belongs to someone else.
  * report is null when the session exists but report generation hasn't completed.
+ * interviewerName is null for sessions without a (valid) snapshot.
  */
 export async function readReportFromDb(
   sessionId: string,
   ownerId: string
-): Promise<{ report: Report | null; sessionStatus: string } | null> {
+): Promise<{ report: Report | null; sessionStatus: string; interviewerName: string | null } | null> {
   const session = await prisma.session.findFirst({
     where: { id: sessionId, ownerId },
     include: { report: true },
@@ -31,7 +66,11 @@ export async function readReportFromDb(
       } satisfies Report)
     : null;
 
-  return { report, sessionStatus: session.status };
+  return {
+    report,
+    sessionStatus: session.status,
+    interviewerName: snapshotName(session.interviewerJson),
+  };
 }
 
 /**
@@ -52,16 +91,20 @@ export async function readTurnsFromDb(
     sessionId: r.sessionId,
     role: r.role as "user" | "assistant",
     content: r.content,
-    phase: r.phase as Phase,
+    phase: r.phase,
     timestamp: r.timestamp,
   }));
 }
 
-/** Completed sessions for the owner, newest first. Abandoned and failed are not listed. */
+/**
+ * Completed sessions for the owner, newest first. Abandoned and failed are not listed.
+ * interviewerName is null for sessions without a (valid) snapshot.
+ */
 export async function listSessionsFromDb(ownerId: string): Promise<
   {
     id: string;
-    topicId: string;
+    interviewerId: string;
+    interviewerName: string | null;
     phase: string;
     startedAt: Date;
     endedAt: Date | null;
@@ -76,7 +119,8 @@ export async function listSessionsFromDb(ownerId: string): Promise<
   });
   return rows.map((r) => ({
     id: r.id,
-    topicId: r.topicId,
+    interviewerId: r.interviewerId,
+    interviewerName: snapshotName(r.interviewerJson),
     phase: r.phase,
     startedAt: r.startedAt,
     endedAt: r.endedAt,
@@ -87,15 +131,22 @@ export async function listSessionsFromDb(ownerId: string): Promise<
 
 // ── Writes ───────────────────────────────────────────────────────────────────
 
+/** Creates the session row with its interviewer snapshot, in its first phase. */
 export async function persistSessionCreate(
   id: string,
   ownerId: string,
-  topicId: string,
-  phase: Phase
+  interviewer: InterviewerDefinition
 ): Promise<void> {
   // Plain create: a duplicate id rejects loudly (ids are server-issued UUIDs).
   await prisma.session.create({
-    data: { id, ownerId, topicId, phase, status: "active" },
+    data: {
+      id,
+      ownerId,
+      interviewerId: interviewer.id,
+      interviewerJson: JSON.stringify(interviewer),
+      phase: interviewer.phases[0].name,
+      status: "active",
+    },
   });
 }
 
@@ -119,7 +170,7 @@ export async function persistTurn(turn: ConversationTurn): Promise<void> {
 
 export async function persistPhaseTransition(
   sessionId: string,
-  phase: Phase
+  phase: string
 ): Promise<void> {
   await prisma.session.update({
     where: { id: sessionId },

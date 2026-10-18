@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { PRESETS } from "../interviewer/presets";
 
 const backendDir = path.resolve(__dirname, "../..");
 let tmpDir: string;
@@ -39,9 +40,9 @@ afterEach(() => {
 
 describe("runRetention", () => {
   it("removes an old ended session, keeps a recent one, and returns the count", async () => {
-    await p.persistSessionCreate("old-1", "local", "ai-se-delivery", "intro");
+    await p.persistSessionCreate("old-1", "local", PRESETS[0]);
     await p.persistSessionStatus("old-1", "complete");
-    await p.persistSessionCreate("recent-1", "local", "ai-se-delivery", "intro");
+    await p.persistSessionCreate("recent-1", "local", PRESETS[0]);
     await p.persistSessionStatus("recent-1", "complete");
     await prisma.session.update({
       where: { id: "old-1" },
