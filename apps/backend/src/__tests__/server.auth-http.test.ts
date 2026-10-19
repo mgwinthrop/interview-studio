@@ -5,13 +5,11 @@ import {
   allLogText,
   connect,
   makeConfig,
-  persistence,
-  prisma,
   start,
   setupServerTestEnv,
 } from "./helpers/server";
 
-setupServerTestEnv();
+const env = setupServerTestEnv();
 
 describe("authentication on upgrade", () => {
   it("refuses an upgrade from a foreign Origin with 403", async () => {
@@ -83,8 +81,8 @@ describe("HTTP routes", () => {
 
   it("returns 404 for another owner's transcript and report", async () => {
     const r = await start();
-    await persistence.persistSessionCreate("foreign-1", "someone-else", PRESET);
-    await persistence.persistTurn({
+    await env.persistence.persistSessionCreate("foreign-1", "someone-else", PRESET);
+    await env.persistence.persistTurn({
       id: "foreign-1-t1",
       sessionId: "foreign-1",
       role: "user",
@@ -100,8 +98,8 @@ describe("HTTP routes", () => {
 
   describe("DELETE /api/session/:sessionId", () => {
     async function seedSession(id: string, owner: string, status: "complete" | "failed" | "abandoned" = "complete") {
-      await persistence.persistSessionCreate(id, owner, PRESET);
-      await persistence.persistTurn({
+      await env.persistence.persistSessionCreate(id, owner, PRESET);
+      await env.persistence.persistTurn({
         id: `${id}-t1`,
         sessionId: id,
         role: "user",
@@ -109,7 +107,7 @@ describe("HTTP routes", () => {
         phase: "intro",
         timestamp: new Date(),
       });
-      await persistence.persistSessionStatus(id, status);
+      await env.persistence.persistSessionStatus(id, status);
     }
 
     it("deletes the caller's own session with 204, then transcript and report are 404", async () => {
@@ -120,7 +118,7 @@ describe("HTTP routes", () => {
       expect(res.status).toBe(204);
       expect((await fetch(`${r.base}/api/session/del-own/transcript`)).status).toBe(404);
       expect((await fetch(`${r.base}/api/session/del-own/report`)).status).toBe(404);
-      expect(await prisma.session.count({ where: { id: "del-own" } })).toBe(0);
+      expect(await env.prisma.session.count({ where: { id: "del-own" } })).toBe(0);
     });
 
     it("allows deleting failed and abandoned sessions", async () => {
@@ -139,8 +137,8 @@ describe("HTTP routes", () => {
       expect(foreign.status).toBe(404);
       expect(unknown.status).toBe(404);
       expect(await foreign.json()).toEqual(await unknown.json());
-      expect(await prisma.session.count({ where: { id: "del-foreign" } })).toBe(1);
-      expect(await persistence.readTurnsFromDb("del-foreign", "someone-else")).not.toBeNull();
+      expect(await env.prisma.session.count({ where: { id: "del-foreign" } })).toBe(1);
+      expect(await env.persistence.readTurnsFromDb("del-foreign", "someone-else")).not.toBeNull();
     });
 
     it("refuses with 409 while the session is live, and keeps it", async () => {
@@ -151,7 +149,7 @@ describe("HTTP routes", () => {
       const res = await fetch(`${r.base}/api/session/${id}`, { method: "DELETE" });
       expect(res.status).toBe(409);
       expect(await res.json()).toEqual({ error: "session is active" });
-      expect(await prisma.session.count({ where: { id } })).toBe(1);
+      expect(await env.prisma.session.count({ where: { id } })).toBe(1);
       c.ws.close();
       await c.closed;
     });
@@ -166,13 +164,13 @@ describe("HTTP routes", () => {
       expect(bad.status).toBe(403);
       const t = await start({ config: makeConfig({ AUTH_TOKEN: "another-token" }) });
       expect((await fetch(`${t.base}/api/session/del-auth`, { method: "DELETE" })).status).toBe(401);
-      expect(await prisma.session.count({ where: { id: "del-auth" } })).toBe(1);
+      expect(await env.prisma.session.count({ where: { id: "del-auth" } })).toBe(1);
     });
   });
 
   it("returns 202 generating for an active session's report", async () => {
     const r = await start();
-    await persistence.persistSessionCreate("active-1", "local", PRESET);
+    await env.persistence.persistSessionCreate("active-1", "local", PRESET);
     const res = await fetch(`${r.base}/api/session/active-1/report`);
     expect(res.status).toBe(202);
     expect(await res.json()).toEqual({ status: "generating" });

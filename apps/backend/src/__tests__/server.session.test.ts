@@ -18,18 +18,14 @@ import {
   createdCustom,
   customInput,
   makeConfig,
-  persistence,
   phaseChanges,
-  prisma,
-  registry,
   running,
   start,
-  store,
   textTurn,
   setupServerTestEnv,
 } from "./helpers/server";
 
-setupServerTestEnv();
+const env = setupServerTestEnv();
 
 describe("session start", () => {
   it("issues a server-chosen UUID before the greeting, ignoring client id and phase", async () => {
@@ -42,11 +38,11 @@ describe("session start", () => {
     expect(started.sessionId).not.toBe("client-chosen");
     expect(c.messages[0].type).toBe("session_started");
     await c.assistantFinal();
-    const row = await prisma.session.findUnique({ where: { id: started.sessionId as string } });
+    const row = await env.prisma.session.findUnique({ where: { id: started.sessionId as string } });
     expect(row).toMatchObject({ ownerId: "local", interviewerId: INTERVIEWER, phase: "intro", status: "active" });
     // The snapshot is the preset exactly as it was at start.
-    expect(await persistence.readSnapshot(started.sessionId as string, "local")).toEqual(PRESET);
-    expect(await prisma.session.count({ where: { id: "client-chosen" } })).toBe(0);
+    expect(await env.persistence.readSnapshot(started.sessionId as string, "local")).toEqual(PRESET);
+    expect(await env.prisma.session.count({ where: { id: "client-chosen" } })).toBe(0);
     c.ws.close();
     await c.closed;
   });
@@ -93,7 +89,7 @@ describe("session start", () => {
       }
       const change = await c.next((m) => m.type === "phase_change");
       expect(change).toEqual({ type: "phase_change", phase: preset.phases[1].name });
-      expect(await persistence.readSnapshot(id, "local")).toEqual(preset);
+      expect(await env.persistence.readSnapshot(id, "local")).toEqual(preset);
       c.ws.close();
       await c.closed;
     },
@@ -112,19 +108,19 @@ describe("session start", () => {
 
   it.each(BAD_STARTS)("closes 1008 'unknown interviewerId' on %s, creates nothing and logs no id", async (_what, body, looksUp) => {
     // Cap 1: a later start proves the pending-session counter was released.
-    const getInterviewer = vi.fn(store.getInterviewer);
+    const getInterviewer = vi.fn(env.store.getInterviewer);
     const r = await start({
       config: makeConfig({}, { limits: { maxConcurrentSessionsPerOwner: 1 } }),
-      interviewers: { ...store, getInterviewer },
+      interviewers: { ...env.store, getInterviewer },
     });
-    const before = await prisma.session.count();
+    const before = await env.prisma.session.count();
     const c = connect(r);
     await c.opened;
     c.send({ type: "session_start", ...body });
     expect(await c.closed).toEqual({ code: 1008, reason: "unknown interviewerId" });
     expect(c.messages).toHaveLength(0);
-    expect(await prisma.session.count()).toBe(before);
-    expect(registry.countForOwner("local")).toBe(0);
+    expect(await env.prisma.session.count()).toBe(before);
+    expect(env.registry.countForOwner("local")).toBe(0);
     const logs = allLogText();
     expect(logs).not.toContain("ocelot");
     expect(logs).not.toContain("ai-se-delivery");
@@ -139,24 +135,24 @@ describe("session start", () => {
 
   it("closes 1008 'unknown interviewerId' for another owner's custom interviewer", async () => {
     // Two owners: local mode authenticates as "local", token mode as "token".
-    const custom = await store.createInterviewer("local", customInput());
+    const custom = await env.store.createInterviewer("local", customInput());
     createdCustom.push(custom.id);
     const t = await start({ config: makeConfig({ AUTH_TOKEN: "second-owner-token" }) });
-    const before = await prisma.session.count();
+    const before = await env.prisma.session.count();
     const foreign = connect(t, {}, "?token=second-owner-token");
     await foreign.opened;
     foreign.send({ type: "session_start", interviewerId: custom.id });
     expect(await foreign.closed).toEqual({ code: 1008, reason: "unknown interviewerId" });
     expect(foreign.messages).toHaveLength(0);
-    expect(await prisma.session.count()).toBe(before);
-    expect(registry.countForOwner("token")).toBe(0);
+    expect(await env.prisma.session.count()).toBe(before);
+    expect(env.registry.countForOwner("token")).toBe(0);
     expect(allLogText()).not.toContain(custom.id);
 
     // Its owner can use it.
     const r = await start();
     const own = connect(r);
     const id = await own.startSession({ interviewerId: custom.id });
-    expect(await persistence.readSnapshot(id, "local")).toEqual(custom);
+    expect(await env.persistence.readSnapshot(id, "local")).toEqual(custom);
     own.ws.close();
     await own.closed;
   });
@@ -166,12 +162,12 @@ describe("session start", () => {
     const c = connect(r);
     await c.startSession();
     await c.assistantFinal();
-    const before = await prisma.session.count();
+    const before = await env.prisma.session.count();
     c.send({ type: "session_start", interviewerId: INTERVIEWER });
     c.send({ type: "text_input", content: USER_TEXT });
     await c.next((m) => m.type === "transcript" && m.role === "user");
     expect(c.messages.filter((m) => m.type === "session_started")).toHaveLength(1);
-    expect(await prisma.session.count()).toBe(before);
+    expect(await env.prisma.session.count()).toBe(before);
     c.ws.close();
     await c.closed;
   });
@@ -225,7 +221,7 @@ describe("caps and limits", () => {
     expect(await c.closed).toEqual({ code: 1009, reason: "message too large" });
     expect(c.messages.some((m) => m.type === "transcript" && m.role === "user")).toBe(false);
     await vi.waitFor(async () => {
-      expect((await prisma.session.findUnique({ where: { id } }))?.status).toBe("abandoned");
+      expect((await env.prisma.session.findUnique({ where: { id } }))?.status).toBe("abandoned");
     });
   });
 
@@ -280,7 +276,7 @@ describe("caps and limits", () => {
     const closed = await c.closed;
     expect(closed).toEqual({ code: 1001, reason: "idle timeout" });
     await vi.waitFor(async () => {
-      expect((await prisma.session.findUnique({ where: { id } }))?.status).toBe("abandoned");
+      expect((await env.prisma.session.findUnique({ where: { id } }))?.status).toBe("abandoned");
     });
   });
 });
@@ -289,9 +285,9 @@ describe("caps and limits", () => {
 describe("session creation failure", () => {
   it("closes 1011 without session_started or a registry entry; a later start works", async () => {
     const persist = {
-      ...persistence,
+      ...env.persistence,
       persistSessionCreate: vi
-        .fn(persistence.persistSessionCreate)
+        .fn(env.persistence.persistSessionCreate)
         .mockRejectedValueOnce(new Error("db down")),
     };
     const r = await start({ persist });
@@ -300,7 +296,7 @@ describe("session creation failure", () => {
     c.send({ type: "session_start", interviewerId: INTERVIEWER });
     expect((await c.closed).code).toBe(1011);
     expect(c.messages.some((m) => m.type === "session_started")).toBe(false);
-    expect(registry.countForOwner("local")).toBe(0);
+    expect(env.registry.countForOwner("local")).toBe(0);
 
     const ok = connect(r);
     await ok.startSession();
@@ -317,9 +313,9 @@ describe("interviewer lookup at session start", () => {
     const gate = new Promise<void>((resolve) => (release = resolve));
     const getInterviewer = vi.fn(async (id: string, ownerId: string) => {
       if (getInterviewer.mock.calls.length === 1) await gate;
-      return store.getInterviewer(id, ownerId);
+      return env.store.getInterviewer(id, ownerId);
     });
-    return { interviewers: { ...store, getInterviewer }, getInterviewer, release };
+    return { interviewers: { ...env.store, getInterviewer }, getInterviewer, release };
   }
 
   it("two simultaneous starts at the cap: one starts, the other closes 1013 while the first is still looking up", async () => {
@@ -340,28 +336,28 @@ describe("interviewer lookup at session start", () => {
     const started = await a.next((m) => m.type === "session_started");
     expect(started.sessionId).toMatch(UUID_RE);
     expect(getInterviewer).toHaveBeenCalledTimes(1);
-    expect(registry.countForOwner("local")).toBe(1);
+    expect(env.registry.countForOwner("local")).toBe(1);
     a.ws.close();
     await a.closed;
   });
 
   it("a failing lookup closes 1011 with no session_started, no row and no registry entry; a later start works", async () => {
     const interviewers = {
-      ...store,
-      getInterviewer: vi.fn(store.getInterviewer).mockRejectedValueOnce(new Error("db down")),
+      ...env.store,
+      getInterviewer: vi.fn(env.store.getInterviewer).mockRejectedValueOnce(new Error("db down")),
     };
     const r = await start({
       config: makeConfig({}, { limits: { maxConcurrentSessionsPerOwner: 1 } }),
       interviewers,
     });
-    const before = await prisma.session.count();
+    const before = await env.prisma.session.count();
     const c = connect(r);
     await c.opened;
     c.send({ type: "session_start", interviewerId: INTERVIEWER });
     expect(await c.closed).toEqual({ code: 1011, reason: "internal error" });
     expect(c.messages).toHaveLength(0);
-    expect(await prisma.session.count()).toBe(before);
-    expect(registry.countForOwner("local")).toBe(0);
+    expect(await env.prisma.session.count()).toBe(before);
+    expect(env.registry.countForOwner("local")).toBe(0);
 
     const ok = connect(r);
     await ok.startSession();
@@ -375,7 +371,7 @@ describe("interviewer lookup at session start", () => {
       config: makeConfig({}, { limits: { maxConcurrentSessionsPerOwner: 1 } }),
       interviewers,
     });
-    const before = await prisma.session.count();
+    const before = await env.prisma.session.count();
     const c = connect(r);
     await c.opened;
     c.send({ type: "session_start", interviewerId: INTERVIEWER });
@@ -385,8 +381,8 @@ describe("interviewer lookup at session start", () => {
     release();
     await vi.waitFor(() => expect(allLogText()).toContain("[ws] socket closed before start: nothing created"));
     expect(c.messages).toHaveLength(0);
-    expect(await prisma.session.count()).toBe(before);
-    expect(registry.countForOwner("local")).toBe(0);
+    expect(await env.prisma.session.count()).toBe(before);
+    expect(env.registry.countForOwner("local")).toBe(0);
 
     const ok = connect(r);
     await ok.startSession();
@@ -397,9 +393,9 @@ describe("interviewer lookup at session start", () => {
   it("a socket closed after the session row is created marks it abandoned and frees the slot", async () => {
     let client: Client | undefined;
     let createdId = "";
-    const persistSessionStatus = vi.fn(persistence.persistSessionStatus);
-    const persistSessionCreate = vi.fn(async (...args: Parameters<typeof persistence.persistSessionCreate>) => {
-      await persistence.persistSessionCreate(...args);
+    const persistSessionStatus = vi.fn(env.persistence.persistSessionStatus);
+    const persistSessionCreate = vi.fn(async (...args: Parameters<typeof env.persistence.persistSessionCreate>) => {
+      await env.persistence.persistSessionCreate(...args);
       createdId = args[0];
       // The client goes away once the row exists and before the controller attaches.
       client!.ws.close();
@@ -407,7 +403,7 @@ describe("interviewer lookup at session start", () => {
     });
     const r = await start({
       config: makeConfig({}, { limits: { maxConcurrentSessionsPerOwner: 1 } }),
-      persist: { ...persistence, persistSessionCreate, persistSessionStatus },
+      persist: { ...env.persistence, persistSessionCreate, persistSessionStatus },
     });
     const c = connect(r);
     client = c;
@@ -421,8 +417,8 @@ describe("interviewer lookup at session start", () => {
     );
     expect(persistSessionStatus).toHaveBeenCalledWith(createdId, "abandoned");
     expect(c.messages.some((m) => m.type === "session_started")).toBe(false);
-    expect((await prisma.session.findUnique({ where: { id: createdId } }))?.status).toBe("abandoned");
-    expect(registry.countForOwner("local")).toBe(0);
+    expect((await env.prisma.session.findUnique({ where: { id: createdId } }))?.status).toBe("abandoned");
+    expect(env.registry.countForOwner("local")).toBe(0);
 
     const ok = connect(r);
     await ok.startSession();
@@ -459,11 +455,11 @@ describe("custom interviewers", () => {
     expect(await phaseChanges(c, 2)).toEqual([CUSTOM_PHASES[1], CUSTOM_PHASES[2]]);
     // Phase writes are chained, so the stored phase ends on the last phase reached.
     await vi.waitFor(async () => {
-      const row = await prisma.session.findUnique({ where: { id } });
+      const row = await env.prisma.session.findUnique({ where: { id } });
       expect(row?.phase).toBe(CUSTOM_PHASES[2]);
     });
     // The snapshot is the stored definition (the API response omits ownerId).
-    expect(await persistence.readSnapshot(id, "local")).toEqual({ ...custom, ownerId: "local" });
+    expect(await env.persistence.readSnapshot(id, "local")).toEqual({ ...custom, ownerId: "local" });
     c.ws.close();
     await c.closed;
   });
@@ -487,7 +483,7 @@ describe("custom interviewers", () => {
 
     const del = await fetch(`${r.base}/api/interviewers/${custom.id}`, { method: "DELETE" });
     expect(del.status).toBe(204);
-    expect(await store.getInterviewer(custom.id, "local")).toBeNull();
+    expect(await env.store.getInterviewer(custom.id, "local")).toBeNull();
 
     // The running session keeps its own pacing after the delete.
     await textTurn(c);
@@ -515,7 +511,7 @@ describe("custom interviewers", () => {
 describe("sessions from before interviewers", () => {
   it("a row with no snapshot is listed with interviewerName null and its report still loads", async () => {
     const r = await start();
-    await prisma.session.create({
+    await env.prisma.session.create({
       data: {
         id: "legacy-1",
         ownerId: "local",
@@ -527,7 +523,7 @@ describe("sessions from before interviewers", () => {
       },
     });
     // A report row as written before report v2: only the older columns, no reportJson.
-    await prisma.report.create({
+    await env.prisma.report.create({
       data: {
         sessionId: "legacy-1",
         summary: "An earlier summary.",

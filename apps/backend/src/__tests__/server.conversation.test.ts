@@ -17,17 +17,13 @@ import {
   createdCustom,
   customInput,
   makeConfig,
-  persistence,
-  prisma,
-  registry,
   start,
-  store,
   textTurn,
   CUSTOM_PHASES,
   setupServerTestEnv,
 } from "./helpers/server";
 
-setupServerTestEnv();
+const env = setupServerTestEnv();
 
 describe("full conversation", () => {
   it("session_end yields session_complete with the started id; report, transcript and list are served", async () => {
@@ -64,8 +60,8 @@ describe("full conversation", () => {
     expect(text).toContain(`Interviewer: ${LLM_REPLY}`);
 
     // A foreign owner's complete session is never listed.
-    await persistence.persistSessionCreate("foreign-complete", "someone-else", PRESET);
-    await persistence.persistSessionStatus("foreign-complete", "complete");
+    await env.persistence.persistSessionCreate("foreign-complete", "someone-else", PRESET);
+    await env.persistence.persistSessionStatus("foreign-complete", "complete");
 
     const list = await fetch(`${r.base}/api/sessions`);
     expect(list.status).toBe(200);
@@ -132,7 +128,7 @@ describe("full conversation", () => {
     c.ws.close();
     await c.closed;
     await vi.waitFor(async () => {
-      expect((await prisma.session.findUnique({ where: { id } }))?.status).toBe("abandoned");
+      expect((await env.prisma.session.findUnique({ where: { id } }))?.status).toBe("abandoned");
     });
     const res = await fetch(`${r.base}/api/session/${id}/report`);
     expect(res.status).toBe(500);
@@ -153,7 +149,7 @@ describe("full conversation", () => {
     c.ws.close();
     await c.closed;
     await vi.waitFor(async () => {
-      expect((await prisma.session.findUnique({ where: { id } }))?.status).toBe("complete");
+      expect((await env.prisma.session.findUnique({ where: { id } }))?.status).toBe("complete");
     });
     expect((await fetch(`${r.base}/api/session/${id}/report`)).status).toBe(200);
   });
@@ -185,8 +181,8 @@ describe("end-of-session deadline", () => {
     const failed = await c.next((m) => m.type === "session_failed");
     expect(failed.reason).toBe("report generation failed");
     expect((await c.closed).code).toBe(1000);
-    expect((await prisma.session.findUnique({ where: { id } }))?.status).toBe("failed");
-    expect(registry.countForOwner("local")).toBe(0);
+    expect((await env.prisma.session.findUnique({ where: { id } }))?.status).toBe("failed");
+    expect(env.registry.countForOwner("local")).toBe(0);
 
     const next = connect(r);
     const nextId = await next.startSession();
@@ -206,8 +202,8 @@ describe("end-of-session deadline", () => {
     await c.closed;
     await vi.waitFor(
       async () => {
-        expect((await prisma.session.findUnique({ where: { id } }))?.status).toBe("failed");
-        expect(registry.countForOwner("local")).toBe(0);
+        expect((await env.prisma.session.findUnique({ where: { id } }))?.status).toBe("failed");
+        expect(env.registry.countForOwner("local")).toBe(0);
       },
       { timeout: 3000 },
     );
@@ -251,7 +247,7 @@ describe("logging", () => {
 
   it("never logs interviewer text during a whole conversation with a custom interviewer", async () => {
     const r = await start();
-    const custom = await store.createInterviewer("local", customInput());
+    const custom = await env.store.createInterviewer("local", customInput());
     createdCustom.push(custom.id);
     await converse(r, custom.id);
     const logs = allLogText();
@@ -275,7 +271,7 @@ describe("turn_timing", () => {
   async function storedUserTurns(sessionId: string, count: number) {
     let users: import("../types").ConversationTurn[] = [];
     await vi.waitFor(async () => {
-      const turns = (await persistence.readTurnsFromDb(sessionId, "local")) ?? [];
+      const turns = (await env.persistence.readTurnsFromDb(sessionId, "local")) ?? [];
       users = turns.filter((t) => t.role === "user");
       expect(users).toHaveLength(count);
     });

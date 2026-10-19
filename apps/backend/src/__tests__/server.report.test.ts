@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import type { Providers } from "../providers/types";
 import {
   LLM_REPLY,
-  MEASURED,
   PRESET,
   SENTINEL_NAME,
   SENTINEL_PERSONA,
@@ -11,36 +10,31 @@ import {
   createdCustom,
   customInput,
   makeConfig,
-  persistence,
-  prisma,
-  regenerate,
-  seedStored,
   start,
-  statusOf,
-  store,
   structuredWith,
   CUSTOM_PHASES,
   setupServerTestEnv,
 } from "./helpers/server";
+import { MEASURED, regenerate, seedStored, statusOf } from "./helpers/report";
 
-setupServerTestEnv();
+const env = setupServerTestEnv();
 
 describe("GET report: format and status", () => {
   it("returns format 2 for a new report and format 1 for a legacy row, both with interviewerName", async () => {
     const r = await start();
-    await seedStored("fmt-2", "local", "active");
-    await persistence.persistReport("fmt-2", {
+    await seedStored(env, "fmt-2", "local", "active");
+    await env.persistence.persistReport("fmt-2", {
       format: 2,
       sessionId: "fmt-2",
       generatedAt: new Date("2026-10-18T12:00:00.000Z"),
       nextSteps: ["Try one thing."],
       deliveryUnavailable: true,
     });
-    await persistence.persistSessionStatus("fmt-2", "complete");
+    await env.persistence.persistSessionStatus("fmt-2", "complete");
 
-    await persistence.persistSessionCreate("fmt-1", "local", PRESET);
-    await persistence.persistSessionStatus("fmt-1", "complete");
-    await prisma.report.create({
+    await env.persistence.persistSessionCreate("fmt-1", "local", PRESET);
+    await env.persistence.persistSessionStatus("fmt-1", "complete");
+    await env.prisma.report.create({
       data: {
         sessionId: "fmt-1",
         summary: "An older summary.",
@@ -77,7 +71,7 @@ describe("GET report: format and status", () => {
 
   it("returns a stored format 2 report whose delivery has no reading unchanged", async () => {
     const r = await start();
-    await seedStored("fmt-nr", "local", "active");
+    await seedStored(env, "fmt-nr", "local", "active");
     const summary = {
       turnsMeasured: 1,
       totalWords: 42,
@@ -89,14 +83,14 @@ describe("GET report: format and status", () => {
       fillerCount: null,
       perTurn: [{ turn: 1, wordCount: 42, wordsPerMinute: 130, longestPauseSec: 1.4, responseGapMs: null }],
     };
-    await persistence.persistReport("fmt-nr", {
+    await env.persistence.persistReport("fmt-nr", {
       format: 2,
       sessionId: "fmt-nr",
       generatedAt: new Date("2026-10-18T12:00:00.000Z"),
       nextSteps: ["Try one thing."],
       delivery: { summary },
     });
-    await persistence.persistSessionStatus("fmt-nr", "complete");
+    await env.persistence.persistSessionStatus("fmt-nr", "complete");
     const res = await fetch(`${r.base}/api/session/fmt-nr/report`);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
@@ -111,7 +105,7 @@ describe("GET report: format and status", () => {
 
   it("a failed session with user turns and a snapshot has canRegenerate true", async () => {
     const r = await start();
-    await seedStored("cr-yes", "local", "failed");
+    await seedStored(env, "cr-yes", "local", "failed");
     for (const p of ["/api/session/cr-yes/report", "/report/cr-yes"]) {
       const res = await fetch(`${r.base}${p}`);
       expect(res.status).toBe(500);
@@ -121,10 +115,10 @@ describe("GET report: format and status", () => {
 
   it("a failed session without user turns or without a snapshot has canRegenerate false", async () => {
     const r = await start();
-    await seedStored("cr-no-user", "local", "failed", { userTurns: 0 });
-    await persistence.persistSessionCreate("cr-no-turns", "local", PRESET);
-    await persistence.persistSessionStatus("cr-no-turns", "failed");
-    await seedStored("cr-no-snap", "local", "failed", { snapshot: null });
+    await seedStored(env, "cr-no-user", "local", "failed", { userTurns: 0 });
+    await env.persistence.persistSessionCreate("cr-no-turns", "local", PRESET);
+    await env.persistence.persistSessionStatus("cr-no-turns", "failed");
+    await seedStored(env, "cr-no-snap", "local", "failed", { snapshot: null });
     for (const id of ["cr-no-user", "cr-no-turns", "cr-no-snap"]) {
       const res = await fetch(`${r.base}/api/session/${id}/report`);
       expect(res.status).toBe(500);
@@ -134,7 +128,7 @@ describe("GET report: format and status", () => {
 
   it("an abandoned session's 500 carries no canRegenerate", async () => {
     const r = await start();
-    await seedStored("cr-ab", "local", "abandoned");
+    await seedStored(env, "cr-ab", "local", "abandoned");
     const res = await fetch(`${r.base}/api/session/cr-ab/report`);
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ status: "abandoned", error: "Report generation failed" });
@@ -142,9 +136,9 @@ describe("GET report: format and status", () => {
 
   it("a complete session whose report cannot be read is 500 unreadable, not failed", async () => {
     const r = await start();
-    await seedStored("unread-none", "local", "complete");
-    await seedStored("unread-bad", "local", "complete");
-    await prisma.report.create({
+    await seedStored(env, "unread-none", "local", "complete");
+    await seedStored(env, "unread-bad", "local", "complete");
+    await env.prisma.report.create({
       data: {
         sessionId: "unread-bad",
         reportJson: "{oops",
@@ -167,7 +161,7 @@ describe("GET report: format and status", () => {
 describe("POST /api/session/:sessionId/report/regenerate", () => {
   it("turns a failed session complete; GET then serves the new report", async () => {
     const r = await start();
-    await seedStored("rg-ok", "local", "failed");
+    await seedStored(env, "rg-ok", "local", "failed");
     const res = await regenerate(r, "rg-ok");
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
@@ -182,7 +176,7 @@ describe("POST /api/session/:sessionId/report/regenerate", () => {
     });
     expect(body).not.toHaveProperty("delivery");
     expect(typeof body.generatedAt).toBe("string");
-    expect(await statusOf("rg-ok")).toBe("complete");
+    expect(await statusOf(env, "rg-ok")).toBe("complete");
 
     const got = await fetch(`${r.base}/api/session/rg-ok/report`);
     expect(got.status).toBe(200);
@@ -197,7 +191,7 @@ describe("POST /api/session/:sessionId/report/regenerate", () => {
 
   it("uses the stored turn metrics: a measured answer yields a delivery section", async () => {
     const r = await start();
-    await seedStored("rg-measured", "local", "failed", { metrics: MEASURED });
+    await seedStored(env, "rg-measured", "local", "failed", { metrics: MEASURED });
     const res = await regenerate(r, "rg-measured");
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
@@ -211,7 +205,7 @@ describe("POST /api/session/:sessionId/report/regenerate", () => {
   it("answers 404 for another owner's session with the same body as an unknown one, and changes nothing", async () => {
     const { calls, customize } = structuredWith(async (_n, req) => req.schema.parse(VALID_REPORT));
     const r = await start({ customize });
-    await seedStored("rg-foreign", "someone-else", "failed");
+    await seedStored(env, "rg-foreign", "someone-else", "failed");
     const foreign = await regenerate(r, "rg-foreign");
     const unknown = await regenerate(r, "no-such-session");
     const malformed = await regenerate(r, "not%20a%20valid%20id");
@@ -223,8 +217,8 @@ describe("POST /api/session/:sessionId/report/regenerate", () => {
     expect(await unknown.json()).toEqual(body);
     expect(await malformed.json()).toEqual(body);
     expect(calls.n).toBe(0);
-    expect(await statusOf("rg-foreign")).toBe("failed");
-    expect(await prisma.report.count({ where: { sessionId: "rg-foreign" } })).toBe(0);
+    expect(await statusOf(env, "rg-foreign")).toBe("failed");
+    expect(await env.prisma.report.count({ where: { sessionId: "rg-foreign" } })).toBe(0);
   });
 
   it("answers 409 for complete, active and abandoned sessions without calling the model", async () => {
@@ -232,11 +226,11 @@ describe("POST /api/session/:sessionId/report/regenerate", () => {
     const r = await start({ customize });
     for (const status of ["complete", "active", "abandoned"] as const) {
       const id = `rg-${status}`;
-      await seedStored(id, "local", status);
+      await seedStored(env, id, "local", status);
       const res = await regenerate(r, id);
       expect(res.status).toBe(409);
       expect(await res.json()).toEqual({ error: "report cannot be regenerated" });
-      expect(await statusOf(id)).toBe(status);
+      expect(await statusOf(env, id)).toBe(status);
     }
     expect(calls.n).toBe(0);
   });
@@ -244,15 +238,15 @@ describe("POST /api/session/:sessionId/report/regenerate", () => {
   it("answers 409 for a failed session with no user turns or no snapshot", async () => {
     const { calls, customize } = structuredWith(async (_n, req) => req.schema.parse(VALID_REPORT));
     const r = await start({ customize });
-    await seedStored("rg-no-user", "local", "failed", { userTurns: 0 });
-    await persistence.persistSessionCreate("rg-no-turns", "local", PRESET);
-    await persistence.persistSessionStatus("rg-no-turns", "failed");
-    await seedStored("rg-no-snap", "local", "failed", { snapshot: null });
+    await seedStored(env, "rg-no-user", "local", "failed", { userTurns: 0 });
+    await env.persistence.persistSessionCreate("rg-no-turns", "local", PRESET);
+    await env.persistence.persistSessionStatus("rg-no-turns", "failed");
+    await seedStored(env, "rg-no-snap", "local", "failed", { snapshot: null });
     for (const id of ["rg-no-user", "rg-no-turns", "rg-no-snap"]) {
       const res = await regenerate(r, id);
       expect(res.status).toBe(409);
       expect(await res.json()).toEqual({ error: "report cannot be regenerated" });
-      expect(await statusOf(id)).toBe("failed");
+      expect(await statusOf(env, id)).toBe("failed");
     }
     expect(calls.n).toBe(0);
   });
@@ -265,19 +259,19 @@ describe("POST /api/session/:sessionId/report/regenerate", () => {
       return req.schema.parse(VALID_REPORT);
     });
     const r = await start({ customize });
-    await seedStored("rg-race", "local", "failed");
+    await seedStored(env, "rg-race", "local", "failed");
     const first = regenerate(r, "rg-race");
     await vi.waitFor(() => expect(calls.n).toBe(1));
     const second = await regenerate(r, "rg-race");
     expect(second.status).toBe(409);
     expect(await second.json()).toEqual({ error: "report cannot be regenerated" });
-    expect(await statusOf("rg-race")).toBe("failed");
+    expect(await statusOf(env, "rg-race")).toBe("failed");
     release();
     const done = await first;
     expect(done.status).toBe(200);
     expect(await done.json()).toMatchObject({ format: 2, sessionId: "rg-race" });
     expect(calls.n).toBe(1);
-    expect(await statusOf("rg-race")).toBe("complete");
+    expect(await statusOf(env, "rg-race")).toBe("complete");
   });
 
   it("two requests sent at once: exactly one 200 and one 409", async () => {
@@ -288,7 +282,7 @@ describe("POST /api/session/:sessionId/report/regenerate", () => {
       return req.schema.parse(VALID_REPORT);
     });
     const r = await start({ customize });
-    await seedStored("rg-race2", "local", "failed");
+    await seedStored(env, "rg-race2", "local", "failed");
     let answeredEarly = 0;
     const track = async () => {
       const res = await regenerate(r, "rg-race2");
@@ -303,7 +297,7 @@ describe("POST /api/session/:sessionId/report/regenerate", () => {
     const statuses = (await both).map((res) => res.status).sort();
     expect(statuses).toEqual([200, 409]);
     expect(calls.n).toBe(1);
-    expect(await statusOf("rg-race2")).toBe("complete");
+    expect(await statusOf(env, "rg-race2")).toBe("complete");
   });
 
   it("a model failure is 502, leaves the session failed, and it can be regenerated afterwards", async () => {
@@ -312,40 +306,40 @@ describe("POST /api/session/:sessionId/report/regenerate", () => {
       return req.schema.parse(VALID_REPORT);
     });
     const r = await start({ customize });
-    await seedStored("rg-fail", "local", "failed");
+    await seedStored(env, "rg-fail", "local", "failed");
     const failed = await regenerate(r, "rg-fail");
     expect(failed.status).toBe(502);
     expect(await failed.json()).toEqual({ status: "failed", error: "Report generation failed" });
-    expect(await statusOf("rg-fail")).toBe("failed");
-    expect(await prisma.report.count({ where: { sessionId: "rg-fail" } })).toBe(0);
+    expect(await statusOf(env, "rg-fail")).toBe("failed");
+    expect(await env.prisma.report.count({ where: { sessionId: "rg-fail" } })).toBe(0);
     const get = await fetch(`${r.base}/api/session/rg-fail/report`);
     expect(await get.json()).toMatchObject({ status: "failed", canRegenerate: true });
 
     const ok = await regenerate(r, "rg-fail");
     expect(ok.status).toBe(200);
     expect(calls.n).toBe(2);
-    expect(await statusOf("rg-fail")).toBe("complete");
+    expect(await statusOf(env, "rg-fail")).toBe("complete");
   });
 
   it("invalid model output is 502 and the session stays failed", async () => {
     const r = await start({ script: { structured: { not: "a report" } } });
-    await seedStored("rg-invalid", "local", "failed");
+    await seedStored(env, "rg-invalid", "local", "failed");
     const res = await regenerate(r, "rg-invalid");
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({ status: "failed", error: "Report generation failed" });
-    expect(await statusOf("rg-invalid")).toBe("failed");
+    expect(await statusOf(env, "rg-invalid")).toBe("failed");
   });
 
   it("a report call that never resolves is 502 at the deadline; the lock is released", async () => {
     const { calls, customize } = structuredWith(() => new Promise<never>(() => {}));
     const r = await start({ config: makeConfig({}, { limits: { reportTimeoutMs: 150 } }), customize });
-    await seedStored("rg-hang", "local", "failed");
+    await seedStored(env, "rg-hang", "local", "failed");
     const t0 = Date.now();
     const res = await regenerate(r, "rg-hang");
     expect(Date.now() - t0).toBeLessThan(2000);
     expect(res.status).toBe(502);
     expect(await res.json()).toEqual({ status: "failed", error: "Report generation failed" });
-    expect(await statusOf("rg-hang")).toBe("failed");
+    expect(await statusOf(env, "rg-hang")).toBe("failed");
     // Released: a second attempt runs the model again rather than being refused as in flight.
     const again = await regenerate(r, "rg-hang");
     expect(again.status).toBe(502);
@@ -358,9 +352,9 @@ describe("POST /api/session/:sessionId/report/regenerate", () => {
     const lateGate = new Promise<void>((resolve) => (releaseLate = resolve));
     let lateDone!: () => void;
     const lateFinished = new Promise<void>((resolve) => (lateDone = resolve));
-    const completeFailedSession = vi.fn(persistence.completeFailedSession);
+    const completeFailedSession = vi.fn(env.persistence.completeFailedSession);
     const r = await start({
-      persist: { ...persistence, completeFailedSession },
+      persist: { ...env.persistence, completeFailedSession },
       config: makeConfig({}, { limits: { reportTimeoutMs: 100 } }),
       customize: (p) => {
         p.llm.structured = (async (req: Parameters<Providers["llm"]["structured"]>[0], signal: AbortSignal) => {
@@ -373,7 +367,7 @@ describe("POST /api/session/:sessionId/report/regenerate", () => {
         }) as Providers["llm"]["structured"];
       },
     });
-    await seedStored("rg-late", "local", "failed");
+    await seedStored(env, "rg-late", "local", "failed");
     const res = await regenerate(r, "rg-late");
     expect(res.status).toBe(502);
     expect(seen.signal?.aborted).toBe(true);
@@ -384,27 +378,27 @@ describe("POST /api/session/:sessionId/report/regenerate", () => {
     await lateFinished;
     await new Promise((resolve) => setImmediate(resolve));
     expect(completeFailedSession).not.toHaveBeenCalled();
-    expect(await statusOf("rg-late")).toBe("failed");
-    expect(await prisma.report.count({ where: { sessionId: "rg-late" } })).toBe(0);
+    expect(await statusOf(env, "rg-late")).toBe("failed");
+    expect(await env.prisma.report.count({ where: { sessionId: "rg-late" } })).toBe(0);
   });
 
   it("answers 409 when the session is no longer failed by the time the report is ready", async () => {
     const { customize } = structuredWith(async (_n, req) => {
       // Something else ends the failed state meanwhile.
-      await prisma.session.update({ where: { id: "rg-moved" }, data: { status: "abandoned" } });
+      await env.prisma.session.update({ where: { id: "rg-moved" }, data: { status: "abandoned" } });
       return req.schema.parse(VALID_REPORT);
     });
     const r = await start({ customize });
-    await seedStored("rg-moved", "local", "failed");
+    await seedStored(env, "rg-moved", "local", "failed");
     const res = await regenerate(r, "rg-moved");
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({ error: "report cannot be regenerated" });
-    expect(await statusOf("rg-moved")).toBe("abandoned");
-    expect(await prisma.report.count({ where: { sessionId: "rg-moved" } })).toBe(0);
+    expect(await statusOf(env, "rg-moved")).toBe("abandoned");
+    expect(await env.prisma.report.count({ where: { sessionId: "rg-moved" } })).toBe(0);
   });
 
   it("runs the authenticator", async () => {
-    await seedStored("rg-auth", "local", "failed");
+    await seedStored(env, "rg-auth", "local", "failed");
     const t = await start({ config: makeConfig({ AUTH_TOKEN: "another-token" }) });
     expect((await regenerate(t, "rg-auth")).status).toBe(401);
     const r = await start();
@@ -413,7 +407,7 @@ describe("POST /api/session/:sessionId/report/regenerate", () => {
       headers: { Origin: "http://evil.example" },
     });
     expect(bad.status).toBe(403);
-    expect(await statusOf("rg-auth")).toBe("failed");
+    expect(await statusOf(env, "rg-auth")).toBe("failed");
   });
 
   it("never logs transcript, interviewer or report text", async () => {
@@ -428,9 +422,9 @@ describe("POST /api/session/:sessionId/report/regenerate", () => {
       return req.schema.parse(sentinelReport);
     });
     const r = await start({ customize });
-    const custom = await store.createInterviewer("local", customInput());
+    const custom = await env.store.createInterviewer("local", customInput());
     createdCustom.push(custom.id);
-    await seedStored("rg-logs", "local", "failed", { snapshot: custom });
+    await seedStored(env, "rg-logs", "local", "failed", { snapshot: custom });
     expect((await regenerate(r, "rg-logs")).status).toBe(502);
     expect((await regenerate(r, "rg-logs")).status).toBe(200);
     const logs = allLogText();

@@ -12,19 +12,14 @@ import {
   connect,
   createdCustom,
   makeConfig,
-  mockMod,
-  persistence,
   phaseChanges,
-  prisma,
-  registry,
   start,
-  store,
   structuredWith,
   textTurn,
   setupServerTestEnv,
 } from "./helpers/server";
 
-setupServerTestEnv();
+const env = setupServerTestEnv();
 
 describe("POST /api/interviewers/draft", () => {
   const DRAFT_SENTINEL = "quagga-lighthouse-draft";
@@ -55,16 +50,16 @@ describe("POST /api/interviewers/draft", () => {
   }
 
   async function ownedCount(): Promise<number> {
-    return prisma.interviewer.count({ where: { ownerId: "local" } });
+    return env.prisma.interviewer.count({ where: { ownerId: "local" } });
   }
 
   it("returns a draft that POST /api/interviewers then accepts, and the draft call writes nothing", async () => {
     const r = await start({ script: { structured: VALID_DRAFT } });
-    const before = await prisma.interviewer.count();
+    const before = await env.prisma.interviewer.count();
     const res = await draft(r);
     expect(res.status).toBe(200);
     const { draft: body } = (await res.json()) as { draft: Record<string, unknown> };
-    expect(await prisma.interviewer.count()).toBe(before);
+    expect(await env.prisma.interviewer.count()).toBe(before);
 
     const saved = await fetch(`${r.base}/api/interviewers`, {
       method: "POST",
@@ -154,7 +149,7 @@ describe("createDraftMaker", () => {
     let release: () => void = () => {};
     const gate = new Promise<void>((res) => (release = res));
     let n = 0;
-    const providers = mockMod.createMockProviders({ structured: {} });
+    const providers = env.mockMod.createMockProviders({ structured: {} });
     providers.llm.structured = (async (req: Parameters<Providers["llm"]["structured"]>[0]) => {
       n += 1;
       if (n === 1) await gate;
@@ -224,22 +219,22 @@ describe("designer and trial sessions over the WebSocket", () => {
 
   async function rowCounts() {
     return {
-      sessions: await prisma.session.count(),
-      turns: await prisma.conversationTurn.count(),
-      reports: await prisma.report.count(),
+      sessions: await env.prisma.session.count(),
+      turns: await env.prisma.conversationTurn.count(),
+      reports: await env.prisma.report.count(),
     };
   }
 
   /** The real persistence module with every write spied on, so a test can assert none ran. */
   function spiedPersist() {
     const spies = {
-      persistSessionCreate: vi.fn(persistence.persistSessionCreate),
-      persistSessionStatus: vi.fn(persistence.persistSessionStatus),
-      persistTurn: vi.fn(persistence.persistTurn),
-      persistPhaseTransition: vi.fn(persistence.persistPhaseTransition),
-      persistReport: vi.fn(persistence.persistReport),
+      persistSessionCreate: vi.fn(env.persistence.persistSessionCreate),
+      persistSessionStatus: vi.fn(env.persistence.persistSessionStatus),
+      persistTurn: vi.fn(env.persistence.persistTurn),
+      persistPhaseTransition: vi.fn(env.persistence.persistPhaseTransition),
+      persistReport: vi.fn(env.persistence.persistReport),
     };
-    return { persist: { ...persistence, ...spies }, spies };
+    return { persist: { ...env.persistence, ...spies }, spies };
   }
 
   function expectNoWrites(spies: ReturnType<typeof spiedPersist>["spies"]): void {
@@ -274,7 +269,7 @@ describe("designer and trial sessions over the WebSocket", () => {
     expect(draft).toEqual(DESIGNED);
     expect(await rowCounts()).toEqual(before);
     expectNoWrites(spies);
-    expect(registry.countForOwner("local")).toBe(0);
+    expect(env.registry.countForOwner("local")).toBe(0);
     expect(allLogText()).toContain(`[session ${id}] started designer`);
   });
 
@@ -376,10 +371,10 @@ describe("designer and trial sessions over the WebSocket", () => {
   ];
 
   it.each(BAD_DRAFTS)("closes 1008 'invalid draft' on %s, creates nothing and logs no draft text", async (_what, body) => {
-    const getInterviewer = vi.fn(store.getInterviewer);
+    const getInterviewer = vi.fn(env.store.getInterviewer);
     const r = await start({
       config: makeConfig({}, { limits: { maxConcurrentSessionsPerOwner: 1 } }),
-      interviewers: { ...store, getInterviewer },
+      interviewers: { ...env.store, getInterviewer },
     });
     const before = await rowCounts();
     const c = connect(r);
@@ -389,7 +384,7 @@ describe("designer and trial sessions over the WebSocket", () => {
     expect(c.messages).toHaveLength(0);
     expect(getInterviewer).not.toHaveBeenCalled();
     expect(await rowCounts()).toEqual(before);
-    expect(registry.countForOwner("local")).toBe(0);
+    expect(env.registry.countForOwner("local")).toBe(0);
     const logs = allLogText();
     expect(logs).not.toContain("ocelot");
     expect(logs).not.toContain("Okapi");
@@ -433,7 +428,7 @@ describe("designer and trial sessions over the WebSocket", () => {
     const b = connect(r);
     await startWith(a, { interviewerId: DESIGNER_ID });
     await startWith(b, { draft: trialDraft() });
-    expect(registry.countForOwner("local")).toBe(2);
+    expect(env.registry.countForOwner("local")).toBe(2);
     const c = connect(r);
     await c.opened;
     c.send({ type: "session_start", interviewerId: INTERVIEWER });
@@ -475,8 +470,8 @@ describe("designer and trial sessions over the WebSocket", () => {
     c.ws.close();
     await c.closed;
     await vi.waitFor(() => expect(allLogText()).toContain(`[session ${id}] ended abandoned`));
-    expect(registry.get(id)).toBeUndefined();
-    expect(registry.countForOwner("local")).toBe(0);
+    expect(env.registry.get(id)).toBeUndefined();
+    expect(env.registry.countForOwner("local")).toBe(0);
     expect(await rowCounts()).toEqual(before);
     expectNoWrites(spies);
   });
@@ -486,12 +481,12 @@ describe("designer and trial sessions over the WebSocket", () => {
     const gate = new Promise<void>((resolve) => (release = resolve));
     const getInterviewer = vi.fn(async (id: string, ownerId: string) => {
       await gate;
-      return store.getInterviewer(id, ownerId);
+      return env.store.getInterviewer(id, ownerId);
     });
     const { persist, spies } = spiedPersist();
     const r = await start({
       config: makeConfig({}, { limits: { maxConcurrentSessionsPerOwner: 1 } }),
-      interviewers: { ...store, getInterviewer },
+      interviewers: { ...env.store, getInterviewer },
       persist,
     });
     const before = await rowCounts();
@@ -506,7 +501,7 @@ describe("designer and trial sessions over the WebSocket", () => {
     expect(c.messages).toHaveLength(0);
     expect(await rowCounts()).toEqual(before);
     expectNoWrites(spies);
-    expect(registry.countForOwner("local")).toBe(0);
+    expect(env.registry.countForOwner("local")).toBe(0);
   });
 
   it("a stored interviewer still persists through the same start path", async () => {

@@ -11,9 +11,8 @@ import type { InterviewerDefinition, InterviewerInput } from "../../interviewer/
 import type { MockScript } from "../../providers/mock";
 import type { Providers } from "../../providers/types";
 
-// Shared harness for the server.*.test.ts files. Each file calls setupServerTestEnv() once at its top
-// level. The module-level `let`s below are live bindings: they are assigned in beforeAll and read by
-// the tests (and by start() below) after that.
+// Shared harness for the server.*.test.ts files. Each file calls `const env = setupServerTestEnv()`
+// once at its top level and reads the handles (env.prisma, env.store, ...) inside tests and hooks.
 
 const backendDir = path.resolve(__dirname, "../../..");
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -32,15 +31,28 @@ export const VALID_REPORT = {
   nextSteps: ["Track one outcome next time."],
 };
 
-export let tmpDir: string;
-export let dbUrl: string;
-export let appMod: typeof import("../../app");
-export let configMod: typeof import("../../config");
-export let mockMod: typeof import("../../providers/mock");
-export let persistence: typeof import("../../persistence");
-export let registry: typeof import("../../sessionRegistry");
-export let store: typeof import("../../interviewerStore");
-export let prisma: typeof import("../../db").default;
+type Handles = {
+  appMod: typeof import("../../app");
+  configMod: typeof import("../../config");
+  mockMod: typeof import("../../providers/mock");
+  persistence: typeof import("../../persistence");
+  registry: typeof import("../../sessionRegistry");
+  store: typeof import("../../interviewerStore");
+  prisma: typeof import("../../db").default;
+  dbUrl: string;
+};
+
+/** What a test file reads. Every field is filled in `beforeAll`; reading one earlier throws. */
+export interface ServerEnv extends Readonly<Handles> {}
+
+// One module instance per test file, so this is per file: the handles and the "called" flag.
+let handles: Handles | null = null;
+let called = false;
+
+function ready(): Handles {
+  if (!handles) throw new Error("server test env used before beforeAll: read it inside a test or hook");
+  return handles;
+}
 
 export const running: Running[] = [];
 export const createdCustom: string[] = [];
@@ -53,28 +65,35 @@ export interface Running {
   close(): Promise<void>;
 }
 
-export function setupServerTestEnv(): void {
+export function setupServerTestEnv(): ServerEnv {
+  if (called) throw new Error("setupServerTestEnv() called twice in one test file");
+  called = true;
+  let tmpDir: string;
+
   beforeAll(async () => {
     tmpDir = mkdtempSync(path.join(tmpdir(), "server-test-"));
-    dbUrl = `file:${path.join(tmpDir, "test.db")}`;
+    const dbUrl = `file:${path.join(tmpDir, "test.db")}`;
     process.env.DATABASE_URL = dbUrl;
     execFileSync("npx", ["prisma", "migrate", "deploy"], {
       cwd: backendDir,
       env: { ...process.env, DATABASE_URL: dbUrl },
       stdio: "pipe",
     });
-    appMod = await import("../../app");
-    configMod = await import("../../config");
-    mockMod = await import("../../providers/mock");
-    persistence = await import("../../persistence");
-    registry = await import("../../sessionRegistry");
-    store = await import("../../interviewerStore");
-    prisma = (await import("../../db")).default;
+    // Dynamic imports: they must run after DATABASE_URL is set.
+    const appMod = await import("../../app");
+    const configMod = await import("../../config");
+    const mockMod = await import("../../providers/mock");
+    const persistence = await import("../../persistence");
+    const registry = await import("../../sessionRegistry");
+    const store = await import("../../interviewerStore");
+    const prisma = (await import("../../db")).default;
     await store.syncPresets(SYNCED_PRESETS);
+    handles = { appMod, configMod, mockMod, persistence, registry, store, prisma, dbUrl };
   }, 60_000);
 
   afterAll(async () => {
-    await prisma?.$disconnect();
+    await handles?.prisma.$disconnect();
+    handles = null;
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -94,8 +113,19 @@ export function setupServerTestEnv(): void {
 
   // Custom interviewers a test created (owner "local"), removed so the 50 cap is never reached.
   afterEach(async () => {
-    for (const id of createdCustom.splice(0)) await store.deleteInterviewer(id, "local");
+    for (const id of createdCustom.splice(0)) await ready().store.deleteInterviewer(id, "local");
   });
+
+  return {
+    get appMod() { return ready().appMod; },
+    get configMod() { return ready().configMod; },
+    get mockMod() { return ready().mockMod; },
+    get persistence() { return ready().persistence; },
+    get registry() { return ready().registry; },
+    get store() { return ready().store; },
+    get prisma() { return ready().prisma; },
+    get dbUrl() { return ready().dbUrl; },
+  };
 }
 
 export function allLogText(): string {
@@ -109,7 +139,7 @@ export function makeConfig(
   env: Record<string, string> = {},
   overrides: { limits?: Partial<Config["limits"]>; debugLogText?: boolean } = {},
 ): Config {
-  const base = configMod.loadConfig({ PROFILE: "mock", DATABASE_URL: dbUrl, ...env });
+  const base = ready().configMod.loadConfig({ PROFILE: "mock", DATABASE_URL: ready().dbUrl, ...env });
   return {
     ...base,
     ...(overrides.debugLogText !== undefined ? { debugLogText: overrides.debugLogText } : {}),
@@ -127,14 +157,14 @@ export async function start(
   } = {},
 ): Promise<Running> {
   const config = opts.config ?? makeConfig();
-  const providers = mockMod.createMockProviders({
+  const providers = ready().mockMod.createMockProviders({
     llmReplies: [LLM_REPLY],
     sttTexts: [STT_TEXT],
     structured: VALID_REPORT,
     ...opts.script,
   });
   opts.customize?.(providers);
-  const app = appMod.createApp({ config, providers, persist: opts.persist, interviewers: opts.interviewers });
+  const app = ready().appMod.createApp({ config, providers, persist: opts.persist, interviewers: opts.interviewers });
   await new Promise<void>((resolve) => app.server.listen(0, "127.0.0.1", resolve));
   const { port } = app.server.address() as AddressInfo;
   const r: Running = {
@@ -249,67 +279,6 @@ export async function textTurn(c: Client): Promise<void> {
 export async function phaseChanges(c: Client, count: number): Promise<string[]> {
   await vi.waitFor(() => expect(c.messages.filter((m) => m.type === "phase_change").length).toBe(count));
   return c.messages.filter((m) => m.type === "phase_change").map((m) => m.phase as string);
-}
-
-// ── Report API and regenerate ────────────────────────────────────────────────
-
-export const MEASURED: import("../../delivery/metrics").TurnMetrics = {
-  wordCount: 14,
-  timedWordCount: 14,
-  durationSec: 6,
-  wordsPerMinute: 140,
-  pauseCount: 1,
-  longestPauseSec: 0.9,
-  responseGapMs: 800,
-  fillerCount: 0,
-};
-
-/**
- * A stored session for `owner` in `status`. By default it has the preset snapshot, one user
- * turn and one interviewer turn.
- */
-export async function seedStored(
-  id: string,
-  owner: string,
-  status: "failed" | "complete" | "abandoned" | "active",
-  opts: {
-    userTurns?: number;
-    snapshot?: InterviewerDefinition | null;
-    metrics?: import("../../delivery/metrics").TurnMetrics;
-    userText?: string;
-  } = {},
-): Promise<void> {
-  await persistence.persistSessionCreate(id, owner, opts.snapshot ?? PRESET);
-  if (opts.snapshot === null) await prisma.session.update({ where: { id }, data: { interviewerJson: null } });
-  const t0 = Date.now() - 60_000;
-  await persistence.persistTurn({
-    id: `${id}-a0`,
-    sessionId: id,
-    role: "assistant",
-    content: LLM_REPLY,
-    phase: "intro",
-    timestamp: new Date(t0),
-  });
-  for (let i = 0; i < (opts.userTurns ?? 1); i++) {
-    await persistence.persistTurn({
-      id: `${id}-u${i}`,
-      sessionId: id,
-      role: "user",
-      content: opts.userText ?? USER_TEXT,
-      phase: "intro",
-      timestamp: new Date(t0 + 1000 * (i + 1)),
-      ...(opts.metrics ? { metrics: opts.metrics } : {}),
-    });
-  }
-  if (status !== "active") await persistence.persistSessionStatus(id, status);
-}
-
-export function regenerate(r: Running, id: string): Promise<Response> {
-  return fetch(`${r.base}/api/session/${id}/report/regenerate`, { method: "POST" });
-}
-
-export async function statusOf(id: string): Promise<string | undefined> {
-  return (await prisma.session.findUnique({ where: { id } }))?.status;
 }
 
 /** Replaces the report call with a counting one; `impl` decides each call's outcome. */
