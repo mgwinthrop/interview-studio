@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -52,6 +52,11 @@ export default function InterviewersPage() {
   const rowErrorRef = useRef<HTMLParagraphElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const [focusToken, setFocusToken] = useState(0);
+  const confirmRef = useRef<HTMLDivElement>(null);
+  // Set when Cancel closes a confirm: the id of the row whose Delete button gets the focus back.
+  const [returnFocusId, setReturnFocusId] = useState<string | null>(null);
+  const draftErrorRef = useRef<HTMLParagraphElement>(null);
+  const [draftFocusToken, setDraftFocusToken] = useState(0);
 
   const [description, setDescription] = useState("");
   const [drafting, setDrafting] = useState(false);
@@ -78,6 +83,30 @@ export default function InterviewersPage() {
     if (focusToken > 0) rowErrorRef.current?.focus();
   }, [focusToken]);
 
+  // Opening a confirm moves focus into it (the button that was focused is now disabled).
+  useEffect(() => {
+    if (confirmId) confirmRef.current?.focus();
+  }, [confirmId]);
+
+  useEffect(() => {
+    if (returnFocusId) {
+      document.getElementById(`delete-${returnFocusId}`)?.focus();
+      setReturnFocusId(null);
+    }
+  }, [returnFocusId]);
+
+  useEffect(() => {
+    if (draftFocusToken > 0) draftErrorRef.current?.focus();
+  }, [draftFocusToken]);
+
+  // The interviewer is already gone (deleted elsewhere): drop the stale row and say so.
+  function dropGone(id: string, text: string) {
+    setConfirmId(null);
+    setList((l) => (l.status === "ready" ? { status: "ready", interviewers: l.interviewers.filter((i) => i.id !== id) } : l));
+    setNotice(text);
+    headingRef.current?.focus();
+  }
+
   async function duplicate(id: string) {
     if (rowBusy) return;
     setRowBusy({ id, action: "duplicate" });
@@ -87,6 +116,10 @@ export default function InterviewersPage() {
     const r = await duplicateInterviewer(id);
     setRowBusy(null);
     if (!r.ok) {
+      if (r.kind === "not_found") {
+        dropGone(id, "That interviewer no longer exists, so it was removed from the list.");
+        return;
+      }
       const text = r.kind === "invalid" ? r.errors[0].message : r.message;
       setRowError({ id, text });
       setFocusToken((n) => n + 1);
@@ -103,14 +136,15 @@ export default function InterviewersPage() {
     const r = await deleteInterviewer(id);
     setRowBusy(null);
     if (!r.ok) {
+      if (r.kind === "not_found") {
+        dropGone(id, "That interviewer was already deleted.");
+        return;
+      }
       setRowError({ id, text: r.kind === "invalid" ? r.errors[0].message : r.message });
       setFocusToken((n) => n + 1);
       return;
     }
-    setConfirmId(null);
-    setList((l) => (l.status === "ready" ? { status: "ready", interviewers: l.interviewers.filter((i) => i.id !== id) } : l));
-    setNotice("Interviewer deleted.");
-    headingRef.current?.focus();
+    dropGone(id, "Interviewer deleted.");
   }
 
   function talkItThrough() {
@@ -136,10 +170,12 @@ export default function InterviewersPage() {
       if (r.kind === "invalid") setDraftError(r.errors[0].message);
       else if (r.kind === "network") setDraftError(DRAFT_NETWORK_MESSAGE);
       else setDraftError(r.message);
+      setDraftFocusToken((n) => n + 1);
       return;
     }
     if (!storeDraft(r.value)) {
       setDraftError(DRAFT_STORAGE_MESSAGE);
+      setDraftFocusToken((n) => n + 1);
       return;
     }
     router.push("/interviewers/edit?from=design");
@@ -172,13 +208,15 @@ export default function InterviewersPage() {
           Talk it through starts a short conversation with a designer who asks what you want, then makes a
           draft. You can type instead of speaking once it starts.
         </p>
-        {needMicCheck && (
-          <p role="status" style={{ ...bodyStyle, fontWeight: 700 }}>
-            Check your microphone first.{" "}
-            <Link href="/mic-check" style={{ color: "#087E8B" }}>Go to the microphone check</Link>, then come
-            back here and choose Talk it through.
-          </p>
-        )}
+        <div role="status">
+          {needMicCheck && (
+            <p style={{ ...bodyStyle, fontWeight: 700 }}>
+              Check your microphone first.{" "}
+              <Link href="/mic-check" style={{ color: "#087E8B" }}>Go to the microphone check</Link>, then come
+              back here and choose Talk it through.
+            </p>
+          )}
+        </div>
 
         <form
           onSubmit={(e) => {
@@ -237,7 +275,7 @@ export default function InterviewersPage() {
             </p>
           )}
           {draftError && (
-            <p id="describe-error" role="alert" style={{ fontSize: 14, color: ERROR_COLOR, fontWeight: 600, margin: "8px 0 0" }}>
+            <p id="describe-error" ref={draftErrorRef} tabIndex={-1} role="alert" style={{ fontSize: 14, color: ERROR_COLOR, fontWeight: 600, margin: "8px 0 0" }}>
               Error: {draftError}
             </p>
           )}
@@ -282,6 +320,7 @@ export default function InterviewersPage() {
                     </button>
                     <button
                       type="button"
+                      id={`delete-${i.id}`}
                       onClick={() => {
                         setConfirmId(i.id);
                         setRowError(null);
@@ -295,7 +334,7 @@ export default function InterviewersPage() {
                     </button>
                   </div>
                   {confirmId === i.id && (
-                    <div role="group" aria-label={`Delete ${i.name}?`} style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #E2E6EA" }}>
+                    <div ref={confirmRef} tabIndex={-1} role="group" aria-label={`Delete ${i.name}?`} style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #E2E6EA" }}>
                       <p style={{ ...bodyStyle, fontWeight: 700 }}>Delete this interviewer?</p>
                       <p style={bodyStyle}>It can&apos;t be undone. Past sessions with it keep their reports.</p>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
@@ -309,7 +348,10 @@ export default function InterviewersPage() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => setConfirmId(null)}
+                          onClick={() => {
+                            setConfirmId(null);
+                            setReturnFocusId(i.id);
+                          }}
                           disabled={rowBusy !== null}
                           style={disabledStyle({ ...secondaryButtonStyle, padding: "8px 16px", fontSize: 14 }, rowBusy !== null)}
                         >
@@ -318,11 +360,7 @@ export default function InterviewersPage() {
                       </div>
                     </div>
                   )}
-                  {rowError?.id === i.id && (
-                    <p ref={rowErrorRef} tabIndex={-1} role="alert" style={{ fontSize: 14, color: ERROR_COLOR, fontWeight: 600, margin: "12px 0 0" }}>
-                      Error: {rowError.text}
-                    </p>
-                  )}
+                  {rowError?.id === i.id && <RowError ref={rowErrorRef} text={rowError.text} />}
                 </li>
               ))}
             </ul>
@@ -347,11 +385,7 @@ export default function InterviewersPage() {
                       {rowBusy?.id === i.id && rowBusy.action === "duplicate" ? "Duplicating…" : "Duplicate"}
                     </button>
                   </div>
-                  {rowError?.id === i.id && (
-                    <p ref={rowErrorRef} tabIndex={-1} role="alert" style={{ fontSize: 14, color: ERROR_COLOR, fontWeight: 600, margin: "12px 0 0" }}>
-                      Error: {rowError.text}
-                    </p>
-                  )}
+                  {rowError?.id === i.id && <RowError ref={rowErrorRef} text={rowError.text} />}
                 </li>
               ))}
             </ul>
@@ -383,3 +417,11 @@ function Summary({ interviewer }: { interviewer: InterviewerSummary }) {
     </>
   );
 }
+
+const RowError = forwardRef<HTMLParagraphElement, { text: string }>(function RowError({ text }, ref) {
+  return (
+    <p ref={ref} tabIndex={-1} role="alert" style={{ fontSize: 14, color: ERROR_COLOR, fontWeight: 600, margin: "12px 0 0" }}>
+      Error: {text}
+    </p>
+  );
+});
