@@ -552,28 +552,34 @@ describe("generateReport: the reading check", () => {
     // METRICS: 134.1 wpm, longest pause 4.37 s, gap 2917 ms; 2 answers, both measured.
     const reading = "Both of your 2 answers ran at about 134 words per minute, with a 2.9 second gap and a 4.4 s pause.";
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       const { report } = await run(withSwitches(true, true), turns(), HIDE, { ...fullOutput, deliveryReading: reading });
       expect(report.delivery!.reading).toBe(reading);
-      expect(log.mock.calls.map((c) => c.join(" "))).not.toContain(OMITTED);
+      const lines = [...log.mock.calls, ...warn.mock.calls].map((c) => c.join(" "));
+      expect(lines).not.toContain(OMITTED);
     } finally {
       log.mockRestore();
+      warn.mockRestore();
     }
   });
 
   it("checks the filler count against the summary the report keeps (hidden means not quotable)", async () => {
     const reading = "You used 22 filler sounds.";
-    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       const hidden = await run(withSwitches(true, true), turns(), HIDE, { ...fullOutput, deliveryReading: reading });
       expect(hidden.report.delivery!.reading).toBeUndefined();
+      expect(warn.mock.calls.map((c) => c.join(" "))).toEqual([OMITTED]);
+      warn.mockClear();
       const shown = await run(withSwitches(true, true), turns(), { showFillerCounts: true }, {
         ...fullOutput,
         deliveryReading: reading,
       });
       expect(shown.report.delivery!.reading).toBe(reading);
+      expect(warn).not.toHaveBeenCalled();
     } finally {
-      log.mockRestore();
+      warn.mockRestore();
     }
   });
 

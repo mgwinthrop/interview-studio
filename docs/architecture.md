@@ -151,7 +151,7 @@ The prompt tells the model to quote no number that is not in the summary; `readi
 
 It is lenient on rounding and units, strict on invented numbers:
 
-- **Rounding:** a number written with `d` decimals matches a value that rounds to it at `d` decimals, so 142.3 wpm may be written "142", and 1.84 s "1.8" or "2".
+- **Rounding:** a number written with `d` decimals matches a value that rounds to it at `d` decimals, so 142.3 wpm may be written "142", and 1.84 s "1.8" or "2". Only correctly rounded values count: 139.5 wpm written as "139" (it rounds to 140) gets the reading omitted.
 - **Units:** the unit written right after the number narrows what it may match. "words per minute" or "wpm" matches only a pace. "ms" or "milliseconds" matches a millisecond value, or seconds times 1000. "s" or "seconds" matches a seconds value, or milliseconds divided by 1000 (a 1200 ms gap may be "1.2 seconds"). "min" or "minutes" matches seconds divided by 60 or milliseconds divided by 60,000 (45.2 s of speech may be "0.75 minutes"). "%" or "percent" never matches, since the summary holds no percentages. Any other number ("3 of your 4 answers", "answer 2", "6 pauses") may match any value as given, divided by 1000 or divided by 60.
 - **Separators:** `,` is a decimal separator when one or two digits follow it ("1,84") and a thousands separator otherwise ("1,200").
 - **Limit:** only digits are checked. Number words ("three answers") are not.
