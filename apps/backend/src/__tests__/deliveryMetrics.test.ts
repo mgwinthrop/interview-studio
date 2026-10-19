@@ -3,6 +3,7 @@ import {
   FILLER_WORDS,
   PAUSE_THRESHOLD_SEC,
   computeTurnMetrics,
+  isValidResponseGap,
   summarizeDelivery,
   type TurnMetrics,
 } from "../delivery/metrics";
@@ -33,6 +34,15 @@ describe("constants", () => {
   it("exposes the pause threshold and filler list", () => {
     expect(PAUSE_THRESHOLD_SEC).toBe(0.7);
     expect([...FILLER_WORDS]).toEqual(["um", "uh", "uhm", "er", "erm", "ah", "hmm", "mm", "mmm"]);
+  });
+});
+
+describe("isValidResponseGap", () => {
+  it("accepts finite numbers from 0 to 600000", () => {
+    for (const v of [0, 600000, 1.5]) expect(isValidResponseGap(v)).toBe(true);
+  });
+  it("rejects everything else", () => {
+    for (const v of [-1, 600001, NaN, Infinity, "5", null]) expect(isValidResponseGap(v)).toBe(false);
   });
 });
 

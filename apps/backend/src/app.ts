@@ -8,11 +8,13 @@ import { createAuthenticator } from "./auth";
 import type { Config } from "./config";
 import prisma from "./db";
 import { withDeadline } from "./deadline";
+import { errName } from "./errors";
+import { ownerOf, route } from "./httpUtil";
 import { createInterviewerRouter, type InterviewerRouterDeps } from "./interviewerRoutes";
 import { EPHEMERAL_PERSIST } from "./ephemeralPersist";
 import { generateDraft } from "./interviewer/designer";
 import { DESIGNER_ID } from "./interviewer/presets";
-import { parseInterviewerInput, type InterviewerDefinition, type InterviewerInput } from "./interviewer/schema";
+import { ID_SHAPE, parseInterviewerInput, type InterviewerDefinition, type InterviewerInput } from "./interviewer/schema";
 import * as interviewerStore from "./interviewerStore";
 import * as persistence from "./persistence";
 import type { Providers } from "./providers/types";
@@ -48,10 +50,6 @@ const KNOWN_TYPES = new Set(["session_start", "session_end", "interrupt", "text_
 
 type ClientMessage = { type: string; [key: string]: unknown };
 
-function errName(err: unknown): string {
-  return err instanceof Error ? err.name : typeof err;
-}
-
 function safeType(type: unknown): string {
   return typeof type === "string" && KNOWN_TYPES.has(type) ? type : "unknown";
 }
@@ -73,12 +71,9 @@ function parseMessage(buf: Buffer): ClientMessage | null {
   }
 }
 
-/** Interviewer ids are preset slugs or server-issued UUIDs. */
-const INTERVIEWER_ID = /^[A-Za-z0-9_-]{1,64}$/;
-
 /** Cheap shape check only; whether the id exists for this owner is decided by the lookup. */
 function isInterviewerIdShape(id: unknown): id is string {
-  return typeof id === "string" && INTERVIEWER_ID.test(id);
+  return typeof id === "string" && ID_SHAPE.test(id);
 }
 
 /** Close reason for every bad interviewerId: malformed, unknown or another owner's. */
@@ -134,26 +129,6 @@ function rejectUpgrade(socket: Duplex, status: number): void {
   );
 }
 
-type Handler = (req: express.Request<{ sessionId: string }>, res: express.Response) => Promise<void>;
-
-/** Express 4 does not catch rejected handlers: log the error class and answer 500. */
-function route(name: string, fn: Handler): Handler {
-  return async (req, res) => {
-    try {
-      await fn(req, res);
-    } catch (err) {
-      console.error(`[http] ${name} error: ${errName(err)}`);
-      if (!res.headersSent) res.status(500).json({ error: "Internal error" });
-    }
-  };
-}
-
-function ownerOf(res: express.Response): string {
-  return res.locals.ownerId as string;
-}
-
-/** Session ids are server UUIDs; anything else is answered as not found. */
-const SESSION_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** One body for unknown, foreign and malformed sessions, so none can be told apart. */
 const NOT_FOUND = { error: "Session not found" } as const;
@@ -316,7 +291,7 @@ export function createApp(deps: AppDeps): App {
     route("regenerate", async (req, res) => {
       const { sessionId } = req.params;
       const ownerId = ownerOf(res);
-      if (!SESSION_ID.test(sessionId)) {
+      if (!ID_SHAPE.test(sessionId)) {
         res.status(404).json(NOT_FOUND);
         return;
       }

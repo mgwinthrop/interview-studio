@@ -45,25 +45,11 @@ export type FieldError = { path: string; message: string };
 // Line endings are normalised first (CRLF and lone CR become LF). Then every remaining control
 // character is rejected, including tab: U+0000-U+0008, U+0009, U+000B-U+001F and U+007F.
 // Newline (U+000A) is allowed.
-const CONTROL_CHARS = /[\u0000-\u0009\u000B-\u001F\u007F]/;
+// eslint-disable-next-line no-control-regex
+export const CONTROL_CHARS = /[\u0000-\u0009\u000B-\u001F\u007F]/;
 
-const MSG = {
-  required: "This field is required.",
-  type: "Wrong type for this field.",
-  control: "Control characters are not allowed.",
-  unknownKey: "Unknown field.",
-  invalid: "Invalid value.",
-  voice: "Voice id must be 10 to 40 letters and digits.",
-  integer: "Must be a whole number.",
-  turnsRange: "Must be between 1 and 50.",
-  maxBelowMin: "Must not be less than minTurns.",
-  duplicatePhase: "Phase names must be unique.",
-  turnsRequired: "Required on every phase except the last.",
-  turnsForbidden: "Not allowed on the last phase.",
-  date: "Must be an ISO date string.",
-  id: "Must be letters, digits, underscore or hyphen.",
-  feedbackOff: "Turn on content or delivery feedback (or both).",
-};
+/** Interviewer and session ids: preset slugs or server-issued UUIDs. */
+export const ID_SHAPE = /^[A-Za-z0-9_-]{1,64}$/;
 
 export const INTERVIEWER_LIMITS = {
   name: 60,
@@ -79,6 +65,24 @@ export const INTERVIEWER_LIMITS = {
   focusItems: 6,
   turns: 50,
 } as const;
+
+const MSG = {
+  required: "This field is required.",
+  type: "Wrong type for this field.",
+  control: "Control characters are not allowed.",
+  unknownKey: "Unknown field.",
+  invalid: "Invalid value.",
+  voice: "Voice id must be 10 to 40 letters and digits.",
+  integer: "Must be a whole number.",
+  turnsRange: `Must be between 1 and ${INTERVIEWER_LIMITS.turns}.`,
+  maxBelowMin: "Must not be less than minTurns.",
+  duplicatePhase: "Phase names must be unique.",
+  turnsRequired: "Required on every phase except the last.",
+  turnsForbidden: "Not allowed on the last phase.",
+  date: "Must be an ISO date string.",
+  id: "Must be letters, digits, underscore or hyphen.",
+  feedbackOff: "Turn on content or delivery feedback (or both).",
+};
 
 const tooLong = (cap: number) => `Must be at most ${cap} characters.`;
 

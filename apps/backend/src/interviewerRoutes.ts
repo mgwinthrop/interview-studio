@@ -1,6 +1,10 @@
 import express from "express";
 import { MAX_DESCRIPTION_CHARS, MIN_DESCRIPTION_CHARS } from "./interviewer/designer";
+import { errName } from "./errors";
+import { route } from "./httpUtil";
 import {
+  CONTROL_CHARS,
+  ID_SHAPE,
   parseInterviewerInput,
   type FieldError,
   type InterviewerDefinition,
@@ -23,7 +27,6 @@ export interface InterviewerRouterDeps {
 }
 
 const BODY_LIMIT = "64kb";
-const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const NOT_FOUND = { error: "Interviewer not found" };
 const PRESET_LOCKED = { error: "presets cannot be changed" };
 const NOT_OBJECT: FieldError[] = [{ path: "", message: "Request body must be a JSON object." }];
@@ -34,27 +37,7 @@ const BAD_DESCRIPTION: FieldError[] = [
     message: `Must be text of ${MIN_DESCRIPTION_CHARS} to ${MAX_DESCRIPTION_CHARS} characters, with no control characters other than newlines.`,
   },
 ];
-// eslint-disable-next-line no-control-regex
-const CONTROL_CHARS = /[\u0000-\u0009\u000b-\u001f\u007f]/;
 const BAD_VERSION: FieldError = { path: "version", message: "Must be a whole number of at least 1." };
-
-type Handler = (req: express.Request<{ id: string }>, res: express.Response) => Promise<void>;
-
-function errName(err: unknown): string {
-  return err instanceof Error ? err.name : typeof err;
-}
-
-/** Express 4 does not catch rejected handlers: log the error class and answer 500. */
-function route(name: string, fn: Handler): Handler {
-  return async (req, res) => {
-    try {
-      await fn(req, res);
-    } catch (err) {
-      console.error(`[http] ${name} error: ${errName(err)}`);
-      if (!res.headersSent) res.status(500).json({ error: "Internal error" });
-    }
-  };
-}
 
 /** The record as sent to clients: every field except ownerId. */
 function toResponse(def: InterviewerDefinition) {
@@ -85,7 +68,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 /** A well-formed route id; anything else is answered 404 without touching the store. */
 function validId(req: express.Request<{ id: string }>, res: express.Response): string | null {
   const { id } = req.params;
-  if (typeof id === "string" && ID_RE.test(id)) return id;
+  if (typeof id === "string" && ID_SHAPE.test(id)) return id;
   res.status(404).json(NOT_FOUND);
   return null;
 }
@@ -104,7 +87,7 @@ export function createInterviewerRouter(deps: InterviewerRouterDeps): express.Ro
 
   router.get(
     "/:id",
-    route("get-interviewer", async (req, res) => {
+    route<{ id: string }>("get-interviewer", async (req, res) => {
       const id = validId(req, res);
       if (id === null) return;
       const def = await store.getInterviewer(id, ownerOf(res));
@@ -141,7 +124,7 @@ export function createInterviewerRouter(deps: InterviewerRouterDeps): express.Ro
 
   router.put(
     "/:id",
-    route("update-interviewer", async (req, res) => {
+    route<{ id: string }>("update-interviewer", async (req, res) => {
       const id = validId(req, res);
       if (id === null) return;
       if (!isPlainObject(req.body)) {
@@ -199,7 +182,7 @@ export function createInterviewerRouter(deps: InterviewerRouterDeps): express.Ro
 
   router.post(
     "/:id/duplicate",
-    route("duplicate-interviewer", async (req, res) => {
+    route<{ id: string }>("duplicate-interviewer", async (req, res) => {
       const id = validId(req, res);
       if (id === null) return;
       try {
@@ -219,7 +202,7 @@ export function createInterviewerRouter(deps: InterviewerRouterDeps): express.Ro
 
   router.delete(
     "/:id",
-    route("delete-interviewer", async (req, res) => {
+    route<{ id: string }>("delete-interviewer", async (req, res) => {
       const id = validId(req, res);
       if (id === null) return;
       const result = await store.deleteInterviewer(id, ownerOf(res));

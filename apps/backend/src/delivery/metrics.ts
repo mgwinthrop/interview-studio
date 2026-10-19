@@ -9,7 +9,12 @@ export const FILLER_WORDS: readonly string[] = ["um", "uh", "uhm", "er", "erm", 
 /** Pace is not reported for very short answers, where it would be noise. */
 const MIN_PACE_DURATION_SEC = 2;
 const MIN_PACE_WORDS = 5;
-const MAX_RESPONSE_GAP_MS = 600_000;
+export const MAX_RESPONSE_GAP_MS = 600_000;
+
+/** A client-measured response gap: a finite number from 0 to MAX_RESPONSE_GAP_MS. */
+export function isValidResponseGap(v: unknown): v is number {
+  return typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= MAX_RESPONSE_GAP_MS;
+}
 /** Guards float error at the pause boundary (e.g. 1.7 - 1.0). */
 const EPSILON = 1e-9;
 
@@ -68,8 +73,7 @@ export function computeTurnMetrics(input: {
 }): TurnMetrics {
   const { text, words } = input;
   const gap = input.responseGapMs;
-  const responseGapMs =
-    typeof gap === "number" && Number.isFinite(gap) && gap >= 0 && gap <= MAX_RESPONSE_GAP_MS ? gap : null;
+  const responseGapMs = isValidResponseGap(gap) ? gap : null;
 
   if (words.length === 0) {
     return {

@@ -1,9 +1,6 @@
 import "dotenv/config";
 import { ConfigError, loadConfig, type Config } from "./config";
-
-function errName(err: unknown): string {
-  return err instanceof Error ? err.name : typeof err;
-}
+import { errName } from "./errors";
 
 function readConfig(): Config {
   try {

@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import type { Interviewer as Row, Prisma } from "@prisma/client";
 import prisma from "./db";
 import {
+  ID_SHAPE,
+  INTERVIEWER_LIMITS,
   SYSTEM_OWNER,
   parseInterviewerDefinition,
   type InterviewerDefinition,
@@ -17,7 +19,6 @@ import { DESIGNER_ID } from "./interviewer/presets/designer";
 /** Most custom interviewers one owner may hold. */
 export const MAX_CUSTOM_PER_OWNER = 50;
 
-const NAME_CAP = 60;
 const COPY_SUFFIX = " (copy)";
 
 export class InterviewerLimitError extends Error {
@@ -191,7 +192,7 @@ export async function updateInterviewer(
 /** `<name> (copy)`, with the name shortened (by whole code points) to keep within the cap. */
 function copyName(name: string): string {
   const chars = Array.from(name);
-  while (chars.join("").length + COPY_SUFFIX.length > NAME_CAP) chars.pop();
+  while (chars.join("").length + COPY_SUFFIX.length > INTERVIEWER_LIMITS.name) chars.pop();
   return `${chars.join("").trimEnd()}${COPY_SUFFIX}`;
 }
 
@@ -221,11 +222,10 @@ export async function deleteInterviewer(
   return count > 0 ? "deleted" : "not_found";
 }
 
-const SAFE_ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 function presetLabel(raw: unknown, index: number): string {
   const id = (raw as { id?: unknown } | null)?.id;
-  return typeof id === "string" && SAFE_ID.test(id) ? id : `#${index}`;
+  return typeof id === "string" && ID_SHAPE.test(id) ? id : `#${index}`;
 }
 
 /** Validates every preset; throws PresetValidationError (id and field paths only) on the first bad one. */

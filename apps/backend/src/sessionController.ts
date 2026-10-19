@@ -1,7 +1,8 @@
 import { randomUUID } from "crypto";
 import type { Config } from "./config";
 import type * as Persistence from "./persistence";
-import { computeTurnMetrics, type TurnMetrics } from "./delivery/metrics";
+import { computeTurnMetrics, isValidResponseGap, type TurnMetrics } from "./delivery/metrics";
+import { errName } from "./errors";
 import type { Providers, Word } from "./providers/types";
 import type { InterviewerDefinition, InterviewerInput } from "./interviewer/schema";
 import { generateDraft } from "./interviewer/designer";
@@ -58,14 +59,8 @@ interface TurnCtx {
 }
 
 const QUEUE_CAP = 5;
-/** Largest accepted response gap (10 minutes); anything outside 0..this is ignored. */
-const MAX_RESPONSE_GAP_MS = 600_000;
 /** Locked decision: conversational replies use max_tokens 300. */
 const MAX_TOKENS = 300;
-
-function errName(err: unknown): string {
-  return err instanceof Error ? err.name : typeof err;
-}
 
 /**
  * One controller per live session. It owns the turn history and runs one item (greeting
@@ -146,7 +141,7 @@ export class SessionController {
    */
   noteResponseGap(ms: unknown): void {
     if (this.closed) return;
-    if (typeof ms !== "number" || !Number.isFinite(ms) || ms < 0 || ms > MAX_RESPONSE_GAP_MS) return;
+    if (!isValidResponseGap(ms)) return;
     this.pendingGapMs = ms;
   }
 
