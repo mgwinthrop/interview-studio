@@ -65,6 +65,9 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
 
   // Creates and starts the VAD for start generation `gen` (only startMic calls this).
   const loadVad = useCallback(async (gen: number): Promise<void> => {
+    // The stream start() opens, so a start that fails or goes stale can always stop its tracks.
+    let opened: MediaStream | null = null;
+    const stopOpened = () => opened?.getTracks().forEach((t) => t.stop());
     const vad = await MicVAD.new({
       // Worklet bundle + ONNX model served from public/ (copied by next.config.mjs)
       baseAssetPath: "/",
@@ -75,15 +78,17 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
       },
 
       // Echo/noise suppression — prevents AI audio from triggering VAD
-      getStream: () =>
-        navigator.mediaDevices.getUserMedia({
+      getStream: async () => {
+        opened = await navigator.mediaDevices.getUserMedia({
           audio: {
             echoCancellation: true,
             noiseSuppression: true,
             sampleRate: 16000,
             channelCount: 1,
           },
-        }),
+        });
+        return opened;
+      },
 
       // Locked thresholds — do not change (AGENTS.md)
       positiveSpeechThreshold: 0.8,
@@ -134,13 +139,26 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
       },
     });
 
-    // Stopped (or unmounted) while loading: release this VAD and its microphone now.
+    // With startOnLoad false, MicVAD.new opens no microphone; start() does (getUserMedia).
+    // vad-web's destroy() throws until start() has finished, so a stale VAD is only marked
+    // destroyed here (it holds no stream yet), and start() is awaited before it is kept.
     if (gen !== genRef.current) {
-      vad.destroy();
+      vad.destroy().catch(() => {});
+      return;
+    }
+    try {
+      await vad.start();
+    } catch (err) {
+      stopOpened(); // e.g. the worklet failed after the microphone opened
+      throw err;
+    }
+    // Stopped (or unmounted) while the microphone was opening: close it now.
+    if (gen !== genRef.current) {
+      stopOpened();
+      await vad.destroy().catch(() => {});
       return;
     }
     vadRef.current = vad;
-    vad.start();
     setMicActive(true);
   }, []);
 
@@ -161,7 +179,7 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
   const stopMic = useCallback(() => {
     genRef.current++; // stale-marks any start still loading and the current VAD's callbacks
     startingRef.current = null; // a start after this stop makes a new VAD, never reuses the stale one
-    vadRef.current?.destroy();
+    vadRef.current?.destroy().catch(() => {});
     vadRef.current = null;
     setMicActive(false);
   }, []);
@@ -181,7 +199,7 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
     return () => {
       genRef.current++;
       startingRef.current = null;
-      vadRef.current?.destroy();
+      vadRef.current?.destroy().catch(() => {});
       vadRef.current = null;
     };
   }, []);
