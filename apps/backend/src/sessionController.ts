@@ -455,6 +455,8 @@ export class SessionController {
     // The draft goes out here and nowhere else: only when the outcome is decided complete and
     // no abandon() happened, synchronously before onEnded. A draft finished after the deadline
     // or an abandon is never sent, since this point has passed or the guard is false.
+    // Designer and trial sessions must be wired with EPHEMERAL_PERSIST: its status writes are
+    // never refused, so no refused-write path can report "complete" without sending the draft.
     const draft = this.draft;
     this.draft = null;
     if (result === "complete" && !this.abandoned && draft) {

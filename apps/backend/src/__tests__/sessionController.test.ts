@@ -1626,9 +1626,40 @@ describe("SessionController designer kind", () => {
     await ctl.settled();
     expect(json().some((m) => m.type === "draft")).toBe(false);
     expect(onEnded).toHaveBeenCalledTimes(1);
-    // Never complete: only failed writes (the late work's own failed write, like the report path).
-    expect(persist.persistSessionStatus.mock.calls.map((c) => c[1]).every((st) => st === "failed")).toBe(true);
+    // Never complete: at least the deadline's failed write, and no complete write.
+    expect(persist.persistSessionStatus).toHaveBeenCalledWith("s-1", "failed");
+    expect(persist.persistSessionStatus).not.toHaveBeenCalledWith("s-1", "complete");
     expect(persist.persistReport).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("designer draft ready but the complete write outlives reportTimeoutMs: failed, no draft", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { ctl, json, persist, onEnded } = setup({
+      kind: "designer",
+      script: { structured: DRAFT },
+      limits: { reportTimeoutMs: 5000 },
+    });
+    await ctl.start();
+    ctl.handleText(DESIGNER_TEXT);
+    await ctl.settled();
+    // The draft resolves at once; the complete write is held past the deadline. The deadline's
+    // failed write lands (true, as under EPHEMERAL_PERSIST), so the session ends failed.
+    persist.persistSessionStatus.mockImplementation(async (_id, status) => {
+      if (status === "complete") await new Promise((r) => setTimeout(r, 8000));
+      return true;
+    });
+
+    const ending = ctl.end();
+    await vi.advanceTimersByTimeAsync(5000);
+    await expect(ending).resolves.toBe("failed");
+    expect(onEnded.mock.calls).toEqual([["failed"]]);
+    expect(json().some((m) => m.type === "draft")).toBe(false);
+    await vi.advanceTimersByTimeAsync(10_000);
+    await ctl.settled();
+    expect(json().some((m) => m.type === "draft")).toBe(false);
+    expect(onEnded).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);
   });
 
