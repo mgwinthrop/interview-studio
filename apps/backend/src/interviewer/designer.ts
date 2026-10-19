@@ -34,6 +34,9 @@ const MAX_TRANSCRIPT_CHARS = 24_000;
 /** Minimum characters of the person's own text before a draft is attempted. */
 const MIN_USER_CHARS = 20;
 
+/** Shortest description the generator accepts; the route enforces it as a 422. */
+export const MIN_DESCRIPTION_CHARS = MIN_USER_CHARS;
+
 const INPUT_FIELDS = [
   "name",
   "purpose",

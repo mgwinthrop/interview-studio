@@ -8,6 +8,7 @@ import path from "node:path";
 import express from "express";
 import type { InterviewerDefinition, InterviewerInput } from "../interviewer/schema";
 import { PRESETS, SYNCED_PRESETS } from "../interviewer/presets";
+import { MIN_DESCRIPTION_CHARS } from "../interviewer/designer";
 
 // The router is tested on a small Express app: the real authenticator in front (as app.ts
 // does), then the router. Owners are switched with a test-only header read by ownerOf.
@@ -473,6 +474,8 @@ describe("POST /draft", () => {
     ["no description", { other: SENTINEL }],
     ["a non-string description", { description: { text: SENTINEL } }],
     ["an empty description", { description: "" }],
+    ["a too-short description", { description: "x".repeat(MIN_DESCRIPTION_CHARS - 1) }],
+    ["a padded too-short description", { description: ` ${"x".repeat(MIN_DESCRIPTION_CHARS - 1)} ` }],
     ["a whitespace description", { description: "   \n  " }],
     ["a control character", { description: `${SENTINEL}\u0007bell` }],
     ["an over-long description", { description: SENTINEL + "x".repeat(4000) }],
@@ -486,6 +489,14 @@ describe("POST /draft", () => {
     if (!Array.isArray(body) && typeof body === "object") expect(errors[0].path).toBe("description");
     expect(r.text).not.toContain(SENTINEL);
     expect(makeDraft).not.toHaveBeenCalled();
+  });
+
+  it("exactly the minimum length passes the route", async () => {
+    const makeDraft = vi.fn(async () => ({ ok: true as const, draft: input("Drafted") }));
+    const base = await start({ makeDraft });
+    const text = "x".repeat(MIN_DESCRIPTION_CHARS);
+    expect((await call(base, "POST", "/draft", "a", { description: text })).status).toBe(200);
+    expect(makeDraft).toHaveBeenCalledWith("a", text);
   });
 
   it("accepts newlines in the description", async () => {

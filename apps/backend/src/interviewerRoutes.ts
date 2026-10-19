@@ -1,5 +1,5 @@
 import express from "express";
-import { MAX_DESCRIPTION_CHARS } from "./interviewer/designer";
+import { MAX_DESCRIPTION_CHARS, MIN_DESCRIPTION_CHARS } from "./interviewer/designer";
 import {
   parseInterviewerInput,
   type FieldError,
@@ -31,7 +31,7 @@ const LIMIT_REACHED: FieldError[] = [{ path: "", message: `limit of ${interviewe
 const BAD_DESCRIPTION: FieldError[] = [
   {
     path: "description",
-    message: `Must be text of 1 to ${MAX_DESCRIPTION_CHARS} characters, with no control characters other than newlines.`,
+    message: `Must be text of ${MIN_DESCRIPTION_CHARS} to ${MAX_DESCRIPTION_CHARS} characters, with no control characters other than newlines.`,
   },
 ];
 // eslint-disable-next-line no-control-regex
@@ -180,7 +180,7 @@ export function createInterviewerRouter(deps: InterviewerRouterDeps): express.Ro
     route("draft-interviewer", async (req, res) => {
       const description = isPlainObject(req.body) ? req.body.description : undefined;
       const text = typeof description === "string" ? description.trim() : "";
-      if (text.length === 0 || text.length > MAX_DESCRIPTION_CHARS || CONTROL_CHARS.test(text)) {
+      if (text.length < MIN_DESCRIPTION_CHARS || text.length > MAX_DESCRIPTION_CHARS || CONTROL_CHARS.test(text)) {
         res.status(422).json({ errors: isPlainObject(req.body) ? BAD_DESCRIPTION : NOT_OBJECT });
         return;
       }

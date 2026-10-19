@@ -1803,9 +1803,17 @@ describe("POST /api/interviewers/draft", () => {
     expect(allLogText()).not.toContain(DRAFT_SENTINEL);
   });
 
-  it("too short a description is 502 (the designer refuses it) and a hung LLM is cut at the deadline", async () => {
-    const r = await start({ script: { structured: VALID_DRAFT } });
-    expect((await draft(r, "hi")).status).toBe(502);
+  it("too short a description is 422 without calling the LLM or taking the lock", async () => {
+    const { calls, customize } = structuredWith(async (_n, req) => req.schema.parse(VALID_DRAFT));
+    const r = await start({ customize });
+    const res = await draft(r, "hi");
+    expect(res.status).toBe(422);
+    expect(calls.n).toBe(0);
+    expect((await draft(r)).status).toBe(200);
+    expect(calls.n).toBe(1);
+  });
+
+  it("a hung LLM is cut at the deadline", async () => {
     const hung = structuredWith(() => new Promise<never>(() => {}));
     const r2 = await start({ config: makeConfig({}, { limits: { reportTimeoutMs: 150 } }), customize: hung.customize });
     const res = await draft(r2);
