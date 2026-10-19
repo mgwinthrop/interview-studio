@@ -183,12 +183,31 @@ function safeReturnTo(v: unknown): string {
 }
 
 /**
+ * A draft hand-off. `baseVersion` is the stored version an edit of an existing interviewer
+ * started from, so a Save after Try it still gets the version check (409 when it is stale).
+ */
+export interface StoredDraft {
+  input: InterviewerInput;
+  returnTo: string;
+  baseVersion?: number;
+}
+
+function isVersion(v: unknown): v is number {
+  return typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= Number.MAX_SAFE_INTEGER;
+}
+
+/**
  * Keeps a draft for the next page (editor, or Try it). Returns false when storage is
  * unavailable or full; the hand-off is then lost and the caller should say so.
  */
-export function storeDraft(input: InterviewerInput, returnTo?: string): boolean {
+export function storeDraft(input: InterviewerInput, returnTo?: string, baseVersion?: number): boolean {
+  const stored = {
+    input,
+    returnTo: safeReturnTo(returnTo),
+    ...(baseVersion !== undefined && isVersion(baseVersion) ? { baseVersion } : {}),
+  };
   try {
-    window.sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ input, returnTo: safeReturnTo(returnTo) }));
+    window.sessionStorage.setItem(DRAFT_KEY, JSON.stringify(stored));
     return true;
   } catch {
     // Private mode, quota or disabled storage.
@@ -205,7 +224,12 @@ export function clearDraft(): void {
   }
 }
 
-function readDraft(remove: boolean): { input: InterviewerInput; returnTo: string } | null {
+/** Removes the stored draft only when it returns to `returnTo` (leaves other hand-offs alone). */
+export function clearDraftFor(returnTo: string): void {
+  if (readDraft(false)?.returnTo === returnTo) clearDraft();
+}
+
+function readDraft(remove: boolean): StoredDraft | null {
   let raw: string | null;
   try {
     raw = window.sessionStorage.getItem(DRAFT_KEY);
@@ -214,12 +238,19 @@ function readDraft(remove: boolean): { input: InterviewerInput; returnTo: string
   }
   if (raw === null) return null;
 
-  let result: { input: InterviewerInput; returnTo: string } | null = null;
+  let result: StoredDraft | null = null;
   if (raw.length <= MAX_STORED_BYTES) {
     try {
       const parsed: unknown = JSON.parse(raw);
       const input = isRecord(parsed) ? parseShape(parsed.input) : null;
-      if (input && isRecord(parsed)) result = { input, returnTo: safeReturnTo(parsed.returnTo) };
+      if (input && isRecord(parsed)) {
+        // A base version that is not a positive whole number is dropped, never trusted.
+        result = {
+          input,
+          returnTo: safeReturnTo(parsed.returnTo),
+          ...(isVersion(parsed.baseVersion) ? { baseVersion: parsed.baseVersion } : {}),
+        };
+      }
     } catch {
       result = null;
     }
@@ -237,11 +268,11 @@ function readDraft(remove: boolean): { input: InterviewerInput; returnTo: string
 }
 
 /** Reads and removes the stored draft. Null when missing, corrupt or the wrong shape. */
-export function takeDraft(): { input: InterviewerInput; returnTo: string } | null {
+export function takeDraft(): StoredDraft | null {
   return readDraft(true);
 }
 
 /** Reads the stored draft and leaves it in place (Try it must not consume it). */
-export function peekDraft(): { input: InterviewerInput; returnTo: string } | null {
+export function peekDraft(): StoredDraft | null {
   return readDraft(false);
 }

@@ -451,13 +451,21 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
     }
   }, [sessionComplete, router, mode, leaveTo]);
 
-  // Design mode: the draft arrives just before session_complete; hand it to the editor.
-  useEffect(() => {
-    if (mode === "design" && draft) {
-      storeDraft(draft);
+  // Design mode: the draft arrives just before session_complete; hand it to the editor. If the
+  // browser will not keep it, stay here (the draft is still in state) and offer to retry.
+  const [draftStoreFailed, setDraftStoreFailed] = useState(false);
+  const handOffDraft = useCallback(() => {
+    if (!draft) return;
+    if (storeDraft(draft)) {
+      setDraftStoreFailed(false);
       router.push("/interviewers/edit?from=design");
+    } else {
+      setDraftStoreFailed(true);
     }
-  }, [mode, draft, router]);
+  }, [draft, router]);
+  useEffect(() => {
+    if (mode === "design" && draft) handOffDraft();
+  }, [mode, draft, handOffDraft]);
 
   // Design mode: "Finish and create draft" was pressed and the draft is being made.
   const [makingDraft, setMakingDraft] = useState(false);
@@ -526,6 +534,10 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
   useEffect(() => {
     if (designFailed) designRetryButtonRef.current?.focus();
   }, [designFailed]);
+  const draftStoreRetryRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (draftStoreFailed) draftStoreRetryRef.current?.focus();
+  }, [draftStoreFailed]);
 
   const minutes = String(Math.floor(elapsed / 60)).padStart(2, "0");
   const seconds = String(elapsed % 60).padStart(2, "0");
@@ -534,6 +546,21 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
   // Design mode: the server could not make a valid draft (nothing said, or the draft call failed).
   // A completion with no draft before it (which the server never sends) is treated the same,
   // so the page cannot wait on "Making your draft…" forever.
+  // Design mode: the draft was made but this browser would not keep it for the editor.
+  if (mode === "design" && draftStoreFailed) {
+    return (
+      <div role="alert" style={overlayStyle}>
+        <h2 style={overlayTitleStyle}>Draft not kept</h2>
+        <p style={overlayBodyStyle}>Your draft could not be kept in this browser. Try again.</p>
+        <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+          <button ref={draftStoreRetryRef} onClick={handOffDraft} style={overlayPrimaryStyle}>
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (designFailed) {
     return (
       <div role="alert" style={overlayStyle}>

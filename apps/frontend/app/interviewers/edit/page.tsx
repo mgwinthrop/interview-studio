@@ -15,6 +15,7 @@ import {
 import {
   INTERVIEWER_LIMITS,
   clearDraft,
+  clearDraftFor,
   emptyInput,
   errorsByPath,
   inputFromDetail,
@@ -66,6 +67,12 @@ type Loaded = {
   form: FormState;
   baseline: FormState;
   record: InterviewerDetail | null;
+  /**
+   * The version a Save sends (PUT): the version these edits started from. Usually the record's,
+   * but for edits restored from Try it it is the draft's base version, so a save made elsewhere
+   * in the meantime still gives a 409. Null for a new interviewer.
+   */
+  putVersion: number | null;
   note: "draft" | "draft_missing" | "restored" | null;
 };
 
@@ -108,7 +115,7 @@ function Editor({ source }: { source: Source }) {
   useEffect(() => {
     if (source.kind === "blank") {
       const f = formFromInput(emptyInput());
-      setLoaded({ form: f, baseline: f, record: null, note: null });
+      setLoaded({ form: f, baseline: f, record: null, putVersion: null, note: null });
       setLoadState("ready");
       return;
     }
@@ -119,7 +126,7 @@ function Editor({ source }: { source: Source }) {
       // Try it (or a reload) still finds it.
       const stored = source.take ? takeDraft() : peekDraft();
       const f = formFromInput(stored ? stored.input : emptyInput());
-      setLoaded({ form: f, baseline: f, record: null, note: stored ? "draft" : "draft_missing" });
+      setLoaded({ form: f, baseline: f, record: null, putVersion: null, note: stored ? "draft" : "draft_missing" });
       setLoadState("ready");
       return;
     }
@@ -133,14 +140,26 @@ function Editor({ source }: { source: Source }) {
           return;
         }
         const baseline = formFromInput(inputFromDetail(found));
-        // Back from Try it on this interviewer: the tried edits are in the stored draft.
+        // Back from Try it on this interviewer: the tried edits are in the stored draft. They are
+        // consumed here (held only in state from now on), so they never come back on a later
+        // visit; one without a base version, or with no edits, is dropped.
         const stored = found.source === "custom" ? peekDraft() : null;
-        const restored = stored !== null && stored.returnTo === editPathFor(found.id);
+        let restoredForm: FormState | null = null;
+        let restoredVersion: number | null = null;
+        if (stored && stored.returnTo === editPathFor(found.id)) {
+          clearDraft();
+          const f = formFromInput(stored.input);
+          if (stored.baseVersion !== undefined && formSignature(f) !== formSignature(baseline)) {
+            restoredForm = f;
+            restoredVersion = stored.baseVersion;
+          }
+        }
         setLoaded({
-          form: restored ? formFromInput(stored.input) : baseline,
+          form: restoredForm ?? baseline,
           baseline,
           record: found,
-          note: restored ? "restored" : null,
+          putVersion: restoredVersion ?? found.version,
+          note: restoredForm ? "restored" : null,
         });
         if (pendingNotice?.id === found.id) {
           setNotice(pendingNotice.text);
@@ -211,23 +230,27 @@ function Editor({ source }: { source: Source }) {
 
   function showRecord(saved: InterviewerDetail, text: string) {
     const f = formFromInput(inputFromDetail(saved));
-    setLoaded({ form: f, baseline: f, record: saved, note: null });
+    setLoaded({ form: f, baseline: f, record: saved, putVersion: saved.version, note: null });
     setErrors({});
     setNotice(text);
   }
 
   async function save() {
-    if (!form || busy || readOnly) return;
+    if (!loaded || !form || busy || readOnly) return;
     startAction("save");
     setErrors({});
     const input = inputFromForm(form);
-    const r = record ? await updateInterviewer(record.id, record.version, input) : await createInterviewer(input);
+    const r = record
+      ? await updateInterviewer(record.id, loaded.putVersion ?? record.version, input)
+      : await createInterviewer(input);
     setBusy(null);
     if (!r.ok) {
       failFrom(r, "The interviewer was not saved.");
       return;
     }
-    clearDraft(); // the draft is saved now; a later visit must not bring it back
+    // A new form from a draft: that draft is saved now, so a later visit must not bring it
+    // back. Any other stored draft (a pending Try it elsewhere) is left alone.
+    if (record === null && loaded.note === "draft") clearDraft();
     if (!record) {
       pendingNotice = { id: r.value.id, text: "Saved." };
       router.replace(editPathFor(r.value.id));
@@ -237,9 +260,11 @@ function Editor({ source }: { source: Source }) {
   }
 
   function tryIt() {
-    if (!form || readOnly) return;
+    if (!loaded || !form || readOnly) return;
     const returnTo = record ? editPathFor(record.id) : DRAFT_RETURN_TO;
-    if (!storeDraft(inputFromForm(form), returnTo)) {
+    // The base version goes with the draft so the Save after the trial is still version-checked.
+    const baseVersion = record ? loaded.putVersion ?? record.version : undefined;
+    if (!storeDraft(inputFromForm(form), returnTo, baseVersion)) {
       fail({ kind: "message", text: STORAGE_MESSAGE });
       return;
     }
@@ -251,6 +276,8 @@ function Editor({ source }: { source: Source }) {
     if (dirty && !window.confirm("Duplicate copies the last saved version. Your unsaved edits here will be lost.")) {
       return;
     }
+    // The edits here are given up; a stored Try it draft of them must not come back either.
+    clearDraftFor(editPathFor(record.id));
     startAction("duplicate");
     const r = await duplicateInterviewer(record.id);
     setBusy(null);
@@ -271,7 +298,7 @@ function Editor({ source }: { source: Source }) {
       failFrom(r, "The interviewer was not deleted.");
       return;
     }
-    if (loaded?.note === "restored") clearDraft();
+    clearDraftFor(editPathFor(record.id));
     router.push(LIST_PATH);
   }
 
@@ -292,13 +319,12 @@ function Editor({ source }: { source: Source }) {
       fail({ kind: "not_found" });
       return;
     }
-    if (loaded?.note === "restored") clearDraft();
     showRecord(found, "Reloaded the latest version.");
   }
 
   function discardRestored() {
-    clearDraft();
-    setLoaded((l) => (l ? { ...l, form: l.baseline, note: null } : l));
+    // The draft was consumed on load; only the state copy is left to drop.
+    setLoaded((l) => (l ? { ...l, form: l.baseline, putVersion: l.record?.version ?? null, note: null } : l));
     setErrors({});
   }
 
@@ -365,7 +391,7 @@ function Editor({ source }: { source: Source }) {
       )}
       {loaded.note === "restored" && (
         <div style={panelStyle}>
-          <p style={bodyStyle}>Your edits from Try it are back. Nothing is saved until you press Save.</p>
+          <p style={bodyStyle}>Your edits from Try it are back. Nothing is saved until you press Save, and reloading the page drops them.</p>
           <button type="button" onClick={discardRestored} disabled={disabled} style={disabledStyle(secondaryButtonStyle, disabled)}>
             Discard these edits
           </button>
