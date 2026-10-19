@@ -65,6 +65,21 @@ const MSG = {
   feedbackOff: "Turn on content or delivery feedback (or both).",
 };
 
+export const INTERVIEWER_LIMITS = {
+  name: 60,
+  purpose: 200,
+  persona: 1500,
+  style: 600,
+  opening: 400,
+  closing: 400,
+  phaseName: 40,
+  phaseInstruction: 1200,
+  phases: 8,
+  focusItem: 120,
+  focusItems: 6,
+  turns: 50,
+} as const;
+
 const tooLong = (cap: number) => `Must be at most ${cap} characters.`;
 
 function text(cap: number) {
@@ -82,28 +97,28 @@ const turns = z
   .number({ invalid_type_error: MSG.type })
   .int(MSG.integer)
   .min(1, MSG.turnsRange)
-  .max(50, MSG.turnsRange);
+  .max(INTERVIEWER_LIMITS.turns, MSG.turnsRange);
 
 const phaseSchema = z
   .object({
-    name: text(40),
-    instruction: text(1200),
+    name: text(INTERVIEWER_LIMITS.phaseName),
+    instruction: text(INTERVIEWER_LIMITS.phaseInstruction),
     minTurns: turns.optional(),
     maxTurns: turns.optional(),
   })
   .strict();
 
 const inputShape = {
-  name: text(60),
-  purpose: text(200),
-  persona: text(1500),
-  style: text(600),
-  opening: text(400),
-  closing: text(400),
+  name: text(INTERVIEWER_LIMITS.name),
+  purpose: text(INTERVIEWER_LIMITS.purpose),
+  persona: text(INTERVIEWER_LIMITS.persona),
+  style: text(INTERVIEWER_LIMITS.style),
+  opening: text(INTERVIEWER_LIMITS.opening),
+  closing: text(INTERVIEWER_LIMITS.closing),
   phases: z
     .array(phaseSchema, { invalid_type_error: MSG.type, required_error: MSG.required })
     .min(1, "At least 1 phase is required.")
-    .max(8, "At most 8 phases are allowed.")
+    .max(INTERVIEWER_LIMITS.phases, `At most ${INTERVIEWER_LIMITS.phases} phases are allowed.`)
     .superRefine((phases, ctx) => {
       // Phase names identify phases on the wire and in stored turns, so they must be unique
       // (case-insensitive; names are already trimmed). The later duplicate is reported.
@@ -137,8 +152,8 @@ const inputShape = {
       });
     }),
   focus: z
-    .array(text(120), { invalid_type_error: MSG.type, required_error: MSG.required })
-    .max(6, "At most 6 focus items are allowed."),
+    .array(text(INTERVIEWER_LIMITS.focusItem), { invalid_type_error: MSG.type, required_error: MSG.required })
+    .max(INTERVIEWER_LIMITS.focusItems, `At most ${INTERVIEWER_LIMITS.focusItems} focus items are allowed.`),
   contentFeedback: z.boolean({ invalid_type_error: MSG.type }).default(true),
   deliveryFeedback: z.boolean({ invalid_type_error: MSG.type }).default(true),
   voice: z
@@ -163,6 +178,8 @@ const inputSchema = z
       ctx.addIssue({ code: "custom", path: ["contentFeedback"], message: MSG.feedbackOff });
     }
   });
+
+export const interviewerInputSchema = inputSchema;
 
 const definitionSchema = z
   .object({

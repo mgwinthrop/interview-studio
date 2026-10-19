@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   parseInterviewerDefinition,
   parseInterviewerInput,
+  INTERVIEWER_LIMITS,
+  interviewerInputSchema,
   SYSTEM_OWNER,
   type FieldError,
 } from "../interviewer/schema.js";
@@ -398,5 +400,29 @@ describe("parseInterviewerDefinition", () => {
     expect(() => parseInterviewerDefinition({ ...def(), extra: 1 })).toThrow(
       new Error("Invalid interviewer definition: (root)"),
     );
+  });
+});
+
+describe("exported limits and input schema", () => {
+  it("pins the limits the frontend copies", () => {
+    expect(INTERVIEWER_LIMITS).toEqual({
+      name: 60,
+      purpose: 200,
+      persona: 1500,
+      style: 600,
+      opening: 400,
+      closing: 400,
+      phaseName: 40,
+      phaseInstruction: 1200,
+      phases: 8,
+      focusItem: 120,
+      focusItems: 6,
+      turns: 50,
+    });
+  });
+
+  it("interviewerInputSchema accepts a valid input and rejects an unknown key", () => {
+    expect(interviewerInputSchema.safeParse(valid()).success).toBe(true);
+    expect(interviewerInputSchema.safeParse({ ...valid(), extra: 1 }).success).toBe(false);
   });
 });

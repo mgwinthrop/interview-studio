@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { PRESETS, PRESET_TIMESTAMP } from "../interviewer/presets/index.js";
+import { PRESETS, PRESET_TIMESTAMP, SYNCED_PRESETS, designer, DESIGNER_ID } from "../interviewer/presets/index.js";
 import { parseInterviewerDefinition, SYSTEM_OWNER } from "../interviewer/schema.js";
 
 const IDS = [
@@ -106,5 +106,40 @@ describe("PRESETS", () => {
     for (const old of ["ai-se-delivery", "experience-design", "product-design-strategy"]) {
       expect(all).not.toContain(old);
     }
+  });
+});
+
+describe("designer preset", () => {
+  it("is valid, has the designer id and is not one of the four user-facing presets", () => {
+    expect(() => parseInterviewerDefinition(designer)).not.toThrow();
+    expect(designer.id).toBe(DESIGNER_ID);
+    expect(DESIGNER_ID).toBe("interviewer-designer");
+    expect(designer.source).toBe("preset");
+    expect(designer.ownerId).toBe(SYSTEM_OWNER);
+    expect(PRESETS.map((p) => p.id)).not.toContain(DESIGNER_ID);
+  });
+
+  it("SYNCED_PRESETS holds all five with unique ids", () => {
+    expect(SYNCED_PRESETS.map((p) => p.id)).toEqual([...IDS, DESIGNER_ID]);
+    expect(new Set(SYNCED_PRESETS.map((p) => p.id)).size).toBe(5);
+  });
+
+  it("has three phases and content feedback only", () => {
+    expect(designer.phases.map((p) => p.name)).toEqual(["understand", "shape", "confirm"]);
+    expect(designer.phases[0]).toMatchObject({ minTurns: 1, maxTurns: 3 });
+    expect(designer.phases[1]).toMatchObject({ minTurns: 2, maxTurns: 4 });
+    expect(designer.phases[2].minTurns).toBeUndefined();
+    expect(designer.phases[2].maxTurns).toBeUndefined();
+    expect(designer.contentFeedback).toBe(true);
+    expect(designer.deliveryFeedback).toBe(false);
+    expect(designer.focus).toEqual([]);
+  });
+
+  it("uses no assessment language and says it cannot save anything", () => {
+    const all = JSON.stringify(designer);
+    for (const word of ["assessment", "score", "grade", "rating", "pass/fail"]) {
+      expect(all.toLowerCase()).not.toContain(word);
+    }
+    expect(all).toContain("cannot save or change anything");
   });
 });

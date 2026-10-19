@@ -42,8 +42,8 @@ async function main(): Promise<void> {
   // names the preset id and field paths only; other errors (database) are named by class.
   const { PresetValidationError, syncPresets } = await import("./interviewerStore");
   try {
-    const { PRESETS } = await import("./interviewer/presets");
-    const r = await syncPresets(PRESETS);
+    const { SYNCED_PRESETS } = await import("./interviewer/presets");
+    const r = await syncPresets(SYNCED_PRESETS);
     console.log(`[startup] presets synced: ${r.inserted} inserted, ${r.updated} updated, ${r.removed} removed`);
   } catch (err) {
     const { describeStartupFailure } = await import("./startupFailure");

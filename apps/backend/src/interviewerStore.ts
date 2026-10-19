@@ -8,6 +8,7 @@ import {
   type InterviewerInput,
   type InterviewerSummary,
 } from "./interviewer/schema";
+import { DESIGNER_ID } from "./interviewer/presets/designer";
 
 // Presets (source "preset", owner "system") are visible to every owner and writable by none.
 // A custom interviewer is visible only to its owner: every query below goes through visibleTo
@@ -112,10 +113,13 @@ function byName(a: InterviewerSummary, b: InterviewerSummary): number {
   return a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
 }
 
-/** Presets, then the owner's custom interviewers, each ordered by name. Corrupt rows are skipped. */
+/** Presets (except the hidden designer), then the owner's custom interviewers, each ordered by name. Corrupt rows are skipped. */
 export async function listInterviewers(ownerId: string): Promise<InterviewerSummary[]> {
   const rows = await prisma.interviewer.findMany({
-    where: { OR: [{ source: "preset", ownerId: SYSTEM_OWNER }, { source: "custom", ownerId }] },
+    where: {
+      id: { not: DESIGNER_ID },
+      OR: [{ source: "preset", ownerId: SYSTEM_OWNER }, { source: "custom", ownerId }],
+    },
   });
   const summaries = rows.flatMap((row) => {
     const def = toRecord(row);
@@ -196,6 +200,7 @@ export async function duplicateInterviewer(
   id: string,
   ownerId: string,
 ): Promise<InterviewerDefinition | null> {
+  if (id === DESIGNER_ID) return null;
   const source = await getInterviewer(id, ownerId);
   if (!source) return null;
   return createInterviewer(ownerId, { ...inputFields(source), name: copyName(source.name) });

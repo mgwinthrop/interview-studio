@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import express from "express";
 import type { InterviewerDefinition, InterviewerInput } from "../interviewer/schema";
-import { PRESETS } from "../interviewer/presets";
+import { PRESETS, SYNCED_PRESETS } from "../interviewer/presets";
 
 // The router is tested on a small Express app: the real authenticator in front (as app.ts
 // does), then the router. Owners are switched with a test-only header read by ownerOf.
@@ -427,5 +427,19 @@ describe("logging", () => {
     await call(base, "POST", `/${created.id}/duplicate`, "a");
     await call(base, "DELETE", `/${created.id}`, "a");
     expect(allLogText()).not.toContain("zebra");
+  });
+});
+
+describe("hidden designer preset", () => {
+  it("is not listed, is readable, and is not writable or duplicable", async () => {
+    await store.syncPresets(SYNCED_PRESETS);
+    const base = await start();
+    const list = await call(base, "GET", "", "a");
+    expect(list.status).toBe(200);
+    expect(list.text).not.toContain("interviewer-designer");
+    expect((await call(base, "GET", "/interviewer-designer", "a")).status).toBe(200);
+    expect((await call(base, "PUT", "/interviewer-designer", "a", { ...input("x"), version: 1 })).status).toBe(403);
+    expect((await call(base, "DELETE", "/interviewer-designer", "a")).status).toBe(403);
+    expect((await call(base, "POST", "/interviewer-designer/duplicate", "a")).status).toBe(404);
   });
 });

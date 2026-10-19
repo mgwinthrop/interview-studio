@@ -4,7 +4,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { InterviewerDefinition, InterviewerInput } from "../interviewer/schema";
-import { PRESETS } from "../interviewer/presets";
+import { PRESETS, SYNCED_PRESETS } from "../interviewer/presets";
+import { DESIGNER_ID } from "../interviewer/presets/designer";
 
 const backendDir = path.resolve(__dirname, "../..");
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -287,5 +288,27 @@ describe("syncPresets", () => {
       store.PresetValidationError,
     );
     expect(await prisma.interviewer.count({ where: { source: "preset" } })).toBe(PRESETS.length);
+  });
+});
+
+describe("hidden designer preset", () => {
+  beforeEach(async () => {
+    await store.syncPresets(SYNCED_PRESETS);
+  });
+
+  it("is not listed but can be fetched by any owner", async () => {
+    const list = await store.listInterviewers("a");
+    expect(list.map((s) => s.id).sort()).toEqual(PRESETS.map((p) => p.id).sort());
+    expect(list.map((s) => s.id)).not.toContain(DESIGNER_ID);
+    expect((await store.getInterviewer(DESIGNER_ID, "a"))?.id).toBe(DESIGNER_ID);
+    expect((await store.getInterviewer(DESIGNER_ID, "b"))?.id).toBe(DESIGNER_ID);
+  });
+
+  it("cannot be duplicated, updated or deleted", async () => {
+    const before = await prisma.interviewer.count();
+    expect(await store.duplicateInterviewer(DESIGNER_ID, "a")).toBeNull();
+    expect(await prisma.interviewer.count()).toBe(before);
+    expect((await store.updateInterviewer(DESIGNER_ID, "a", input(), 1)).status).toBe("preset");
+    expect(await store.deleteInterviewer(DESIGNER_ID, "a")).toBe("preset");
   });
 });
