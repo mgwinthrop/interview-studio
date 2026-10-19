@@ -45,9 +45,43 @@ describe("withDeadline", () => {
     const p = withDeadline(100, () => new Promise<string>((res) => (finish = res)));
     await vi.advanceTimersByTimeAsync(100);
     const r = await p;
-    finish("late");
-    await vi.advanceTimersByTimeAsync(10);
     expect(r).toEqual({ ok: false, why: "deadline reached" });
+    const seenResult = r;
+
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    try {
+      finish("late");
+      await vi.advanceTimersByTimeAsync(10);
+      expect(r).toBe(seenResult);
+      expect(r).toEqual({ ok: false, why: "deadline reached" });
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off("unhandledRejection", unhandled);
+    }
+  });
+
+  it("swallows a late rejection from work that ignores the abort", async () => {
+    vi.useFakeTimers();
+    let fail: (e: Error) => void = () => {};
+    const p = withDeadline(100, () => new Promise<string>((_res, rej) => (fail = rej)));
+    await vi.advanceTimersByTimeAsync(100);
+    const r = await p;
+    expect(r).toEqual({ ok: false, why: "deadline reached" });
+
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    try {
+      fail(new Error("late failure"));
+      await vi.advanceTimersByTimeAsync(10);
+      // Let Node's unhandled-rejection processing run before checking.
+      vi.useRealTimers();
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(r).toEqual({ ok: false, why: "deadline reached" });
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off("unhandledRejection", unhandled);
+    }
   });
 
   it("uses an unref'd timer and clears it when the work finishes", async () => {

@@ -958,9 +958,45 @@ describe("interviewer lookup at session start", () => {
     c.ws.close();
     await c.closed;
     release();
-    await vi.waitFor(() => expect(allLogText()).toContain("socket closed before start"));
+    await vi.waitFor(() => expect(allLogText()).toContain("[ws] socket closed before start: nothing created"));
     expect(c.messages).toHaveLength(0);
     expect(await prisma.session.count()).toBe(before);
+    expect(registry.countForOwner("local")).toBe(0);
+
+    const ok = connect(r);
+    await ok.startSession();
+    ok.ws.close();
+    await ok.closed;
+  });
+
+  it("a socket closed after the session row is created marks it abandoned and frees the slot", async () => {
+    let client: Client | undefined;
+    let createdId = "";
+    const persistSessionStatus = vi.fn(persistence.persistSessionStatus);
+    const persistSessionCreate = vi.fn(async (...args: Parameters<typeof persistence.persistSessionCreate>) => {
+      await persistence.persistSessionCreate(...args);
+      createdId = args[0];
+      // The client goes away once the row exists and before the controller attaches.
+      client!.ws.close();
+      await client!.closed;
+    });
+    const r = await start({
+      config: makeConfig({}, { limits: { maxConcurrentSessionsPerOwner: 1 } }),
+      persist: { ...persistence, persistSessionCreate, persistSessionStatus },
+    });
+    const c = connect(r);
+    client = c;
+    await c.opened;
+    c.send({ type: "session_start", interviewerId: INTERVIEWER });
+    await c.closed;
+    await vi.waitFor(() => expect(persistSessionStatus).toHaveBeenCalled());
+    expect(persistSessionCreate).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() =>
+      expect(allLogText()).toContain(`[session ${createdId}] socket closed before start: abandoned`),
+    );
+    expect(persistSessionStatus).toHaveBeenCalledWith(createdId, "abandoned");
+    expect(c.messages.some((m) => m.type === "session_started")).toBe(false);
+    expect((await prisma.session.findUnique({ where: { id: createdId } }))?.status).toBe("abandoned");
     expect(registry.countForOwner("local")).toBe(0);
 
     const ok = connect(r);
@@ -1639,7 +1675,9 @@ describe("POST /api/session/:sessionId/report/regenerate", () => {
     const lateGate = new Promise<void>((resolve) => (releaseLate = resolve));
     let lateDone!: () => void;
     const lateFinished = new Promise<void>((resolve) => (lateDone = resolve));
+    const completeFailedSession = vi.fn(persistence.completeFailedSession);
     const r = await start({
+      persist: { ...persistence, completeFailedSession },
       config: makeConfig({}, { limits: { reportTimeoutMs: 100 } }),
       customize: (p) => {
         p.llm.structured = (async (req: Parameters<Providers["llm"]["structured"]>[0], signal: AbortSignal) => {
@@ -1656,10 +1694,13 @@ describe("POST /api/session/:sessionId/report/regenerate", () => {
     const res = await regenerate(r, "rg-late");
     expect(res.status).toBe(502);
     expect(seen.signal?.aborted).toBe(true);
-    // The late result arrives after the deadline; let the event loop drain before checking.
+    // The late report resolves after the deadline response. lateFinished is the deterministic
+    // signal that it did; one macrotask then drains every promise continuation it triggered
+    // (a write attempt would call the spied completeFailedSession synchronously within them).
     releaseLate();
     await lateFinished;
-    for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(completeFailedSession).not.toHaveBeenCalled();
     expect(await statusOf("rg-late")).toBe("failed");
     expect(await prisma.report.count({ where: { sessionId: "rg-late" } })).toBe(0);
   });
@@ -1836,7 +1877,7 @@ describe("POST /api/interviewers/draft", () => {
   it("is refused without the shared token in token mode", async () => {
     const r = await start({ config: makeConfig({ AUTH_TOKEN: "secret-token-value-123456" }) });
     const res = await draft(r);
-    expect([401, 403]).toContain(res.status);
+    expect(res.status).toBe(401);
   });
 });
 
@@ -2193,7 +2234,7 @@ describe("designer and trial sessions over the WebSocket", () => {
     c.ws.close();
     await c.closed;
     release();
-    await vi.waitFor(() => expect(allLogText()).toContain("socket closed before start"));
+    await vi.waitFor(() => expect(allLogText()).toContain("[ws] socket closed before start: nothing created"));
     expect(c.messages).toHaveLength(0);
     expect(await rowCounts()).toEqual(before);
     expectNoWrites(spies);
