@@ -1,6 +1,7 @@
 // Interviewers come from the backend (GET /api/interviewers). Presets and custom
 // interviewers share one shape; the frontend never hard-codes their ids.
 import { apiUrl } from "./config";
+import { parseDraftInput } from "./interviewerForm";
 
 export interface InterviewerSummary {
   id: string;
@@ -207,8 +208,9 @@ export async function requestDraft(description: string): Promise<ApiResult<Inter
     { failedMessage: MESSAGES.draftFailed },
   );
   if (!r.ok) return r;
-  if (!isRecord(r.value) || !isRecord(r.value.draft)) {
-    return { ok: false, kind: "failed", message: MESSAGES.draftFailed };
-  }
-  return { ok: true, value: r.value.draft as unknown as InterviewerInput };
+  // The same shape check as a stored draft, so a malformed reply fails here instead of
+  // opening a blank editor later.
+  const draft = isRecord(r.value) ? parseDraftInput(r.value.draft) : null;
+  if (!draft) return { ok: false, kind: "failed", message: MESSAGES.draftFailed };
+  return { ok: true, value: draft };
 }

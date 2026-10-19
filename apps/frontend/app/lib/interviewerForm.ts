@@ -159,11 +159,23 @@ function parseShape(raw: unknown): InterviewerInput | null {
   };
 }
 
+/**
+ * The shape check used for stored drafts, for any other untrusted draft (the one-box reply).
+ * Null when the value is not an interviewer input of the expected shape.
+ */
+export function parseDraftInput(raw: unknown): InterviewerInput | null {
+  return parseShape(raw);
+}
+
+// Control characters (tab and newline included): browsers strip them from URLs, so
+// "/\t/evil.com" would become the protocol-relative "//evil.com".
+const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
+
 function safeReturnTo(v: unknown): string {
   // Same-site paths only; anything else falls back to the default.
   if (
     typeof v === "string" && v.length <= MAX_RETURN_TO_CHARS &&
-    v.startsWith("/") && !v.startsWith("//") && !v.includes("\\")
+    v.startsWith("/") && !v.startsWith("//") && !v.includes("\\") && !CONTROL_CHARS.test(v)
   ) {
     return v;
   }
@@ -171,14 +183,25 @@ function safeReturnTo(v: unknown): string {
 }
 
 /**
- * Keeps a draft for the next page (editor, or Try it). Storage can be unavailable or full; the
- * hand-off is then simply lost, and the receiving page opens blank.
+ * Keeps a draft for the next page (editor, or Try it). Returns false when storage is
+ * unavailable or full; the hand-off is then lost and the caller should say so.
  */
-export function storeDraft(input: InterviewerInput, returnTo?: string): void {
+export function storeDraft(input: InterviewerInput, returnTo?: string): boolean {
   try {
     window.sessionStorage.setItem(DRAFT_KEY, JSON.stringify({ input, returnTo: safeReturnTo(returnTo) }));
+    return true;
   } catch {
     // Private mode, quota or disabled storage.
+    return false;
+  }
+}
+
+/** Removes the stored draft (after it has been saved or discarded). */
+export function clearDraft(): void {
+  try {
+    window.sessionStorage.removeItem(DRAFT_KEY);
+  } catch {
+    // Nothing more to do.
   }
 }
 
