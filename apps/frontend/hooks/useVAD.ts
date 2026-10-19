@@ -43,6 +43,12 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
   const genRef = useRef(0);
   // The start in progress, so overlapping startMic calls share it instead of making a second VAD.
   const startingRef = useRef<Promise<void> | null>(null);
+  // True between unmount and the next mount: a late startMic (e.g. after audioQueue.resume())
+  // must open nothing. The effect below resets it so a StrictMode remount re-enables the hook.
+  const unmountedRef = useRef(false);
+  // A pause requested before or during a start applies to that start. Set by pauseMic, cleared
+  // by resumeMic and stopMic; startMic leaves it alone.
+  const pausedRef = useRef(false);
 
   // aiSpeakingRef — kept fresh so VAD closure always reads current value
   const aiSpeakingRef = useRef(false);
@@ -66,6 +72,7 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
   // Creates and starts the VAD for start generation `gen` (only startMic calls this).
   const loadVad = useCallback(async (gen: number): Promise<void> => {
     // The stream start() opens, so a start that fails or goes stale can always stop its tracks.
+    if (unmountedRef.current) return;
     let opened: MediaStream | null = null;
     const stopOpened = () => opened?.getTracks().forEach((t) => t.stop());
     const vad = await MicVAD.new({
@@ -142,7 +149,9 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
     // With startOnLoad false, MicVAD.new opens no microphone; start() does (getUserMedia).
     // vad-web's destroy() throws until start() has finished, so a stale VAD is only marked
     // destroyed here (it holds no stream yet), and start() is awaited before it is kept.
-    if (gen !== genRef.current) {
+    // vad-web has no supported release for a VAD that never started (destroy() throws before
+    // model.release()), so this path leaks one ONNX session per race; no microphone is involved.
+    if (gen !== genRef.current || unmountedRef.current) {
       vad.destroy().catch(() => {});
       return;
     }
@@ -150,7 +159,10 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
       await vad.start();
     } catch (err) {
       stopOpened(); // e.g. the worklet failed after the microphone opened
-      throw err;
+      if (gen !== genRef.current) return; // stale: stopMic/unmount already moved on
+      // Log the name only (e.g. NotAllowedError); startMic never rejects.
+      console.warn("Microphone start failed:", err instanceof Error ? err.name : "unknown");
+      return;
     }
     // Stopped (or unmounted) while the microphone was opening: close it now.
     if (gen !== genRef.current) {
@@ -159,10 +171,13 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
       return;
     }
     vadRef.current = vad;
+    // A pause requested while opening: keep the VAD but do not leave the mic live.
+    if (pausedRef.current) vad.pause().catch(() => {});
     setMicActive(true);
   }, []);
 
   const startMic = useCallback(async (): Promise<void> => {
+    if (unmountedRef.current) return;
     if (vadRef.current) return; // already initialised
     if (startingRef.current) return startingRef.current; // a start is already in progress
     const gen = ++genRef.current;
@@ -181,22 +196,27 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
     startingRef.current = null; // a start after this stop makes a new VAD, never reuses the stale one
     vadRef.current?.destroy().catch(() => {});
     vadRef.current = null;
+    pausedRef.current = false;
     setMicActive(false);
   }, []);
 
   const pauseMic = useCallback(() => {
-    vadRef.current?.pause();
+    pausedRef.current = true;
+    vadRef.current?.pause().catch(() => {});
   }, []);
 
   const resumeMic = useCallback(() => {
-    vadRef.current?.start();
+    pausedRef.current = false;
+    vadRef.current?.start().catch(() => {});
   }, []);
 
   // Clean up on unmount — bumping the generation gates callbacks so StrictMode's
   // first-unmount destroy doesn't cause stale callbacks to fire on remount, and a start
   // still loading destroys its VAD when it resolves.
   useEffect(() => {
+    unmountedRef.current = false;
     return () => {
+      unmountedRef.current = true;
       genRef.current++;
       startingRef.current = null;
       vadRef.current?.destroy().catch(() => {});
