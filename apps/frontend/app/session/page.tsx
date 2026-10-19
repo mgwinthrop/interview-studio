@@ -423,11 +423,11 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
       <PhaseStrip phases={phaseNames} currentPhase={currentPhase} />
 
       {/* Session header bar */}
-      <div className="session-header-bar" style={headerBarStyle}>
+      <header className="session-header-bar" style={headerBarStyle}>
         {/* Interviewer name */}
-        <span dir="auto" style={interviewerNameStyle}>
+        <h1 dir="auto" style={interviewerNameStyle}>
           {mode === "design" ? "Designing an interviewer" : interviewer.name}
-        </span>
+        </h1>
 
         {/* Session ID — hidden on mobile */}
         <span className="session-id-label" style={sessionIdStyle}>
@@ -444,7 +444,7 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
           {/* Demo badge */}
           {demo && <DemoBadge>DEMO MODE</DemoBadge>}
         </div>
-      </div>
+      </header>
 
       {mode === "try" && <TrialBanner />}
 

@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { apiUrl } from "../lib/config";
 import type { ReportView as ReportData } from "../lib/report";
 import { EARLIER_INTERVIEW_LABEL } from "../lib/interviewers";
 import { ReportV1Body } from "./report/ReportV1Body";
 import { ReportV2Body } from "./report/ReportV2Body";
+
+type Tab = "report" | "transcript";
+const TABS: readonly Tab[] = ["report", "transcript"];
 
 interface ReportViewProps {
   report: ReportData;
@@ -18,8 +21,24 @@ interface ReportViewProps {
 }
 
 export function ReportView({ report, interviewerName, sessionId, onNewSession, focusHeading }: ReportViewProps) {
-  const [activeTab, setActiveTab] = useState<"report" | "transcript">("report");
+  const [activeTab, setActiveTab] = useState<Tab>("report");
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const tabRefs = useRef<Record<Tab, HTMLButtonElement | null>>({ report: null, transcript: null });
+
+  // Arrow keys, Home and End move between the tabs (WAI-ARIA tabs pattern, automatic activation).
+  function onTabKeyDown(e: KeyboardEvent<HTMLButtonElement>) {
+    const i = TABS.indexOf(activeTab);
+    const next =
+      e.key === "ArrowRight" ? TABS[(i + 1) % TABS.length]
+      : e.key === "ArrowLeft" ? TABS[(i + TABS.length - 1) % TABS.length]
+      : e.key === "Home" ? TABS[0]
+      : e.key === "End" ? TABS[TABS.length - 1]
+      : null;
+    if (!next) return;
+    e.preventDefault();
+    setActiveTab(next);
+    tabRefs.current[next]?.focus();
+  }
 
   useEffect(() => {
     if (focusHeading) headingRef.current?.focus();
@@ -70,7 +89,7 @@ export function ReportView({ report, interviewerName, sessionId, onNewSession, f
           >
             Report
           </h1>
-          <p dir="auto" style={{ margin: "3px 0 0", fontSize: 13, color: "#6B7A8D", fontWeight: 400, overflowWrap: "anywhere" }}>
+          <p dir="auto" style={{ margin: "3px 0 0", fontSize: 13, color: "#566475", fontWeight: 400, overflowWrap: "anywhere" }}>
             {interviewerLabel}
             {headerDate ? ` — ${headerDate}` : ""}
           </p>
@@ -113,7 +132,7 @@ export function ReportView({ report, interviewerName, sessionId, onNewSession, f
               fontWeight: 700,
               letterSpacing: "0.1em",
               textTransform: "uppercase",
-              color: "#6B7A8D",
+              color: "#566475",
               marginBottom: 10,
             }}
           >
@@ -141,11 +160,11 @@ export function ReportView({ report, interviewerName, sessionId, onNewSession, f
               <span dir="auto" style={{ fontSize: 13, fontWeight: 700, color: "#087E8B", overflowWrap: "anywhere" }}>
                 {interviewerLabel}
               </span>
-              <span style={{ fontSize: 11, color: "#6B7A8D", fontWeight: 400, flexShrink: 0, marginLeft: 8 }}>
+              <span style={{ fontSize: 11, color: "#566475", fontWeight: 400, flexShrink: 0, marginLeft: 8 }}>
                 {cardDate}
               </span>
             </div>
-            <div style={{ fontSize: 11, color: "#6B7A8D", marginBottom: 8, fontWeight: 400 }}>
+            <div style={{ fontSize: 11, color: "#566475", marginBottom: 8, fontWeight: 400 }}>
               Report ready
             </div>
             {report.format === 1 && report.strengths.length > 0 && (
@@ -154,7 +173,7 @@ export function ReportView({ report, interviewerName, sessionId, onNewSession, f
                   fontSize: 10,
                   fontWeight: 600,
                   background: "#D8F0EC",
-                  color: "#087E8B",
+                  color: "#066C77",
                   padding: "2px 8px",
                   borderRadius: 999,
                 }}
@@ -173,7 +192,7 @@ export function ReportView({ report, interviewerName, sessionId, onNewSession, f
                   fontWeight: 700,
                   letterSpacing: "0.08em",
                   textTransform: "uppercase",
-                  color: "#6B7A8D",
+                  color: "#566475",
                   marginBottom: 10,
                   display: "flex",
                   alignItems: "center",
@@ -190,7 +209,7 @@ export function ReportView({ report, interviewerName, sessionId, onNewSession, f
                       fontSize: 11,
                       fontWeight: 500,
                       background: "#D8F0EC",
-                      color: "#087E8B",
+                      color: "#066C77",
                       padding: "4px 10px",
                       borderRadius: 999,
                       display: "inline-block",
@@ -208,6 +227,8 @@ export function ReportView({ report, interviewerName, sessionId, onNewSession, f
         <div className="report-content-panel" style={{ flex: 1, padding: "24px 32px", overflowY: "auto" }}>
           {/* Tabs */}
           <div
+            role="tablist"
+            aria-label="Report sections"
             style={{
               display: "inline-flex",
               background: "#E8EAF0",
@@ -216,16 +237,25 @@ export function ReportView({ report, interviewerName, sessionId, onNewSession, f
               marginBottom: 28,
             }}
           >
-            {(["report", "transcript"] as const).map((tab) => (
+            {TABS.map((tab) => (
               <button
                 key={tab}
+                ref={(el) => {
+                  tabRefs.current[tab] = el;
+                }}
+                role="tab"
+                id={`report-tab-${tab}`}
+                aria-selected={activeTab === tab}
+                aria-controls="report-tabpanel"
+                tabIndex={activeTab === tab ? 0 : -1}
                 onClick={() => setActiveTab(tab)}
+                onKeyDown={onTabKeyDown}
                 style={{
                   padding: "7px 18px",
                   borderRadius: 6,
                   border: "none",
                   background: activeTab === tab ? "#102B33" : "transparent",
-                  color: activeTab === tab ? "#FFFFFF" : "#6B7A8D",
+                  color: activeTab === tab ? "#FFFFFF" : "#566475",
                   fontSize: 13,
                   fontWeight: 600,
                   cursor: "pointer",
@@ -239,42 +269,44 @@ export function ReportView({ report, interviewerName, sessionId, onNewSession, f
             ))}
           </div>
 
-          {/* ── Report tab ── */}
-          {activeTab === "report" && report.format === 2 && <ReportV2Body report={report} />}
-          {activeTab === "report" && report.format === 1 && <ReportV1Body report={report} />}
+          <div role="tabpanel" id="report-tabpanel" aria-labelledby={`report-tab-${activeTab}`} tabIndex={0}>
+            {/* ── Report tab ── */}
+            {activeTab === "report" && report.format === 2 && <ReportV2Body report={report} />}
+            {activeTab === "report" && report.format === 1 && <ReportV1Body report={report} />}
 
-          {/* ── Transcript tab ── */}
-          {activeTab === "transcript" && (
-            <div style={{ maxWidth: 680 }}>
-              <p style={{ fontSize: 15, color: "#6B7A8D", fontWeight: 400, margin: "0 0 20px" }}>
-                Download the full session transcript as a text file.
-              </p>
-              {apiUrl ? (
-                <a
-                  href={`${apiUrl}/api/session/${encodeURIComponent(sessionId)}/transcript`}
-                  download
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    display: "inline-block",
-                    padding: "12px 24px",
-                    borderRadius: 8,
-                    background: "#087E8B",
-                    color: "#FFFFFF",
-                    fontSize: 14,
-                    fontWeight: 600,
-                    textDecoration: "none",
-                  }}
-                >
-                  Download Transcript
-                </a>
-              ) : (
-                <p style={{ fontSize: 14, color: "#E9784A", margin: 0 }}>
-                  Transcript download unavailable — API URL not configured.
+            {/* ── Transcript tab ── */}
+            {activeTab === "transcript" && (
+              <div style={{ maxWidth: 680 }}>
+                <p style={{ fontSize: 15, color: "#566475", fontWeight: 400, margin: "0 0 20px" }}>
+                  Download the full session transcript as a text file.
                 </p>
-              )}
-            </div>
-          )}
+                {apiUrl ? (
+                  <a
+                    href={`${apiUrl}/api/session/${encodeURIComponent(sessionId)}/transcript`}
+                    download
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: "inline-block",
+                      padding: "12px 24px",
+                      borderRadius: 8,
+                      background: "#087E8B",
+                      color: "#FFFFFF",
+                      fontSize: 14,
+                      fontWeight: 600,
+                      textDecoration: "none",
+                    }}
+                  >
+                    Download Transcript
+                  </a>
+                ) : (
+                  <p style={{ fontSize: 14, color: "#B03E14", margin: 0 }}>
+                    Transcript download unavailable — API URL not configured.
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

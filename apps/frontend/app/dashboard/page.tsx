@@ -28,7 +28,7 @@ function ClipboardIcon() {
       height="40"
       viewBox="0 0 24 24"
       fill="none"
-      stroke="#6B7A8D"
+      stroke="#566475"
       strokeWidth="1.5"
       strokeLinecap="round"
       strokeLinejoin="round"
@@ -52,7 +52,7 @@ function CenteredMessage({ children }: { children: React.ReactNode }) {
         justifyContent: "center",
         fontSize: 14,
         fontWeight: 500,
-        color: "#6B7A8D",
+        color: "#566475",
       }}
     >
       {children}
@@ -203,7 +203,7 @@ export default function DashboardPage() {
       <Nav />
 
       {/* Page header */}
-      <div
+      <header
         style={{
           padding: "18px 28px 14px",
           background: "#FFFFFF",
@@ -226,17 +226,17 @@ export default function DashboardPage() {
           style={{
             margin: "4px 0 0",
             fontSize: 13,
-            color: "#6B7A8D",
+            color: "#566475",
             fontWeight: 400,
           }}
         >
           Completed conversations and their reports
         </p>
-      </div>
+      </header>
 
       {/* Body: empty state or two-column layout */}
       {isEmptyDashboard ? (
-        <div
+        <main
           style={{
             flex: 1,
             display: "flex",
@@ -261,7 +261,7 @@ export default function DashboardPage() {
             <div
               style={{
                 fontSize: 14,
-                color: "#6B7A8D",
+                color: "#566475",
                 fontWeight: 400,
                 marginBottom: 20,
               }}
@@ -285,9 +285,9 @@ export default function DashboardPage() {
               Start a conversation →
             </button>
           </div>
-        </div>
+        </main>
       ) : (
-        <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+        <main style={{ display: "flex", flex: 1, overflow: "hidden" }}>
           {/* Left: session list (260px fixed) */}
           <div
             style={{
@@ -304,7 +304,7 @@ export default function DashboardPage() {
                 style={{
                   padding: "24px 8px",
                   fontSize: 13,
-                  color: "#6B7A8D",
+                  color: "#566475",
                 }}
               >
                 Loading…
@@ -363,7 +363,7 @@ export default function DashboardPage() {
                       style={{
                         fontSize: 12,
                         fontWeight: 500,
-                        color: "#6B7A8D",
+                        color: "#566475",
                         marginBottom: s.hasReport ? 6 : 0,
                       }}
                     >
@@ -461,18 +461,18 @@ export default function DashboardPage() {
               <CenteredMessage>No report available for this session.</CenteredMessage>
             )}
           </div>
-        </div>
+        </main>
       )}
 
       {/* Footer stats bar */}
-      <div
+      <footer
         style={{
           padding: "12px 20px",
           background: "#FFFFFF",
           borderTop: "0.5px solid #E2E6EA",
           fontSize: 13,
           fontWeight: 500,
-          color: "#6B7A8D",
+          color: "#566475",
           display: "flex",
           gap: 8,
           alignItems: "center",
@@ -492,7 +492,7 @@ export default function DashboardPage() {
             <span>avg {avgMinutes}m</span>
           </>
         )}
-      </div>
+      </footer>
     </div>
   );
 }

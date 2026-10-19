@@ -212,7 +212,7 @@ export function TextInputBar({
   onSend: () => void;
 }) {
   return (
-    <div className="session-text-input-bar" style={textInputBarStyle}>
+    <section aria-label="Text input" className="session-text-input-bar" style={textInputBarStyle}>
       <input
         type="text"
         aria-label="Type your message"
@@ -226,7 +226,7 @@ export function TextInputBar({
       <button onClick={onSend} style={textSendStyle}>
         Send
       </button>
-    </div>
+    </section>
   );
 }
 
@@ -279,12 +279,12 @@ export function SessionFooter({
         style={endButtonStyle(designNotReady)}
         onMouseEnter={(e) => {
           if (designNotReady) return;
-          (e.currentTarget as HTMLButtonElement).style.background = "#E9784A";
+          (e.currentTarget as HTMLButtonElement).style.background = "#B03E14";
           (e.currentTarget as HTMLButtonElement).style.color = "#fff";
         }}
         onMouseLeave={(e) => {
           (e.currentTarget as HTMLButtonElement).style.background = "transparent";
-          (e.currentTarget as HTMLButtonElement).style.color = "#E9784A";
+          (e.currentTarget as HTMLButtonElement).style.color = "#B03E14";
         }}
       >
         {mode === "design"

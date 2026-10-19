@@ -24,7 +24,7 @@ export const overlayTitleStyle: CSSProperties = {
 };
 export const overlayBodyStyle: CSSProperties = {
   fontSize: 16,
-  color: "#6B7A8D",
+  color: "#A9B7C4",
   margin: 0,
   textAlign: "center",
   maxWidth: 400,
@@ -44,7 +44,7 @@ export const loadingStyle: CSSProperties = {
   justifyContent: "center",
   height: "100vh",
   background: "#F4F5F1",
-  color: "#6B7A8D",
+  color: "#566475",
   fontSize: 16,
 };
 
@@ -68,12 +68,13 @@ export const headerBarStyle: CSSProperties = {
   flexShrink: 0,
 };
 export const interviewerNameStyle: CSSProperties = {
+  margin: 0,
   fontSize: 15,
   fontWeight: 700,
   color: "#000000",
   overflowWrap: "anywhere",
 };
-export const sessionIdStyle: CSSProperties = { fontSize: 11, color: "#6B7A8D", fontFamily: "monospace" };
+export const sessionIdStyle: CSSProperties = { fontSize: 11, color: "#566475", fontFamily: "monospace" };
 export const timerStyle: CSSProperties = {
   fontSize: 20,
   fontWeight: 600,
@@ -137,7 +138,7 @@ export const sttToastStyle: CSSProperties = {
   borderRadius: 8,
   padding: "10px 20px",
   fontSize: 14,
-  color: "#CF370B",
+  color: "#A8380F",
   fontWeight: 500,
   pointerEvents: "none",
   zIndex: 10,
@@ -194,7 +195,7 @@ export function typeToggleStyle(on: boolean): CSSProperties {
     borderRadius: 8,
     border: `1px solid ${on ? "#087E8B" : "#E2E6EA"}`,
     background: on ? "#D8F0EC" : "transparent",
-    color: on ? "#087E8B" : "#6B7A8D",
+    color: on ? "#066C77" : "#566475",
     fontSize: 14,
     fontWeight: 500,
     cursor: "pointer",
@@ -207,9 +208,9 @@ export function pauseButtonStyle(paused: boolean): CSSProperties {
   return {
     padding: "10px 24px",
     borderRadius: 8,
-    border: `1px solid ${paused ? "#087E8B" : "#6B7A8D"}`,
+    border: `1px solid ${paused ? "#087E8B" : "#566475"}`,
     background: paused ? "#087E8B" : "transparent",
-    color: paused ? "#FFFFFF" : "#6B7A8D",
+    color: paused ? "#FFFFFF" : "#566475",
     fontSize: 14,
     fontWeight: 600,
     cursor: "pointer",
@@ -225,9 +226,9 @@ export function endButtonStyle(disabled: boolean): CSSProperties {
   return {
     padding: "10px 24px",
     borderRadius: 8,
-    border: "1px solid #E9784A",
+    border: "1px solid #B03E14",
     background: "transparent",
-    color: "#E9784A",
+    color: "#B03E14",
     fontSize: 14,
     fontWeight: 600,
     cursor: "pointer",

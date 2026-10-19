@@ -19,7 +19,8 @@ export function PhaseStrip({ phases, currentPhase }: PhaseStripProps) {
   const currentIndex = phases.indexOf(currentPhase);
 
   return (
-    <div
+    <section
+      aria-label="Interview phases"
       className="phase-strip-root"
       style={{
         display: "flex",
@@ -74,7 +75,7 @@ export function PhaseStrip({ phases, currentPhase }: PhaseStripProps) {
                     ? "#087E8B"
                     : isActive
                     ? "#000000"
-                    : "#9BA5B4",
+                    : "#566475",
                   transition: "color 0.3s ease",
                   whiteSpace: "nowrap",
                   fontFamily: "var(--font-manrope), sans-serif",
@@ -102,6 +103,6 @@ export function PhaseStrip({ phases, currentPhase }: PhaseStripProps) {
         );
       })}
       </div>
-    </div>
+    </section>
   );
 }

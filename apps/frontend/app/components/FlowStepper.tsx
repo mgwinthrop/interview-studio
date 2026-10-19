@@ -15,7 +15,8 @@ interface FlowStepperProps {
 
 export function FlowStepper({ currentStep }: FlowStepperProps) {
   return (
-    <div
+    <nav
+      aria-label="Progress"
       style={{
         background: "#102B33",
         borderBottom: "1px solid rgba(255,255,255,0.06)",
@@ -32,6 +33,7 @@ export function FlowStepper({ currentStep }: FlowStepperProps) {
         return (
           <div
             key={n}
+            aria-current={isActive ? "step" : undefined}
             style={{
               display: "flex",
               alignItems: "center",
@@ -40,7 +42,7 @@ export function FlowStepper({ currentStep }: FlowStepperProps) {
               background: isActive ? "rgba(255,255,255,0.10)" : "transparent",
               fontSize: 13,
               fontWeight: isActive ? 600 : 400,
-              color: isActive ? "#FFFFFF" : "#4A5568",
+              color: isActive ? "#FFFFFF" : "#B4C0CB",
               whiteSpace: "nowrap",
               fontFamily: "var(--font-manrope), sans-serif",
             }}
@@ -49,6 +51,6 @@ export function FlowStepper({ currentStep }: FlowStepperProps) {
           </div>
         );
       })}
-    </div>
+    </nav>
   );
 }

@@ -143,10 +143,10 @@ function ReportPageInner() {
     return (
       <Shell>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
-          <p style={{ fontSize: 18, color: "#6B7A8D", margin: 0, fontWeight: 500 }}>
+          <p style={{ fontSize: 18, color: "#566475", margin: 0, fontWeight: 500 }}>
             Generating your report…
           </p>
-          <p style={{ fontSize: 14, color: "#6B7A8D", margin: 0, fontWeight: 400 }}>
+          <p style={{ fontSize: 14, color: "#566475", margin: 0, fontWeight: 400 }}>
             This usually takes a few seconds.
           </p>
         </div>
@@ -161,7 +161,7 @@ function ReportPageInner() {
           <p style={{ fontSize: 20, fontWeight: 700, color: "#E8BB61", margin: 0 }}>
             Session Ended Without a Report
           </p>
-          <p style={{ fontSize: 16, color: "#6B7A8D", margin: 0, textAlign: "center", maxWidth: 400 }}>
+          <p style={{ fontSize: 16, color: "#566475", margin: 0, textAlign: "center", maxWidth: 400 }}>
             The session was too short to generate a report, or it ended unexpectedly.
           </p>
           <button onClick={() => router.push("/")} style={backButtonStyle}>
@@ -235,10 +235,10 @@ function ReportPageInner() {
     return (
       <Shell>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
-          <p style={{ fontSize: 20, fontWeight: 700, color: "#E9784A", margin: 0 }}>
+          <p style={{ fontSize: 20, fontWeight: 700, color: "#B03E14", margin: 0 }}>
             Report Not Found
           </p>
-          <p style={{ fontSize: 16, color: "#6B7A8D", margin: 0 }}>
+          <p style={{ fontSize: 16, color: "#566475", margin: 0 }}>
             Could not retrieve the session report.
           </p>
           <button onClick={() => router.push("/")} style={backButtonStyle}>
@@ -261,13 +261,15 @@ function ReportPageInner() {
     >
       <Nav />
       <FlowStepper currentStep={4} />
-      <ReportView
-        report={report!}
-        interviewerName={report!.interviewerName}
-        sessionId={sessionId}
-        onNewSession={() => router.push("/mic-check")}
-        focusHeading={regenerated}
-      />
+      <main>
+        <ReportView
+          report={report!}
+          interviewerName={report!.interviewerName}
+          sessionId={sessionId}
+          onNewSession={() => router.push("/mic-check")}
+          focusHeading={regenerated}
+        />
+      </main>
     </div>
   );
 }
@@ -277,7 +279,7 @@ export default function ReportPage() {
   return (
     <Suspense fallback={
       <Shell>
-        <p style={{ fontSize: 18, color: "#6B7A8D", margin: 0, fontWeight: 500 }}>
+        <p style={{ fontSize: 18, color: "#566475", margin: 0, fontWeight: 500 }}>
           Loading…
         </p>
       </Shell>
@@ -347,7 +349,7 @@ const messageHeadingStyle: React.CSSProperties = {
 
 const messageTextStyle: React.CSSProperties = {
   fontSize: 16,
-  color: "#6B7A8D",
+  color: "#566475",
   margin: 0,
   textAlign: "center",
   lineHeight: 1.5,
@@ -359,7 +361,7 @@ const backButtonStyle: React.CSSProperties = {
   borderRadius: 8,
   border: "1px solid #E2E6EA",
   background: "transparent",
-  color: "#6B7A8D",
+  color: "#566475",
   fontSize: 14,
   fontWeight: 600,
   cursor: "pointer",

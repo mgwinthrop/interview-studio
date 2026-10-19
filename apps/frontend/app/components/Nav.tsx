@@ -10,6 +10,7 @@ interface NavProps {
 export function Nav({ demo }: NavProps) {
   return (
     <nav
+      aria-label="Main"
       className="nav-root"
       style={{
         display: "flex",

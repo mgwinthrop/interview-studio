@@ -40,7 +40,7 @@ export function DeliverySection({
         {/* Omitted (no empty frame) when the server dropped a reading that failed its number check. */}
         {delivery.reading !== undefined && (
           <SubSection title="In plain words">
-            <p style={{ margin: "0 0 8px", fontSize: 13, color: "#6B7A8D", lineHeight: 1.5 }}>
+            <p style={{ margin: "0 0 8px", fontSize: 13, color: "#566475", lineHeight: 1.5 }}>
               A written reading of the numbers above. It is an interpretation, not a measurement.
             </p>
             <p dir="auto" style={{ ...panelStyle, margin: 0, borderLeft: "4px solid #087E8B" }}>
@@ -113,7 +113,7 @@ function DeliveryNumbers({ summary }: { summary: DeliverySummaryView }) {
           fontSize: 14,
         }}
       >
-        <caption style={{ textAlign: "left", fontSize: 13, color: "#6B7A8D", padding: "0 0 8px", lineHeight: 1.5 }}>
+        <caption style={{ textAlign: "left", fontSize: 13, color: "#566475", padding: "0 0 8px", lineHeight: 1.5 }}>
           Measured from your spoken answers
         </caption>
         <tbody>
@@ -141,7 +141,7 @@ function DeliveryNumbers({ summary }: { summary: DeliverySummaryView }) {
         </tbody>
       </table>
       {anyNotMeasured && (
-        <p style={{ margin: "8px 0 0", fontSize: 12, color: "#6B7A8D", lineHeight: 1.5 }}>
+        <p style={{ margin: "8px 0 0", fontSize: 12, color: "#566475", lineHeight: 1.5 }}>
           <span aria-hidden="true">—</span> means not measured, for example when an answer was too short to time.
         </p>
       )}

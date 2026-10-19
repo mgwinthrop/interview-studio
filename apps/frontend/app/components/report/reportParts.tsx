@@ -20,7 +20,7 @@ export function SubSection({ title, children }: { title: string; children: React
           fontWeight: 700,
           letterSpacing: "0.12em",
           textTransform: "uppercase",
-          color: "#6B7A8D",
+          color: "#566475",
           margin: "0 0 12px",
         }}
       >
@@ -40,7 +40,7 @@ export function Section({ title, children }: { title: string; children: ReactNod
           fontWeight: 700,
           letterSpacing: "0.12em",
           textTransform: "uppercase",
-          color: "#6B7A8D",
+          color: "#566475",
           margin: "0 0 12px",
         }}
       >

@@ -62,6 +62,7 @@ export default function HomePage() {
       <Nav />
       <FlowStepper currentStep={2} />
 
+      <main>
       {/* Hero */}
       <div
         className="hero-section"
@@ -98,7 +99,7 @@ export default function HomePage() {
         <p
           style={{
             fontSize: 18,
-            color: "#6B7A8D",
+            color: "#566475",
             maxWidth: 480,
             lineHeight: 1.6,
             margin: "0 auto",
@@ -261,7 +262,7 @@ export default function HomePage() {
                 padding: "12px 0",
                 borderRadius: 8,
                 border: "1px solid #087E8B",
-                color: "#087E8B",
+                color: "#066C77",
                 fontSize: 15,
                 fontWeight: 600,
                 textAlign: "center",
@@ -273,6 +274,7 @@ export default function HomePage() {
           </div>
         )}
       </div>
+      </main>
     </div>
   );
 }

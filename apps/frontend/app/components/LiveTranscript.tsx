@@ -16,7 +16,7 @@ function Avatar({ role }: { role: "user" | "assistant" }) {
         height: 24,
         borderRadius: "50%",
         background: role === "assistant" ? "#102B33" : "#E2E6EA",
-        color: role === "assistant" ? "#FFFFFF" : "#6B7A8D",
+        color: role === "assistant" ? "#FFFFFF" : "#566475",
         fontSize: 10,
         fontWeight: 700,
         display: "flex",
@@ -97,7 +97,7 @@ export function LiveTranscript({ entries, aiSpeaking }: LiveTranscriptProps) {
             <span style={{ fontSize: 16, fontWeight: 700, color: "#000000" }}>
               Live transcript
             </span>
-            <span style={{ fontSize: 12, color: "#6B7A8D", fontWeight: 400 }}>
+            <span style={{ fontSize: 12, color: "#566475", fontWeight: 400 }}>
               {exchangeCount} {exchangeCount === 1 ? "exchange" : "exchanges"}
             </span>
           </div>
@@ -106,7 +106,7 @@ export function LiveTranscript({ entries, aiSpeaking }: LiveTranscriptProps) {
               style={{
                 fontSize: 12,
                 fontWeight: 600,
-                color: "#087E8B",
+                color: "#066C77",
                 background: "#D8F0EC",
                 padding: "3px 10px",
                 borderRadius: 999,
@@ -135,7 +135,7 @@ export function LiveTranscript({ entries, aiSpeaking }: LiveTranscriptProps) {
         {entries.length === 0 && (
           <div
             style={{
-              color: "#6B7A8D",
+              color: "#566475",
               fontSize: 18,
               fontStyle: "italic",
               textAlign: "center",
@@ -162,7 +162,7 @@ export function LiveTranscript({ entries, aiSpeaking }: LiveTranscriptProps) {
                       fontWeight: 600,
                       letterSpacing: "0.08em",
                       textTransform: "uppercase",
-                      color: "#6B7A8D",
+                      color: "#566475",
                     }}
                   >
                     Participant
@@ -198,12 +198,12 @@ export function LiveTranscript({ entries, aiSpeaking }: LiveTranscriptProps) {
                       fontWeight: 600,
                       letterSpacing: "0.08em",
                       textTransform: "uppercase",
-                      color: "#6B7A8D",
+                      color: "#566475",
                     }}
                   >
                     Interviewer Speaking
                   </span>
-                  <Chip label="Current Question" bg="#D8F0EC" color="#087E8B" />
+                  <Chip label="Current Question" bg="#D8F0EC" color="#066C77" />
                 </div>
                 <div
                   style={{
@@ -246,12 +246,12 @@ export function LiveTranscript({ entries, aiSpeaking }: LiveTranscriptProps) {
                     fontWeight: 600,
                     letterSpacing: "0.08em",
                     textTransform: "uppercase",
-                    color: "#6B7A8D",
+                    color: "#566475",
                   }}
                 >
                   Interviewer
                 </span>
-                <Chip label="Completed" bg="#F0F2F5" color="#6B7A8D" />
+                <Chip label="Completed" bg="#F0F2F5" color="#566475" />
               </div>
               <div
                 style={{
@@ -261,7 +261,7 @@ export function LiveTranscript({ entries, aiSpeaking }: LiveTranscriptProps) {
                   border: "0.5px solid #E2E6EA",
                   fontSize: 14,
                   lineHeight: 1.6,
-                  color: "#6B7A8D",
+                  color: "#566475",
                   fontWeight: 400,
                   wordBreak: "break-word",
                 }}

@@ -30,7 +30,7 @@ export function FailureMessage({ failure, form }: { failure: Failure; form: Form
   if (failure.kind === "not_found") {
     return (
       <p style={bodyStyle}>
-        {NOT_FOUND_MESSAGE} <Link href={LIST_PATH} style={{ color: "#087E8B", fontWeight: 700 }}>All interviewers</Link>
+        {NOT_FOUND_MESSAGE} <Link href={LIST_PATH} style={{ color: "#066C77", fontWeight: 700 }}>All interviewers</Link>
       </p>
     );
   }
@@ -46,7 +46,7 @@ export function FailureMessage({ failure, form }: { failure: Failure; form: Form
           const text = label ? `${label}: ${e.message}` : e.message;
           return (
             <li key={i} style={{ ...bodyStyle, marginBottom: 4 }}>
-              {target ? <a href={`#${target}`} style={{ color: "#087E8B", fontWeight: 600 }}>{text}</a> : text}
+              {target ? <a href={`#${target}`} style={{ color: "#066C77", fontWeight: 600 }}>{text}</a> : text}
             </li>
           );
         })}

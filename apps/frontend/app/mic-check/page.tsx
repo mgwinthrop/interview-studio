@@ -184,7 +184,7 @@ export default function MicCheckPage() {
       <FlowStepper currentStep={1} />
 
       {/* Main content */}
-      <div className="mic-check-content" style={{ flex: 1, padding: "48px 32px 48px", maxWidth: 800, margin: "0 auto", width: "100%" }}>
+      <main className="mic-check-content" style={{ flex: 1, padding: "48px 32px 48px", maxWidth: 800, margin: "0 auto", width: "100%" }}>
         {/* Heading */}
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <h1
@@ -199,7 +199,7 @@ export default function MicCheckPage() {
           >
             Test your microphone
           </h1>
-          <p style={{ fontSize: 16, color: "#6B7A8D", margin: 0, fontWeight: 400 }}>
+          <p style={{ fontSize: 16, color: "#566475", margin: 0, fontWeight: 400 }}>
             Enable your mic to begin the conversation
           </p>
         </div>
@@ -239,7 +239,7 @@ export default function MicCheckPage() {
               borderRadius: 10,
               padding: "16px 20px",
               fontSize: 14,
-              color: "#CF370B",
+              color: "#A8380F",
               lineHeight: 1.6,
               marginBottom: 24,
             }}
@@ -344,7 +344,7 @@ export default function MicCheckPage() {
                   borderRadius: 8,
                   border: "1.5px solid #087E8B",
                   background: "#FFFFFF",
-                  color: "#087E8B",
+                  color: "#066C77",
                   fontSize: 14,
                   fontWeight: 600,
                   cursor: "pointer",
@@ -358,7 +358,7 @@ export default function MicCheckPage() {
                 style={{
                   marginTop: 12,
                   fontSize: 13,
-                  color: "#6B7A8D",
+                  color: "#566475",
                   fontWeight: 400,
                   textAlign: "center",
                 }}
@@ -379,7 +379,7 @@ export default function MicCheckPage() {
                   fontSize: 11,
                   fontWeight: 600,
                   letterSpacing: "0.04em",
-                  color: "#6B7A8D",
+                  color: "#566475",
                   background: "#F0F2F5",
                   padding: "2px 8px",
                   borderRadius: 999,
@@ -389,7 +389,7 @@ export default function MicCheckPage() {
               </span>
             </div>
 
-            <p style={{ fontSize: 14, color: "#6B7A8D", margin: "0 0 16px", lineHeight: 1.6, fontWeight: 400 }}>
+            <p style={{ fontSize: 14, color: "#566475", margin: "0 0 16px", lineHeight: 1.6, fontWeight: 400 }}>
               Record a quick test and listen back to confirm your audio is clear.
             </p>
 
@@ -446,10 +446,10 @@ export default function MicCheckPage() {
                     : "#FFFFFF",
                 color:
                   recordState === "recording"
-                    ? "#CF370B"
+                    ? "#A8380F"
                     : recordState === "playing"
-                    ? "#087E8B"
-                    : "#6B7A8D",
+                    ? "#066C77"
+                    : "#566475",
                 fontSize: 14,
                 fontWeight: 600,
                 cursor: isActive && recordState === "idle" ? "pointer" : "default",
@@ -475,7 +475,7 @@ export default function MicCheckPage() {
             borderRadius: 10,
             border: "none",
             background: isActive ? "#000000" : "#D9D9D9",
-            color: isActive ? "#FFFFFF" : "#6B7A8D",
+            color: isActive ? "#FFFFFF" : "#566475",
             fontSize: 16,
             fontWeight: 600,
             cursor: isActive ? "pointer" : "default",
@@ -486,7 +486,7 @@ export default function MicCheckPage() {
         >
           Mic check complete — continue →
         </button>
-      </div>
+      </main>
     </div>
   );
 }

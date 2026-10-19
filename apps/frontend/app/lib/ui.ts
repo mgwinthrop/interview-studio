@@ -18,6 +18,6 @@ export const primaryButtonStyle: CSSProperties = {
 export const secondaryButtonStyle: CSSProperties = {
   ...primaryButtonStyle,
   background: "#FFFFFF",
-  color: "#087E8B",
+  color: "#066C77",
   border: "1px solid #087E8B",
 };

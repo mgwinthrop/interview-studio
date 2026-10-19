@@ -443,7 +443,7 @@ function Editor({ source }: { source: Source }) {
 
   return (
     <Shell>
-      <Link href={LIST_PATH} style={{ fontSize: 14, color: "#087E8B", fontWeight: 600 }}>
+      <Link href={LIST_PATH} style={{ fontSize: 14, color: "#066C77", fontWeight: 600 }}>
         ← All interviewers
       </Link>
       <h1 dir="auto" style={{ fontSize: 30, fontWeight: 800, color: "#102B33", margin: "12px 0 8px", letterSpacing: "-0.02em", overflowWrap: "anywhere" }}>
