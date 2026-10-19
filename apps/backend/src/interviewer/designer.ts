@@ -139,10 +139,16 @@ const FINAL_LINE = `Return only the JSON object. No preamble or markdown formatt
 /** Fixed text only: no user or model text is ever part of the system prompt. */
 const SYSTEM_PROMPT = [DRAFT_INTRO, MATERIAL, FIELDS, RULES, JSON_SHAPE, FINAL_LINE].join("\n\n");
 
-/** One line per turn, newlines collapsed so a turn cannot forge a speaker line; keeps the tail. */
+/**
+ * Every character that can read as a line break: CR, LF, VT, FF, NEL, LINE SEPARATOR and
+ * PARAGRAPH SEPARATOR. Written as escapes on purpose (LS and PS end a line in source code too).
+ */
+const LINE_BREAKS = /[\r\n\u000B\u000C\u0085\u2028\u2029]+/g;
+
+/** One line per turn, line breaks collapsed so a turn cannot forge a speaker line; keeps the tail. */
 function conversationMessage(turns: readonly DraftTurn[]): string {
   const lines = turns.map(
-    (t) => `${t.role === "user" ? "Person" : "Designer"}: ${t.content.replace(/[\r\n]+/g, " ")}`,
+    (t) => `${t.role === "user" ? "Person" : "Designer"}: ${t.content.replace(LINE_BREAKS, " ")}`,
   );
   const kept: string[] = [];
   let length = 0;

@@ -2010,16 +2010,19 @@ describe("designer and trial sessions over the WebSocket", () => {
     expect(logs).not.toContain("Okapi");
   });
 
-  it("a trial session with no user turn still ends complete", async () => {
-    const r = await start();
+  it("a trial session with no user turn still ends complete, sends no draft and writes nothing", async () => {
+    const { persist, spies } = spiedPersist();
+    const r = await start({ persist });
     const before = await rowCounts();
     const c = connect(r);
     await startWith(c, { draft: trialDraft() });
     await c.assistantFinal();
     c.send({ type: "session_end" });
     await c.next((m) => m.type === "session_complete");
-    expect((await c.closed).code).toBe(1000);
+    expect(await c.closed).toEqual({ code: 1000, reason: "session complete" });
+    expect(c.messages.some((m) => m.type === "draft")).toBe(false);
     expect(await rowCounts()).toEqual(before);
+    expectNoWrites(spies);
   });
 
   const over = (n: number) => "x".repeat(n + 1);
