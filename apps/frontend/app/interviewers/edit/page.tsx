@@ -4,6 +4,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
+  DESIGNER_ID,
   createInterviewer,
   deleteInterviewer,
   duplicateInterviewer,
@@ -21,7 +22,6 @@ import {
   inputFromDetail,
   peekDraft,
   storeDraft,
-  takeDraft,
 } from "../../lib/interviewerForm";
 import { startVoiceSession } from "../../lib/voiceSession";
 import { ErrorText, TextField, hintStyle, primaryButtonStyle, secondaryButtonStyle } from "./FieldRow";
@@ -62,7 +62,7 @@ function editPathFor(id: string): string {
 // duplicate the page remounts, so local state does not survive the move).
 let pendingNotice: { id: string; text: string } | null = null;
 
-type Source = { kind: "id"; id: string } | { kind: "draft"; take: boolean } | { kind: "blank" };
+type Source = { kind: "id"; id: string } | { kind: "draft" } | { kind: "blank" };
 
 type Loaded = {
   form: FormState;
@@ -99,8 +99,8 @@ function Editor({ source }: { source: Source }) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [focusToken, setFocusToken] = useState(0);
   const messageRef = useRef<HTMLDivElement>(null);
-  // The stored draft is read once per mount: takeDraft removes it, and StrictMode runs effects
-  // twice, so the second run must not read again (it would find nothing and blank the form).
+  // The stored draft is read once per mount: StrictMode runs effects twice, and the second run
+  // must not set the form again (edits typed in between would be overwritten).
   const draftReadRef = useRef(false);
 
   const form = loaded?.form ?? null;
@@ -123,9 +123,10 @@ function Editor({ source }: { source: Source }) {
     if (source.kind === "draft") {
       if (draftReadRef.current) return;
       draftReadRef.current = true;
-      // From the designer the draft is taken; back from Try it it is only peeked, so a second
-      // Try it (or a reload) still finds it.
-      const stored = source.take ? takeDraft() : peekDraft();
+      // The draft is only peeked (from the designer and back from Try it alike), so leaving the
+      // page by a link and coming back, a second Try it, or a reload still finds it. A Save
+      // clears it (see save()).
+      const stored = peekDraft();
       const f = formFromInput(stored ? stored.input : emptyInput());
       setLoaded({ form: f, baseline: f, record: null, putVersion: null, note: stored ? "draft" : "draft_missing" });
       setLoadState("ready");
@@ -136,7 +137,8 @@ function Editor({ source }: { source: Source }) {
     fetchInterviewer(source.id)
       .then((found) => {
         if (cancelled) return;
-        if (!found) {
+        // The hidden designer is not an interviewer anyone can view, edit or duplicate here.
+        if (!found || found.id === DESIGNER_ID) {
           setLoadState("not_found");
           return;
         }
@@ -533,7 +535,7 @@ function EditorPageInner() {
   const source: Source = id
     ? { kind: "id", id }
     : from === "design" || from === "draft"
-      ? { kind: "draft", take: from === "design" }
+      ? { kind: "draft" }
       : { kind: "blank" };
   // A new URL (after create or duplicate) is a new form: remount so every state starts fresh.
   return <Editor key={`${id ?? ""}|${from ?? ""}`} source={source} />;

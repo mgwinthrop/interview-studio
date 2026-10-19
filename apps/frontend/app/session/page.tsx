@@ -110,7 +110,10 @@ function LoadingScreen() {
 function SessionPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const mode = parseMode(searchParams.get("mode"));
+  // The designer's id always means design mode (the server runs a designer session for it,
+  // which ends in a draft, never a report), even on a link without mode=design.
+  const mode: SessionMode =
+    searchParams.get("interviewerId") === DESIGNER_ID ? "design" : parseMode(searchParams.get("mode"));
   // Links from before interviewers existed have no interviewerId, so they redirect home below.
   // Design mode always talks to the designer, whatever id the link carries.
   const interviewerId = mode === "design" ? DESIGNER_ID : searchParams.get("interviewerId") ?? "";
