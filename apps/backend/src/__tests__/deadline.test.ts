@@ -46,14 +46,16 @@ describe("withDeadline", () => {
     await vi.advanceTimersByTimeAsync(100);
     const r = await p;
     expect(r).toEqual({ ok: false, why: "deadline reached" });
-    const seenResult = r;
+    // A serialised copy taken before the late settle: a later mutation of r cannot alter it.
+    const before = JSON.stringify(r);
 
     const unhandled = vi.fn();
     process.on("unhandledRejection", unhandled);
     try {
       finish("late");
       await vi.advanceTimersByTimeAsync(10);
-      expect(r).toBe(seenResult);
+      expect(JSON.stringify(r)).toBe(before);
+      expect(r).not.toHaveProperty("value");
       expect(r).toEqual({ ok: false, why: "deadline reached" });
       expect(unhandled).not.toHaveBeenCalled();
     } finally {
