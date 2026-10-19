@@ -37,8 +37,12 @@ interface UseVADReturn {
 export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, getResponseGapMs }: UseVADOptions): UseVADReturn {
   const [micActive, setMicActive] = useState(false);
   const vadRef = useRef<Awaited<ReturnType<typeof MicVAD.new>> | null>(null);
-  // Guards against StrictMode double-mount: callbacks check this before acting
-  const destroyedRef = useRef(false);
+  // Start generation: each startMic takes a new one, and stopMic/unmount bump it. A VAD whose
+  // generation is no longer current is stale: its callbacks do nothing, and if it finishes
+  // loading after a stop it is destroyed at once, so its microphone track never stays live.
+  const genRef = useRef(0);
+  // The start in progress, so overlapping startMic calls share it instead of making a second VAD.
+  const startingRef = useRef<Promise<void> | null>(null);
 
   // aiSpeakingRef — kept fresh so VAD closure always reads current value
   const aiSpeakingRef = useRef(false);
@@ -59,10 +63,8 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
   // True when the interviewer was speaking as this utterance began (a barge-in): no gap is reported.
   const startedDuringAiSpeechRef = useRef(false);
 
-  const startMic = useCallback(async () => {
-    if (vadRef.current) return; // already initialised
-    destroyedRef.current = false; // reset on (re)start
-
+  // Creates and starts the VAD for start generation `gen` (only startMic calls this).
+  const loadVad = useCallback(async (gen: number): Promise<void> => {
     const vad = await MicVAD.new({
       // Worklet bundle + ONNX model served from public/ (copied by next.config.mjs)
       baseAssetPath: "/",
@@ -91,7 +93,7 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
       startOnLoad: false,
 
       onSpeechStart() {
-        if (destroyedRef.current) return;
+        if (gen !== genRef.current) return;
         speechStartedAtRef.current = performance.now();
         startedDuringAiSpeechRef.current = aiSpeakingRef.current;
         // Only interrupt when AI is currently speaking — echo cancellation prevents
@@ -103,7 +105,7 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
       },
 
       onSpeechEnd(audio: Float32Array) {
-        if (destroyedRef.current) return;
+        if (gen !== genRef.current) return;
         // Convert Float32 → PCM16 little-endian (spec §5.1)
         const pcm16 = new Int16Array(audio.length);
         for (let i = 0; i < audio.length; i++) {
@@ -125,19 +127,40 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
       },
 
       onVADMisfire() {
+        if (gen !== genRef.current) return;
         // Short non-speech burst — ignore (spec §5.2); just drop the recorded start
         speechStartedAtRef.current = null;
         startedDuringAiSpeechRef.current = false;
       },
     });
 
+    // Stopped (or unmounted) while loading: release this VAD and its microphone now.
+    if (gen !== genRef.current) {
+      vad.destroy();
+      return;
+    }
     vadRef.current = vad;
     vad.start();
     setMicActive(true);
   }, []);
 
+  const startMic = useCallback(async (): Promise<void> => {
+    if (vadRef.current) return; // already initialised
+    if (startingRef.current) return startingRef.current; // a start is already in progress
+    const gen = ++genRef.current;
+    const starting = loadVad(gen);
+    startingRef.current = starting;
+    try {
+      await starting;
+    } finally {
+      // stopMic may have dropped this start already, and a newer one may have replaced it.
+      if (startingRef.current === starting) startingRef.current = null;
+    }
+  }, [loadVad]);
+
   const stopMic = useCallback(() => {
-    destroyedRef.current = true;
+    genRef.current++; // stale-marks any start still loading and the current VAD's callbacks
+    startingRef.current = null; // a start after this stop makes a new VAD, never reuses the stale one
     vadRef.current?.destroy();
     vadRef.current = null;
     setMicActive(false);
@@ -151,11 +174,13 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
     vadRef.current?.start();
   }, []);
 
-  // Clean up on unmount — destroyedRef gates callbacks so StrictMode's
-  // first-unmount destroy doesn't cause stale callbacks to fire on remount
+  // Clean up on unmount — bumping the generation gates callbacks so StrictMode's
+  // first-unmount destroy doesn't cause stale callbacks to fire on remount, and a start
+  // still loading destroys its VAD when it resolves.
   useEffect(() => {
     return () => {
-      destroyedRef.current = true;
+      genRef.current++;
+      startingRef.current = null;
       vadRef.current?.destroy();
       vadRef.current = null;
     };
