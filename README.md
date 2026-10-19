@@ -2,7 +2,7 @@
 
 Interview Studio helps you find your voice through guided conversation and helpful feedback. An AI interviewer asks questions, explores your answers and gives you space to develop what you want to say. After the conversation, review the transcript and a written reflection, including how you delivered your answers, to see what came across and what you want to explore further.
 
-The tool supports different kinds of conversations: exploring an idea, telling a story, rehearsing an interview or working through a point of view. It is evolving toward letting you create your own interviewers to suit the conversation and feedback you need.
+The tool supports different kinds of conversations: exploring an idea, telling a story, rehearsing an interview or working through a point of view. You can also create your own interviewers to suit the conversation and feedback you need.
 
 ## Available today
 
@@ -12,7 +12,7 @@ The current prototype includes four preset interviewers: Tell a story, Explain a
 - An animated interviewer with listening, thinking, speaking and connection states.
 - Transcripts and session history stored in a local SQLite database. Audio is never stored.
 - A three-part report: Content (what you said), Delivery (pace, pauses, answer length and time to start answering, measured in code from word timings, with a plain-language reading) and Next steps. Filler-word counts are off by default (`REPORT_FILLER_COUNTS=1` shows them). A failed report can be regenerated from the report page.
-- A backend API for custom interviewers (purpose, voice, phase lengths and feedback switches); the app has no editor for them yet.
+- Custom interviewers (purpose, persona, style, phases and their lengths, focus and feedback switches), created by talking to a designer, from a one-line description or from a blank form, then reviewed, tried, edited, duplicated or deleted on the Interviewers page.
 - Responsive layouts, accessible state labels and reduced-motion support.
 
 Animation follows actual audio playback; it does not provide phoneme-level lip sync.
@@ -24,9 +24,15 @@ Animation follows actual audio playback; it does not provide phoneme-level lip s
 3. Respond to follow-up questions, take your time, or interrupt to clarify a point.
 4. Review the transcript and report to decide what you want to express differently or explore next.
 
-## Planned: design your own interviewers in the app
+## Create your own interviewers
 
-The backend already stores custom interviewers (up to 50 per owner), but creating one in the application is not available yet. The direction is a designer that lets you shape an interviewer's purpose, conversational style and feedback focus.
+Open **Interviewers** in the navigation. There are three ways to start:
+
+- **Talk it through**: a short conversation with a designer who asks what you want the interviewer for, then makes a draft. You can speak or type.
+- **Describe it**: write a sentence or two about the interviewer you want and get a draft back.
+- **Start from a blank form**: fill in every field yourself.
+
+A draft opens in the editor for review. **Try it** runs a practice conversation with the interviewer as it stands in the form, without saving it. Neither Try it nor the designer stores anything: no session, transcript or report is kept, and they do not appear in your history. Nothing is saved until you press **Save**. Presets cannot be changed; duplicate one to make your own copy. You can keep up to 50 custom interviewers.
 
 The goal is to help you find your own voice and receive useful feedback on the conversation, rather than prescribe one correct way to speak.
 

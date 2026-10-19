@@ -1,6 +1,6 @@
 # Interview Studio
 
-A tool for finding your voice through guided conversation and helpful feedback. The current prototype has four preset interviewers, and the backend can store custom interviewers through its API; there is no interviewer editor in the app yet. Keep changes within this repository.
+A tool for finding your voice through guided conversation and helpful feedback. The current prototype has four preset interviewers, and custom interviewers can be created in the app (through a designer conversation, a one-box description or a blank form) and are stored through the backend API. Keep changes within this repository.
 
 - Preserve existing attribution. Never commit credentials, real transcripts, databases or company deployment identifiers.
 - Keep the preset interviewer IDs (`tell-a-story`, `explain-an-idea`, `rehearse-an-interview`, `work-out-a-point-of-view`) and the existing audio/WebSocket protocol stable unless a task explicitly changes them.
