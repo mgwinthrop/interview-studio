@@ -87,7 +87,11 @@ function allLogText(): string {
 const servers: http.Server[] = [];
 
 async function start(
-  opts: { env?: Record<string, string>; store?: typeof import("../interviewerStore") } = {},
+  opts: {
+    env?: Record<string, string>;
+    store?: typeof import("../interviewerStore");
+    makeDraft?: import("../interviewerRoutes").InterviewerRouterDeps["makeDraft"];
+  } = {},
 ): Promise<string> {
   const config = configMod.loadConfig({ PROFILE: "mock", DATABASE_URL: dbUrl, ...opts.env });
   const authenticate = auth.createAuthenticator(config);
@@ -105,6 +109,7 @@ async function start(
     "/api/interviewers",
     routes.createInterviewerRouter({
       store: opts.store ?? store,
+      makeDraft: opts.makeDraft ?? (async () => ({ ok: true, draft: input("Drafted") })),
       ownerOf: (res) => {
         const h = res.req.headers["x-test-owner"];
         return typeof h === "string" ? h : (res.locals.ownerId as string);
@@ -441,5 +446,75 @@ describe("hidden designer preset", () => {
     expect((await call(base, "PUT", "/interviewer-designer", "a", { ...input("x"), version: 1 })).status).toBe(403);
     expect((await call(base, "DELETE", "/interviewer-designer", "a")).status).toBe(403);
     expect((await call(base, "POST", "/interviewer-designer/duplicate", "a")).status).toBe(404);
+  });
+});
+
+describe("POST /draft", () => {
+  const DESC = `${SENTINEL} I want an interviewer that helps me practise pitching.`;
+
+  it("returns the draft from makeDraft and passes owner and description", async () => {
+    const makeDraft = vi.fn(async () => ({ ok: true as const, draft: input("Drafted") }));
+    const base = await start({ makeDraft });
+    const r = await call(base, "POST", "/draft", "a", { description: `  ${DESC}  ` });
+    expect(r.status).toBe(200);
+    expect(r.json).toEqual({ draft: input("Drafted") });
+    expect(makeDraft).toHaveBeenCalledWith("a", DESC);
+    expect(allLogText()).toContain("[http] drafted interviewer (200)");
+    expect(allLogText()).not.toContain(SENTINEL);
+  });
+
+  it("is not shadowed by the /:id routes", async () => {
+    const base = await start();
+    expect((await call(base, "POST", "/draft", "a", { description: DESC })).status).toBe(200);
+  });
+
+  it.each([
+    ["an array body", [SENTINEL]],
+    ["no description", { other: SENTINEL }],
+    ["a non-string description", { description: { text: SENTINEL } }],
+    ["an empty description", { description: "" }],
+    ["a whitespace description", { description: "   \n  " }],
+    ["a control character", { description: `${SENTINEL}\u0007bell` }],
+    ["an over-long description", { description: SENTINEL + "x".repeat(4000) }],
+  ])("%s is 422 and never echoed", async (_n, body) => {
+    const makeDraft = vi.fn();
+    const base = await start({ makeDraft });
+    const r = await call(base, "POST", "/draft", "a", body);
+    expect(r.status).toBe(422);
+    const errors = (r.json as { errors: { path: string; message: string }[] }).errors;
+    expect(errors.length).toBeGreaterThan(0);
+    if (!Array.isArray(body) && typeof body === "object") expect(errors[0].path).toBe("description");
+    expect(r.text).not.toContain(SENTINEL);
+    expect(makeDraft).not.toHaveBeenCalled();
+  });
+
+  it("accepts newlines in the description", async () => {
+    const base = await start();
+    const r = await call(base, "POST", "/draft", "a", { description: `${DESC}\nSecond line.` });
+    expect(r.status).toBe(200);
+  });
+
+  it("maps 429 and 502 to fixed bodies", async () => {
+    const busy = await start({ makeDraft: async () => ({ ok: false, status: 429 }) });
+    const r429 = await call(busy, "POST", "/draft", "a", { description: DESC });
+    expect(r429.status).toBe(429);
+    expect(r429.json).toEqual({ error: "a draft is already being made" });
+    const failed = await start({ makeDraft: async () => ({ ok: false, status: 502 }) });
+    const r502 = await call(failed, "POST", "/draft", "a", { description: DESC });
+    expect(r502.status).toBe(502);
+    expect(r502.json).toEqual({ error: "Draft generation failed" });
+    expect(allLogText()).not.toContain(SENTINEL);
+  });
+
+  it("a thrown makeDraft is a fixed 500", async () => {
+    const base = await start({
+      makeDraft: async () => {
+        throw new Error(SENTINEL);
+      },
+    });
+    const r = await call(base, "POST", "/draft", "a", { description: DESC });
+    expect(r.status).toBe(500);
+    expect(r.text).not.toContain(SENTINEL);
+    expect(allLogText()).not.toContain(SENTINEL);
   });
 });

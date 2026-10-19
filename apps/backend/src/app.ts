@@ -7,7 +7,9 @@ import { WebSocket, WebSocketServer, type RawData } from "ws";
 import { createAuthenticator } from "./auth";
 import type { Config } from "./config";
 import prisma from "./db";
-import { createInterviewerRouter } from "./interviewerRoutes";
+import { withDeadline } from "./deadline";
+import { createInterviewerRouter, type InterviewerRouterDeps } from "./interviewerRoutes";
+import { generateDraft } from "./interviewer/designer";
 import type { InterviewerDefinition } from "./interviewer/schema";
 import * as interviewerStore from "./interviewerStore";
 import * as persistence from "./persistence";
@@ -126,6 +128,35 @@ function refuseRegenerate(res: express.Response, sessionId: string, why: string)
   res.status(409).json({ error: "report cannot be regenerated" });
 }
 
+/**
+ * The one-box draft maker behind POST /api/interviewers/draft. One draft per owner at a time
+ * (an in-memory set, taken before the first await and released in finally); the call is bounded
+ * by limits.reportTimeoutMs. A DraftError, a provider error or a timeout is 502; the cause is
+ * logged by class name only, never the description or the draft.
+ */
+export function createDraftMaker(
+  config: Config,
+  llm: Providers["llm"],
+): InterviewerRouterDeps["makeDraft"] {
+  const drafting = new Set<string>();
+  return async (ownerId, text) => {
+    if (drafting.has(ownerId)) return { ok: false, status: 429 };
+    drafting.add(ownerId);
+    try {
+      const outcome = await withDeadline(config.limits.reportTimeoutMs, (signal) =>
+        generateDraft({ kind: "description", text }, llm, signal),
+      );
+      if (!outcome.ok) {
+        console.error(`[http] draft interviewer 502: ${outcome.why}`);
+        return { ok: false, status: 502 };
+      }
+      return { ok: true, draft: outcome.value };
+    } finally {
+      drafting.delete(ownerId);
+    }
+  };
+}
+
 export function createApp(deps: AppDeps): App {
   const { config, providers } = deps;
   const persist = deps.persist ?? persistence;
@@ -150,7 +181,10 @@ export function createApp(deps: AppDeps): App {
     next();
   });
 
-  app.use("/api/interviewers", createInterviewerRouter({ store: interviewers, ownerOf }));
+  app.use(
+    "/api/interviewers",
+    createInterviewerRouter({ store: interviewers, ownerOf, makeDraft: createDraftMaker(config, providers.llm) }),
+  );
 
   app.get(
     "/health",
@@ -293,25 +327,12 @@ export function createApp(deps: AppDeps): App {
     turns: ConversationTurn[],
     interviewer: InterviewerDefinition,
   ): Promise<{ ok: true; report: ReportV2 } | { ok: false; why: string }> {
-    const abort = new AbortController();
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const deadline = new Promise<"timeout">((resolve) => {
-      timer = setTimeout(() => resolve("timeout"), config.limits.reportTimeoutMs);
-      if (typeof timer === "object" && typeof timer.unref === "function") timer.unref();
-    });
-    const work = generateReport(turns, interviewer, providers.llm, abort.signal, {
-      showFillerCounts: config.reportFillerCounts,
-    }).then(
-      (report) => ({ ok: true as const, report }),
-      (err: unknown) => ({ ok: false as const, why: errName(err) }),
+    const outcome = await withDeadline(config.limits.reportTimeoutMs, (signal) =>
+      generateReport(turns, interviewer, providers.llm, signal, {
+        showFillerCounts: config.reportFillerCounts,
+      }),
     );
-    const outcome = await Promise.race([work, deadline]);
-    if (timer) clearTimeout(timer);
-    if (outcome === "timeout") {
-      abort.abort();
-      return { ok: false, why: "deadline reached" };
-    }
-    return outcome;
+    return outcome.ok ? { ok: true, report: outcome.value } : outcome;
   }
 
   app.delete(

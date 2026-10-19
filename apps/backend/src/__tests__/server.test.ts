@@ -1713,3 +1713,155 @@ describe("POST /api/session/:sessionId/report/regenerate", () => {
     expect(logs).not.toContain("wombat");
   });
 });
+
+describe("POST /api/interviewers/draft", () => {
+  const DRAFT_SENTINEL = "quagga-lighthouse-draft";
+  const DESCRIPTION = `${DRAFT_SENTINEL} an interviewer that helps me rehearse a hard conversation with my manager.`;
+  const VALID_DRAFT = {
+    name: "Hard conversation",
+    purpose: "Rehearse a difficult talk with a manager.",
+    persona: "You are a calm, direct coach.",
+    style: "You ask one short question at a time.",
+    opening: "Greet the person and ask what they need to say.",
+    closing: "Thank them and say the reflection will follow.",
+    phases: [
+      { name: "Set up", instruction: "Ask what the talk is about.", minTurns: 1, maxTurns: 2 },
+      { name: "Practise", instruction: "Ask them to say it out loud.", minTurns: 2, maxTurns: 4 },
+      { name: "Wrap up", instruction: "Ask what they will do next." },
+    ],
+    focus: ["How clearly they say the hard part"],
+    contentFeedback: true,
+    deliveryFeedback: true,
+  };
+
+  function draft(r: Running, description: unknown = DESCRIPTION): Promise<Response> {
+    return fetch(`${r.base}/api/interviewers/draft`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ description }),
+    });
+  }
+
+  async function ownedCount(): Promise<number> {
+    return prisma.interviewer.count({ where: { ownerId: "local" } });
+  }
+
+  it("returns a draft that POST /api/interviewers then accepts, and the draft call writes nothing", async () => {
+    const r = await start({ script: { structured: VALID_DRAFT } });
+    const before = await prisma.interviewer.count();
+    const res = await draft(r);
+    expect(res.status).toBe(200);
+    const { draft: body } = (await res.json()) as { draft: Record<string, unknown> };
+    expect(await prisma.interviewer.count()).toBe(before);
+
+    const saved = await fetch(`${r.base}/api/interviewers`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    expect(saved.status).toBe(201);
+    const created = (await saved.json()) as InterviewerDefinition;
+    createdCustom.push(created.id);
+    for (const [k, v] of Object.entries(body)) expect(created[k as keyof InterviewerDefinition]).toEqual(v);
+  });
+
+  it("a second concurrent draft gets 429 while the first is in flight, then the lock is released", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((res) => (release = res));
+    let n = 0;
+    const r = await start({
+      customize: (p) => {
+        p.llm.structured = (async (req: Parameters<Providers["llm"]["structured"]>[0]) => {
+          n += 1;
+          if (n === 1) await gate;
+          return req.schema.parse(VALID_DRAFT);
+        }) as Providers["llm"]["structured"];
+      },
+    });
+    const first = draft(r);
+    await vi.waitFor(() => expect(n).toBe(1));
+    const second = await draft(r);
+    expect(second.status).toBe(429);
+    expect(await second.json()).toEqual({ error: "a draft is already being made" });
+    release();
+    expect((await first).status).toBe(200);
+    expect((await draft(r)).status).toBe(200);
+  });
+
+  it("a failing LLM is 502 with a fixed body, releases the lock, and logs no text", async () => {
+    let failing = true;
+    const { customize } = structuredWith(async (_n, req) => {
+      if (failing) throw new Error(`${DRAFT_SENTINEL} provider error text`);
+      return req.schema.parse(VALID_DRAFT);
+    });
+    const r = await start({ customize });
+    const res = await draft(r);
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ error: "Draft generation failed" });
+    failing = false;
+    expect((await draft(r)).status).toBe(200);
+    expect(allLogText()).not.toContain(DRAFT_SENTINEL);
+  });
+
+  it("too short a description is 502 (the designer refuses it) and a hung LLM is cut at the deadline", async () => {
+    const r = await start({ script: { structured: VALID_DRAFT } });
+    expect((await draft(r, "hi")).status).toBe(502);
+    const hung = structuredWith(() => new Promise<never>(() => {}));
+    const r2 = await start({ config: makeConfig({}, { limits: { reportTimeoutMs: 150 } }), customize: hung.customize });
+    const res = await draft(r2);
+    expect(res.status).toBe(502);
+    expect((await draft(r2)).status).toBe(502);
+  });
+
+  it("an invalid description is 422 and nothing is echoed", async () => {
+    const r = await start({ script: { structured: VALID_DRAFT } });
+    const res = await draft(r, "   ");
+    expect(res.status).toBe(422);
+    expect(await ownedCount()).toBe(0);
+  });
+
+  it("is refused without the shared token in token mode", async () => {
+    const r = await start({ config: makeConfig({ AUTH_TOKEN: "secret-token-value-123456" }) });
+    const res = await draft(r);
+    expect([401, 403]).toContain(res.status);
+  });
+});
+
+describe("createDraftMaker", () => {
+  it("locks per owner: the same owner is 429, another owner is not blocked", async () => {
+    const { createDraftMaker } = await import("../app");
+    let release: () => void = () => {};
+    const gate = new Promise<void>((res) => (release = res));
+    let n = 0;
+    const providers = mockMod.createMockProviders({ structured: {} });
+    providers.llm.structured = (async (req: Parameters<Providers["llm"]["structured"]>[0]) => {
+      n += 1;
+      if (n === 1) await gate;
+      return req.schema.parse({
+        name: "N",
+        purpose: "P",
+        persona: "You are calm.",
+        style: "Short questions.",
+        opening: "Greet them.",
+        closing: "Thank them.",
+        phases: [
+          { name: "One", instruction: "Ask.", minTurns: 1, maxTurns: 2 },
+          { name: "Two", instruction: "Ask more." },
+        ],
+        focus: [],
+        contentFeedback: true,
+        deliveryFeedback: true,
+      });
+    }) as Providers["llm"]["structured"];
+    const make = createDraftMaker(makeConfig(), providers.llm);
+    const text = "an interviewer that helps me rehearse a hard conversation";
+    const a1 = make("owner-a", text);
+    await vi.waitFor(() => expect(n).toBe(1));
+    expect(await make("owner-a", text)).toEqual({ ok: false, status: 429 });
+    const b = await make("owner-b", text);
+    expect(b.ok).toBe(true);
+    release();
+    expect((await a1).ok).toBe(true);
+    expect((await make("owner-a", text)).ok).toBe(true);
+  });
+});
