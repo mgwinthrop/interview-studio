@@ -12,7 +12,8 @@ import { tmpdir } from "node:os";
 import type { AddressInfo } from "node:net";
 import path from "node:path";
 import WebSocket from "ws";
-import { PRESETS } from "../interviewer/presets";
+import { DESIGNER_ID, PRESETS, SYNCED_PRESETS } from "../interviewer/presets";
+import { parseInterviewerInput } from "../interviewer/schema";
 import type { Providers } from "../providers/types";
 
 const backendDir = path.resolve(__dirname, "../..");
@@ -53,7 +54,7 @@ beforeAll(async () => {
   mockMod = await import("../providers/mock");
   prisma = (await import("../db")).default;
   const { syncPresets } = await import("../interviewerStore");
-  await syncPresets(PRESETS);
+  await syncPresets(SYNCED_PRESETS);
 }, 60_000);
 
 afterAll(async () => {
@@ -234,6 +235,58 @@ describe("keyless conversation", () => {
       // Greeting and two replies are stored; the interrupted reply is not.
       expect(await prisma.conversationTurn.count({ where: { sessionId, role: "assistant" } })).toBe(3);
       expect(await prisma.conversationTurn.count({ where: { sessionId, role: "user" } })).toBe(3);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("runs a designer conversation: greeting, two typed turns, a draft, then session_complete; stores nothing", async () => {
+    const DRAFT = {
+      name: "Pitch coach",
+      purpose: "Practise a two-minute product pitch.",
+      persona: "You are a calm, curious pitch coach.",
+      style: "You ask one short question at a time.",
+      opening: "Greet the person and ask what they are pitching.",
+      closing: "Thank the person and say the reflection will follow.",
+      phases: [
+        { name: "Warm up", instruction: "Ask an easy opening question.", minTurns: 1, maxTurns: 2 },
+        { name: "Wrap up", instruction: "Ask what they take away." },
+      ],
+      focus: ["Clarity of the main point"],
+      contentFeedback: true,
+      deliveryFeedback: true,
+    };
+    const counts = async () => [
+      await prisma.session.count(),
+      await prisma.conversationTurn.count(),
+      await prisma.report.count(),
+    ];
+    const config = configMod.loadConfig({ PROFILE: "mock", DATABASE_URL: dbUrl });
+    const providers = mockMod.createMockProviders({ llmReplies: [REPLY], structured: DRAFT });
+    const app = appMod.createApp({ config, providers });
+    await new Promise<void>((resolve) => app.server.listen(0, "127.0.0.1", resolve));
+    const { port } = app.server.address() as AddressInfo;
+    const before = await counts();
+
+    try {
+      const c = new Recorder(`ws://127.0.0.1:${port}/`);
+      await c.open();
+      c.send({ type: "session_start", interviewerId: DESIGNER_ID });
+      await c.until("tts_end");
+      expect(c.messages[0].type).toBe("session_started");
+      c.send({ type: "text_input", content: TEXT_1 });
+      await c.until("tts_end", c.log.length);
+      c.send({ type: "text_input", content: TEXT_2 });
+      await c.until("tts_end", c.log.length);
+      c.send({ type: "session_end" });
+      await c.until("session_complete");
+      expect(await c.closed).toBe(1000);
+
+      expect(c.log.slice(-2)).toEqual(["draft", "session_complete"]);
+      const draft = c.messages.find((m) => m.type === "draft")?.draft;
+      expect(parseInterviewerInput(draft).ok).toBe(true);
+      expect(draft).toEqual(DRAFT);
+      expect(await counts()).toEqual(before);
     } finally {
       await app.close();
     }

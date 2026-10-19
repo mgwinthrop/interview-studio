@@ -7,8 +7,13 @@ import type { AddressInfo } from "node:net";
 import path from "node:path";
 import WebSocket from "ws";
 import type { Config } from "../config";
-import { PRESETS } from "../interviewer/presets";
-import type { InterviewerDefinition, InterviewerInput } from "../interviewer/schema";
+import { DESIGNER_ID, PRESETS, SYNCED_PRESETS } from "../interviewer/presets";
+import {
+  INTERVIEWER_LIMITS,
+  parseInterviewerInput,
+  type InterviewerDefinition,
+  type InterviewerInput,
+} from "../interviewer/schema";
 import type { MockScript } from "../providers/mock";
 import type { Providers } from "../providers/types";
 
@@ -55,7 +60,7 @@ beforeAll(async () => {
   registry = await import("../sessionRegistry");
   store = await import("../interviewerStore");
   prisma = (await import("../db")).default;
-  await store.syncPresets(PRESETS);
+  await store.syncPresets(SYNCED_PRESETS);
 }, 60_000);
 
 afterAll(async () => {
@@ -1871,5 +1876,335 @@ describe("createDraftMaker", () => {
     release();
     expect((await a1).ok).toBe(true);
     expect((await make("owner-a", text)).ok).toBe(true);
+  });
+});
+
+// ── Designer and Try it (ephemeral sessions) ─────────────────────────────────
+
+describe("designer and trial sessions over the WebSocket", () => {
+  // Sentinel text that must never reach the logs.
+  const TRIAL_PERSONA = "You are okapi-trial-persona, a warm and patient listener.";
+  const TRIAL_PHASES = ["okapi-trial-one", "okapi-trial-two", "okapi-trial-three"];
+
+  /** A valid interviewer input: three phases ending after 1 and 1 more user turn in demo mode. */
+  function trialDraft(): InterviewerInput {
+    return {
+      name: "Okapi trial name",
+      purpose: "Okapi trial purpose.",
+      persona: TRIAL_PERSONA,
+      style: "Okapi trial style.",
+      opening: "Okapi trial opening.",
+      closing: "Okapi trial closing.",
+      phases: [
+        { name: TRIAL_PHASES[0], instruction: "Okapi trial first.", minTurns: 1, maxTurns: 3 },
+        { name: TRIAL_PHASES[1], instruction: "Okapi trial second.", minTurns: 1, maxTurns: 3 },
+        { name: TRIAL_PHASES[2], instruction: "Okapi trial last." },
+      ],
+      focus: ["Okapi trial focus"],
+      contentFeedback: true,
+      deliveryFeedback: false,
+    };
+  }
+
+  /** What the mock model returns for the designer's draft call. */
+  const DESIGNED: InterviewerInput = {
+    ...trialDraft(),
+    name: "Pitch coach",
+    persona: "You are a calm, curious pitch coach.",
+  };
+
+  async function rowCounts() {
+    return {
+      sessions: await prisma.session.count(),
+      turns: await prisma.conversationTurn.count(),
+      reports: await prisma.report.count(),
+    };
+  }
+
+  /** The real persistence module with every write spied on, so a test can assert none ran. */
+  function spiedPersist() {
+    const spies = {
+      persistSessionCreate: vi.fn(persistence.persistSessionCreate),
+      persistSessionStatus: vi.fn(persistence.persistSessionStatus),
+      persistTurn: vi.fn(persistence.persistTurn),
+      persistPhaseTransition: vi.fn(persistence.persistPhaseTransition),
+      persistReport: vi.fn(persistence.persistReport),
+    };
+    return { persist: { ...persistence, ...spies }, spies };
+  }
+
+  function expectNoWrites(spies: ReturnType<typeof spiedPersist>["spies"]): void {
+    for (const s of Object.values(spies)) expect(s).not.toHaveBeenCalled();
+  }
+
+  async function startWith(c: Client, fields: Record<string, unknown>): Promise<string> {
+    await c.opened;
+    c.send({ type: "session_start", ...fields });
+    const started = await c.next((m) => m.type === "session_started");
+    return started.sessionId as string;
+  }
+
+  it("a designer session: greeting, two typed turns, then draft, session_complete, close 1000; nothing is written", async () => {
+    const { persist, spies } = spiedPersist();
+    const r = await start({ script: { structured: DESIGNED }, persist });
+    const before = await rowCounts();
+    const c = connect(r);
+    const id = await startWith(c, { interviewerId: DESIGNER_ID });
+    expect(id).toMatch(UUID_RE);
+    await c.assistantFinal();
+    await textTurn(c);
+    await textTurn(c);
+    c.send({ type: "session_end" });
+    const complete = await c.next((m) => m.type === "session_complete");
+    expect(await c.closed).toEqual({ code: 1000, reason: "session complete" });
+    const draftAt = c.messages.findIndex((m) => m.type === "draft");
+    expect(draftAt).toBeGreaterThanOrEqual(0);
+    expect(draftAt).toBeLessThan(c.messages.indexOf(complete));
+    const draft = c.messages[draftAt].draft;
+    expect(parseInterviewerInput(draft)).toMatchObject({ ok: true });
+    expect(draft).toEqual(DESIGNED);
+    expect(await rowCounts()).toEqual(before);
+    expectNoWrites(spies);
+    expect(registry.countForOwner("local")).toBe(0);
+    expect(allLogText()).toContain(`[session ${id}] started designer`);
+  });
+
+  it("a trial session uses the draft's persona and thresholds, ends complete with no draft and stores nothing", async () => {
+    const systems: string[] = [];
+    const { persist, spies } = spiedPersist();
+    const r = await start({
+      persist,
+      customize: (p) => {
+        const real = p.llm.stream.bind(p.llm);
+        p.llm.stream = (req, signal) => {
+          systems.push(req.system);
+          return real(req, signal);
+        };
+      },
+    });
+    const before = await rowCounts();
+    const c = connect(r);
+    const id = await startWith(c, { draft: trialDraft(), demo: true });
+    await c.assistantFinal();
+    expect(systems[0]).toContain(TRIAL_PERSONA);
+    await textTurn(c);
+    expect(await phaseChanges(c, 1)).toEqual([TRIAL_PHASES[1]]);
+    await textTurn(c);
+    expect(await phaseChanges(c, 2)).toEqual([TRIAL_PHASES[1], TRIAL_PHASES[2]]);
+    c.send({ type: "session_end" });
+    const complete = await c.next((m) => m.type === "session_complete");
+    expect(complete.reportId).toBe(id);
+    expect(await c.closed).toEqual({ code: 1000, reason: "session complete" });
+    expect(c.messages.some((m) => m.type === "draft")).toBe(false);
+
+    expect(await rowCounts()).toEqual(before);
+    expectNoWrites(spies);
+    const list = (await (await fetch(`${r.base}/api/sessions`)).json()) as { sessions: { id: string }[] };
+    expect(list.sessions.map((s) => s.id)).not.toContain(id);
+    expect((await fetch(`${r.base}/api/session/${id}/report`)).status).toBe(404);
+    expect((await fetch(`${r.base}/api/session/${id}/transcript`)).status).toBe(404);
+
+    const logs = allLogText();
+    expect(logs).toContain(`[session ${id}] started draft interviewer (3 phases) (demo) (trial)`);
+    expect(logs).not.toContain("okapi");
+    expect(logs).not.toContain("Okapi");
+  });
+
+  it("a trial session with no user turn still ends complete", async () => {
+    const r = await start();
+    const before = await rowCounts();
+    const c = connect(r);
+    await startWith(c, { draft: trialDraft() });
+    await c.assistantFinal();
+    c.send({ type: "session_end" });
+    await c.next((m) => m.type === "session_complete");
+    expect((await c.closed).code).toBe(1000);
+    expect(await rowCounts()).toEqual(before);
+  });
+
+  const over = (n: number) => "x".repeat(n + 1);
+  const L = INTERVIEWER_LIMITS;
+  const withPhase = (i: number, patch: Record<string, unknown>) => {
+    const d = trialDraft();
+    return { ...d, phases: d.phases.map((p, j) => (j === i ? { ...p, ...patch } : p)) };
+  };
+  // [case, session_start fields]; every one closes 1008 "invalid draft".
+  const BAD_DRAFTS: [string, Record<string, unknown>][] = [
+    ["both interviewerId and draft", { interviewerId: INTERVIEWER, draft: trialDraft() }],
+    ["the designer id and a draft", { interviewerId: DESIGNER_ID, draft: trialDraft() }],
+    ["draft: []", { draft: [] }],
+    ["draft: null", { draft: null }],
+    ['draft: "x"', { draft: "x" }],
+    ["draft: 42", { draft: 42 }],
+    ["an unknown key", { draft: { ...trialDraft(), ocelotKey: "ocelot-sentinel" } }],
+    ["a stored-record key (id)", { draft: { ...trialDraft(), id: "ocelot-sentinel" } }],
+    ["a missing field", { draft: { ...trialDraft(), persona: undefined } }],
+    ["both feedback switches off", { draft: { ...trialDraft(), contentFeedback: false, deliveryFeedback: false } }],
+    ...(["name", "purpose", "persona", "style", "opening", "closing"] as const).map(
+      (k): [string, Record<string, unknown>] => [`${k} over its cap`, { draft: { ...trialDraft(), [k]: over(L[k]) } }],
+    ),
+    ["a phase name over its cap", { draft: withPhase(0, { name: over(L.phaseName) }) }],
+    ["a phase instruction over its cap", { draft: withPhase(0, { instruction: over(L.phaseInstruction) }) }],
+    ["maxTurns over its cap", { draft: withPhase(0, { maxTurns: L.turns + 1 }) }],
+    [
+      "too many phases",
+      {
+        draft: {
+          ...trialDraft(),
+          phases: [
+            ...Array.from({ length: L.phases }, (_, i) => ({ name: `p${i}`, instruction: "Ask.", minTurns: 1, maxTurns: 1 })),
+            { name: "last", instruction: "Close." },
+          ],
+        },
+      },
+    ],
+    ["a focus item over its cap", { draft: { ...trialDraft(), focus: [over(L.focusItem)] } }],
+    ["too many focus items", { draft: { ...trialDraft(), focus: Array.from({ length: L.focusItems + 1 }, () => "f") } }],
+    ["turn limits on the last phase", { draft: withPhase(2, { minTurns: 1, maxTurns: 1 }) }],
+  ];
+
+  it.each(BAD_DRAFTS)("closes 1008 'invalid draft' on %s, creates nothing and logs no draft text", async (_what, body) => {
+    const getInterviewer = vi.fn(store.getInterviewer);
+    const r = await start({
+      config: makeConfig({}, { limits: { maxConcurrentSessionsPerOwner: 1 } }),
+      interviewers: { ...store, getInterviewer },
+    });
+    const before = await rowCounts();
+    const c = connect(r);
+    await c.opened;
+    c.send({ type: "session_start", ...body });
+    expect(await c.closed).toEqual({ code: 1008, reason: "invalid draft" });
+    expect(c.messages).toHaveLength(0);
+    expect(getInterviewer).not.toHaveBeenCalled();
+    expect(await rowCounts()).toEqual(before);
+    expect(registry.countForOwner("local")).toBe(0);
+    const logs = allLogText();
+    expect(logs).not.toContain("ocelot");
+    expect(logs).not.toContain("Okapi");
+    expect(logs).not.toContain("okapi");
+
+    // Cap 1: a later start proves the session counter was never left taken.
+    const ok = connect(r);
+    await ok.startSession();
+    ok.ws.close();
+    await ok.closed;
+  });
+
+  it("accepts a draft at every cap (the text-frame limit leaves room for it)", async () => {
+    const max = (n: number) => "y".repeat(n);
+    const draft = {
+      ...trialDraft(),
+      name: max(L.name),
+      purpose: max(L.purpose),
+      persona: max(L.persona),
+      style: max(L.style),
+      opening: max(L.opening),
+      closing: max(L.closing),
+      phases: Array.from({ length: L.phases }, (_, i) => ({
+        name: `${i}${max(L.phaseName - 1)}`,
+        instruction: max(L.phaseInstruction),
+        ...(i < L.phases - 1 ? { minTurns: 1, maxTurns: L.turns } : {}),
+      })),
+      focus: Array.from({ length: L.focusItems }, () => max(L.focusItem)),
+    };
+    expect(parseInterviewerInput(draft).ok).toBe(true);
+    const r = await start();
+    const c = connect(r);
+    await startWith(c, { draft });
+    c.ws.close();
+    await c.closed;
+  });
+
+  it("the concurrent-session cap counts designer and trial sessions", async () => {
+    const r = await start();
+    const a = connect(r);
+    const b = connect(r);
+    await startWith(a, { interviewerId: DESIGNER_ID });
+    await startWith(b, { draft: trialDraft() });
+    expect(registry.countForOwner("local")).toBe(2);
+    const c = connect(r);
+    await c.opened;
+    c.send({ type: "session_start", interviewerId: INTERVIEWER });
+    expect(await c.closed).toEqual({ code: 1013, reason: "too many sessions" });
+    a.ws.close();
+    b.ws.close();
+    await Promise.all([a.closed, b.closed]);
+  });
+
+  it("a designer session whose draft call fails ends session_failed, no draft, close 1000, nothing written", async () => {
+    const { persist, spies } = spiedPersist();
+    // Calls: 1 greeting, 2 the reply to the typed turn, 3 the draft.
+    const r = await start({ script: { structured: DESIGNED, failLlmOnCall: 3 }, persist });
+    const before = await rowCounts();
+    const c = connect(r);
+    await startWith(c, { interviewerId: DESIGNER_ID });
+    await c.assistantFinal();
+    await textTurn(c);
+    c.send({ type: "session_end" });
+    const failed = await c.next((m) => m.type === "session_failed");
+    expect(failed.reason).toBe("report generation failed");
+    expect(await c.closed).toEqual({ code: 1000, reason: "session failed" });
+    expect(c.messages.some((m) => m.type === "draft" || m.type === "session_complete")).toBe(false);
+    expect(await rowCounts()).toEqual(before);
+    expectNoWrites(spies);
+  });
+
+  it.each([
+    ["designer", { interviewerId: DESIGNER_ID }],
+    ["trial", { draft: trialDraft() }],
+  ])("closing the socket mid-%s abandons it: nothing written, the registry is empty", async (_kind, fields) => {
+    const { persist, spies } = spiedPersist();
+    const r = await start({ persist });
+    const before = await rowCounts();
+    const c = connect(r);
+    const id = await startWith(c, fields);
+    await c.assistantFinal();
+    await textTurn(c);
+    c.ws.close();
+    await c.closed;
+    await vi.waitFor(() => expect(allLogText()).toContain(`[session ${id}] ended abandoned`));
+    expect(registry.get(id)).toBeUndefined();
+    expect(registry.countForOwner("local")).toBe(0);
+    expect(await rowCounts()).toEqual(before);
+    expectNoWrites(spies);
+  });
+
+  it("a socket closed during the designer lookup creates nothing and writes no status", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const getInterviewer = vi.fn(async (id: string, ownerId: string) => {
+      await gate;
+      return store.getInterviewer(id, ownerId);
+    });
+    const { persist, spies } = spiedPersist();
+    const r = await start({
+      config: makeConfig({}, { limits: { maxConcurrentSessionsPerOwner: 1 } }),
+      interviewers: { ...store, getInterviewer },
+      persist,
+    });
+    const before = await rowCounts();
+    const c = connect(r);
+    await c.opened;
+    c.send({ type: "session_start", interviewerId: DESIGNER_ID });
+    await vi.waitFor(() => expect(getInterviewer).toHaveBeenCalledTimes(1));
+    c.ws.close();
+    await c.closed;
+    release();
+    await vi.waitFor(() => expect(allLogText()).toContain("socket closed before start"));
+    expect(c.messages).toHaveLength(0);
+    expect(await rowCounts()).toEqual(before);
+    expectNoWrites(spies);
+    expect(registry.countForOwner("local")).toBe(0);
+  });
+
+  it("a stored interviewer still persists through the same start path", async () => {
+    const { persist, spies } = spiedPersist();
+    const r = await start({ persist });
+    const c = connect(r);
+    const id = await c.startSession();
+    expect(spies.persistSessionCreate).toHaveBeenCalledTimes(1);
+    expect(spies.persistSessionCreate.mock.calls[0][0]).toBe(id);
+    c.ws.close();
+    await c.closed;
   });
 });

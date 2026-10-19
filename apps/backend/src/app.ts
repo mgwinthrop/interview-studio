@@ -9,8 +9,10 @@ import type { Config } from "./config";
 import prisma from "./db";
 import { withDeadline } from "./deadline";
 import { createInterviewerRouter, type InterviewerRouterDeps } from "./interviewerRoutes";
+import { EPHEMERAL_PERSIST } from "./ephemeralPersist";
 import { generateDraft } from "./interviewer/designer";
-import type { InterviewerDefinition } from "./interviewer/schema";
+import { DESIGNER_ID } from "./interviewer/presets";
+import { parseInterviewerInput, type InterviewerDefinition, type InterviewerInput } from "./interviewer/schema";
 import * as interviewerStore from "./interviewerStore";
 import * as persistence from "./persistence";
 import type { Providers } from "./providers/types";
@@ -81,6 +83,46 @@ function isInterviewerIdShape(id: unknown): id is string {
 
 /** Close reason for every bad interviewerId: malformed, unknown or another owner's. */
 const UNKNOWN_INTERVIEWER = "unknown interviewerId";
+
+/** Close reason for every bad draft (and for a draft sent with an interviewerId). Never echoes it. */
+const INVALID_DRAFT = "invalid draft";
+
+/**
+ * What a session_start asks to run. "stored" and "designer" are looked up by id (the designer
+ * is a hidden preset); "trial" runs an inline, already validated draft. Only "stored" is persisted.
+ */
+type StartTarget =
+  | { kind: "stored"; interviewerId: string }
+  | { kind: "designer" }
+  | { kind: "trial"; draft: InterviewerInput };
+
+const has = (msg: ClientMessage, key: string) => Object.prototype.hasOwnProperty.call(msg, key);
+
+/**
+ * Exactly one of interviewerId and draft. A message carrying `draft` is a trial and every problem
+ * with it (wrong type, failed validation, an interviewerId as well) is INVALID_DRAFT; otherwise the
+ * interviewerId shape check applies. No database access, so it runs before the session counter.
+ */
+function startTargetOf(msg: ClientMessage): StartTarget | { reject: string } {
+  if (has(msg, "draft")) {
+    const { draft } = msg;
+    if (has(msg, "interviewerId") || typeof draft !== "object" || draft === null || Array.isArray(draft)) {
+      return { reject: INVALID_DRAFT };
+    }
+    const parsed = parseInterviewerInput(draft);
+    return parsed.ok ? { kind: "trial", draft: parsed.value } : { reject: INVALID_DRAFT };
+  }
+  if (!isInterviewerIdShape(msg.interviewerId)) return { reject: UNKNOWN_INTERVIEWER };
+  return msg.interviewerId === DESIGNER_ID
+    ? { kind: "designer" }
+    : { kind: "stored", interviewerId: msg.interviewerId };
+}
+
+/** A trial's in-memory interviewer: never stored, owned by the caller. */
+function trialInterviewer(draft: InterviewerInput, ownerId: string): InterviewerDefinition {
+  const now = new Date().toISOString();
+  return { ...draft, id: "draft", source: "custom", ownerId, version: 1, createdAt: now, updatedAt: now };
+}
 
 /** Writes a plain HTTP error on a socket that has not been upgraded, then destroys it. */
 function rejectUpgrade(socket: Duplex, status: number): void {
@@ -443,7 +485,7 @@ export function createApp(deps: AppDeps): App {
       }
     };
 
-    const begin = (interviewerId: string, demo: boolean): Promise<SessionController | null> => {
+    const begin = (target: StartTarget, demo: boolean): Promise<SessionController | null> => {
       // Counted synchronously, before any await, so concurrent starts cannot pass the cap.
       pendingByOwner.set(ownerId, (pendingByOwner.get(ownerId) ?? 0) + 1);
       const release = () => {
@@ -451,13 +493,23 @@ export function createApp(deps: AppDeps): App {
         if (n > 0) pendingByOwner.set(ownerId, n);
         else pendingByOwner.delete(ownerId);
       };
+      // Designer and trial sessions are ephemeral: no Session, turn, phase or report row is ever
+      // written for them, so they never reach /api/sessions or the report routes.
+      const ephemeral = target.kind !== "stored";
 
       return (async () => {
         // A preset for anyone, a custom interviewer only for its owner. The definition returned
-        // is already validated and becomes the session's snapshot.
+        // is already validated and becomes the session's snapshot. A trial's draft was validated
+        // by startTargetOf and is never stored.
         let interviewer: InterviewerDefinition | null;
         try {
-          interviewer = await interviewers.getInterviewer(interviewerId, ownerId);
+          interviewer =
+            target.kind === "trial"
+              ? trialInterviewer(target.draft, ownerId)
+              : await interviewers.getInterviewer(
+                  target.kind === "designer" ? DESIGNER_ID : target.interviewerId,
+                  ownerId,
+                );
         } catch (err) {
           release();
           console.error(`[ws] interviewer lookup failed: ${errName(err)}`);
@@ -479,24 +531,28 @@ export function createApp(deps: AppDeps): App {
 
         const id = randomUUID();
         sessionId = id;
-        try {
-          await persist.persistSessionCreate(id, ownerId, interviewer);
-        } catch (err) {
-          release();
-          console.error(`${tag()} persistSessionCreate failed: ${errName(err)}`);
-          reject(1011, "internal error", "session could not be created");
-          return null;
-        }
-        if (ws.readyState !== WebSocket.OPEN || shuttingDown) {
-          release();
-          stage = "ended";
-          await persist.persistSessionStatus(id, "abandoned").catch((err: unknown) => {
-            console.error(`${tag()} persistSessionStatus error: ${errName(err)}`);
-          });
-          console.log(`${tag()} socket closed before start: abandoned`);
-          return null;
+        // Only a stored session has a row, so only it awaits here and can need an abandon write.
+        if (!ephemeral) {
+          try {
+            await persist.persistSessionCreate(id, ownerId, interviewer);
+          } catch (err) {
+            release();
+            console.error(`${tag()} persistSessionCreate failed: ${errName(err)}`);
+            reject(1011, "internal error", "session could not be created");
+            return null;
+          }
+          if (ws.readyState !== WebSocket.OPEN || shuttingDown) {
+            release();
+            stage = "ended";
+            await persist.persistSessionStatus(id, "abandoned").catch((err: unknown) => {
+              console.error(`${tag()} persistSessionStatus error: ${errName(err)}`);
+            });
+            console.log(`${tag()} socket closed before start: abandoned`);
+            return null;
+          }
         }
         const c: SessionController = new SessionController({
+          kind: target.kind === "stored" ? "interview" : target.kind,
           sessionId: id,
           ownerId,
           interviewer,
@@ -509,12 +565,14 @@ export function createApp(deps: AppDeps): App {
           sendAudio: (chunk) => {
             if (ws.readyState === WebSocket.OPEN) ws.send(Buffer.from(chunk));
           },
-          persist: {
-            persistTurn: persist.persistTurn,
-            persistPhaseTransition: persist.persistPhaseTransition,
-            persistSessionStatus: persist.persistSessionStatus,
-            persistReport: persist.persistReport,
-          },
+          persist: ephemeral
+            ? EPHEMERAL_PERSIST
+            : {
+                persistTurn: persist.persistTurn,
+                persistPhaseTransition: persist.persistPhaseTransition,
+                persistSessionStatus: persist.persistSessionStatus,
+                persistReport: persist.persistReport,
+              },
           onEnded: (status) => onEnded(c, status),
         });
         try {
@@ -530,9 +588,14 @@ export function createApp(deps: AppDeps): App {
         controller = c;
         stage = "live";
         send(ws, { type: "session_started", sessionId: id });
-        // The id is a preset slug or a server UUID; interviewer text never reaches the logs.
+        // The id is a preset slug or a server UUID; interviewer and draft text never reach the logs.
+        const demoTag = demo ? " (demo)" : "";
         console.log(
-          `${tag()} started interviewer ${interviewer.id} (${interviewer.phases.length} phases)${demo ? " (demo)" : ""}`,
+          target.kind === "designer"
+            ? `${tag()} started designer${demoTag}`
+            : target.kind === "trial"
+              ? `${tag()} started draft interviewer (${interviewer.phases.length} phases)${demoTag} (trial)`
+              : `${tag()} started interviewer ${interviewer.id} (${interviewer.phases.length} phases)${demoTag}`,
         );
         void c.start();
         return c;
@@ -559,9 +622,11 @@ export function createApp(deps: AppDeps): App {
           reject(1008, "session_start required", `${what} before session_start`);
           return;
         }
-        // Shape only (no database): checked before the session counter is touched.
-        if (!isInterviewerIdShape(msg.interviewerId)) {
-          reject(1008, UNKNOWN_INTERVIEWER, UNKNOWN_INTERVIEWER);
+        // Shape and draft validation only (no database): checked before the session counter is
+        // touched. The fixed reason is logged, never the id or the draft.
+        const target = startTargetOf(msg);
+        if ("reject" in target) {
+          reject(1008, target.reject, target.reject);
           return;
         }
         const max = config.limits.maxConcurrentSessionsPerOwner;
@@ -570,7 +635,7 @@ export function createApp(deps: AppDeps): App {
           return;
         }
         stage = "starting";
-        const p = begin(msg.interviewerId, msg.demo === true);
+        const p = begin(target, msg.demo === true);
         ready = p;
         starting.add(p);
         void p.finally(() => starting.delete(p));

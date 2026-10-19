@@ -31,13 +31,22 @@ In local mode the server trusts loopback peers. A reverse proxy on the same host
 
 - The server issues session IDs. The client never chooses one: any `sessionId` or `phase` field in `session_start` is ignored, and every session starts in its interviewer's first phase.
 - Sessions are single-connection. There is no reattach: a new connection is a new session with a new ID, and reconnecting after a drop starts a new conversation.
-- The first frame on a socket must be a valid JSON `session_start` with an `interviewerId` the caller can see: a preset ID (visible to everyone) or the ID of one of the caller's own custom interviewers. A second `session_start` on the same socket is ignored.
+- The first frame on a socket must be a valid JSON `session_start` with **exactly one** of `interviewerId` and `draft`. An `interviewerId` must name an interviewer the caller can see: a preset ID (visible to everyone), the designer (`"interviewer-designer"`) or the ID of one of the caller's own custom interviewers. A `draft` runs an unsaved interviewer ("Try it"). A second `session_start` on the same socket is ignored.
 - `topicId` is gone. A `session_start` that carries `topicId` but no `interviewerId` is treated as a missing ID and closed 1008.
 - Malformed JSON text frames after `session_start` are ignored. Unknown message types are ignored.
 
+### Designer and trial sessions (ephemeral)
+
+Two kinds of session store nothing at all: no session row, no turns, no phase changes and no report, so they never appear in `/api/sessions` and the report and transcript routes answer 404 for their IDs. Everything else is as for a stored session: a server-issued `sessionId`, the same message flow, and the same concurrent-session cap, turn cap and idle timeout.
+
+- **Designer** (`interviewerId: "interviewer-designer"`): a hidden preset that talks through the interviewer the person wants. On `session_end` the server makes one draft from the conversation and sends `draft`, then `session_complete`. If there is too little to go on, or the draft call fails or times out, it sends `session_failed` and no `draft`.
+- **Trial** (`draft: {...}`): runs the given draft as the interviewer. On `session_end` it sends `session_complete` with no report; a trial with no user turns also ends `complete`.
+
+A draft reaches the server's store only when the client saves it through `POST`/`PUT /api/interviewers`.
+
 ### Interviewer snapshot
 
-When the session is created, the server copies the full interviewer definition into the session row (the snapshot), in the same write that creates the row and before `session_started` is sent. The running session, its phases and its report use only that snapshot: editing or deleting the interviewer afterwards does not affect a session that has already started, or its report.
+When a stored session is created, the server copies the full interviewer definition into the session row (the snapshot), in the same write that creates the row and before `session_started` is sent. The running session, its phases and its report use only that snapshot: editing or deleting the interviewer afterwards does not affect a session that has already started, or its report.
 
 ### Session statuses
 
@@ -57,7 +66,7 @@ All client messages are JSON strings except `audio` frames which are **raw binar
 | Type | Payload | Notes |
 |---|---|---|
 | `audio` | Raw PCM16 binary frame | Sent as binary WebSocket frame, not JSON. 16kHz mono, one complete utterance (end of turn decided by the client VAD). Only accepted after `session_start`. At most `limits.maxPayloadBytes` (10 MiB, about 5.5 minutes); a larger frame closes the socket 1009. |
-| `session_start` | `{ type, interviewerId, demo? }` | Must be the first frame. **Must include `interviewerId`**: a string of 1 to 64 letters, digits, `_` or `-` naming a preset (`"tell-a-story"`, `"explain-an-idea"`, `"rehearse-an-interview"`, `"work-out-a-point-of-view"`) or one of the caller's custom interviewers (`GET /api/interviewers` lists both). `demo` makes every phase end at its `minTurns` instead of its `maxTurns`. |
+| `session_start` | `{ type, interviewerId, demo? }` or `{ type, draft, demo? }` | Must be the first frame. **Must include exactly one of `interviewerId` and `draft`.** `interviewerId` is a string of 1 to 64 letters, digits, `_` or `-` naming a preset (`"tell-a-story"`, `"explain-an-idea"`, `"rehearse-an-interview"`, `"work-out-a-point-of-view"`), the designer (`"interviewer-designer"`, not listed by `GET /api/interviewers`) or one of the caller's custom interviewers (`GET /api/interviewers` lists the presets and those). `draft` is an interviewer input object with the same shape and rules as the body of `POST /api/interviewers` (no `id`, `version` or other stored fields) and starts a trial session. `demo` makes every phase end at its `minTurns` instead of its `maxTurns`. |
 | `session_end` | `{ type }` | Ends the session: cancels any in-flight reply as `interrupt` does (no further audio, no final transcript or `tts_end`, and the reply is not stored), generates the report from the committed turns, then the server sends `session_complete` or `session_failed`. |
 | `interrupt` | `{ type }` | Cancels in-flight STT, LLM and TTS and drops queued utterances. Server resets for next user turn. |
 | `text_input` | `{ type, content: string }` | Text fallback — bypasses STT. Treated identically to a completed voice turn. Empty or whitespace-only content is ignored. Content over 8192 UTF-8 bytes is ignored and answered with `stt_error` reason `too_long`. |
@@ -75,7 +84,8 @@ All server messages are JSON strings except `tts_chunk` which is a **raw binary 
 | `tts_end` | `{ type }` | After the last `tts_chunk` of a turn. Signals AI has finished speaking. Suppressed if TTS is aborted. |
 | `transcript` | `{ type, text, role, partial? }` | User transcript after STT (`role: "user"`). AI transcript per sentence chunk (`role: "assistant"`, `partial: true` mid-turn, final without `partial` once the reply is complete). |
 | `phase_change` | `{ type, phase }` | When the server transitions to the next phase. `phase` is the new phase's name, a string taken from the interviewer's snapshot. The presets use `"intro"`, `"share"`, `"deep_dive"` and `"wrap_up"`; a custom interviewer names its own phases (1 to 8 of them), so clients must not assume a fixed set. |
-| `session_complete` | `{ type, reportId }` | The session ended as `complete` and its report is stored. `reportId` is the session ID. The server then closes the socket normally (1000). |
+| `draft` | `{ type, draft }` | Designer sessions only, just before `session_complete`. `draft` is an interviewer input object that has passed the same validation as `POST /api/interviewers` (never a `voice`). It is not saved. |
+| `session_complete` | `{ type, reportId }` | The session ended as `complete`. For a stored session its report is stored and `reportId` is the session ID. For a designer or trial session `reportId` is still the session ID but names no stored report; clients ignore it. The server then closes the socket normally (1000). |
 | `session_failed` | `{ type, reason }` | The session ended as `failed` (no report). `reason` is a short fixed string, never model output or transcript text. The server then closes the socket normally (1000). |
 | `stt_error` | `{ type, reason }` | Non-fatal input failure (`low_confidence`, `stt_failed`, `busy` when the utterance queue is full, or `too_long` when a `text_input` is over 8192 bytes). Client should show a toast; session continues. |
 | `latency_metric` | `{ type, ms }` | Emitted on the first `tts_chunk` of a reply. `ms` = elapsed time since the server received the user's utterance. |
@@ -86,7 +96,7 @@ All server messages are JSON strings except `tts_chunk` which is a **raw binary 
 |---|---|---|
 | 1000 | `session complete` / `session failed` | After `session_complete` or `session_failed`. |
 | 1001 | `idle timeout` | The session received no client activity for the idle limit and was marked `abandoned`. No JSON message is sent first. (`server shutdown` when the server stops.) |
-| 1008 | `session_start required` / `unknown interviewerId` | The first frame was binary, malformed or another message type (`session_start required`), or a `session_start` whose `interviewerId` is missing, not a string, empty, longer than 64 characters, malformed, unknown, or another owner's custom interviewer (`unknown interviewerId`; every one of these cases gets the same response). Nothing is created. |
+| 1008 | `session_start required` / `unknown interviewerId` / `invalid draft` | The first frame was binary, malformed or another message type (`session_start required`); or a `session_start` without `draft` whose `interviewerId` is missing, not a string, empty, longer than 64 characters, malformed, unknown, or another owner's custom interviewer (`unknown interviewerId`; every one of these cases gets the same response); or a `session_start` with `draft` that also has `interviewerId`, or whose `draft` is not an object (an array, `null`, a string or a number), has an unknown field, a missing field, a field over its cap, or both feedback switches off (`invalid draft`, never echoing the draft). Nothing is created and the concurrent-session count is not touched. |
 | 1009 | (set by the `ws` library) / `message too large` | A frame was larger than its limit: any frame over `limits.maxPayloadBytes` (10 MiB by default, about 5.5 minutes of 16 kHz PCM16 audio in one utterance) is closed by the `ws` library; a JSON text frame over `limits.maxTextFrameBytes` (64 KiB by default) is closed by the server with reason `message too large`. |
 | 1011 | `internal error` | The session could not be created (the interviewer lookup or the database write failed). No `session_started` is sent. |
 | 1013 | `too many sessions` | The owner already has the maximum number of concurrent sessions (2 by default). Nothing is created. |

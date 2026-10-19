@@ -89,8 +89,20 @@ All routes are behind the authenticator and scoped to the caller's owner. Bodies
 | `PUT /api/interviewers/:id` | Body is the full input plus `version`. 200: the updated record. 403 for a preset, 404, 409 `version conflict`, 422 for invalid input. |
 | `POST /api/interviewers/:id/duplicate` | 201: a custom copy named `<name> (copy)` of any interviewer the caller can see. 404, or 422 at the cap. |
 | `DELETE /api/interviewers/:id` | 204. 403 for a preset, 404 otherwise. |
+| `POST /api/interviewers/draft` | Body `{ description }`, 20 to 4000 characters. 200: `{ draft }`, an unsaved interviewer input. 422 for a missing, too short, too long or control-character description; 429 while the same owner has a draft in flight; 502 when the draft call fails or passes the deadline. |
 
-Malformed JSON is 400 and a body over 64 KB is 413.
+Malformed JSON is 400 and a body over 64 KB is 413. The designer preset is hidden from the list and readable by id; like any preset it cannot be changed or deleted (403), and it cannot be duplicated (404).
+
+### Creating an interviewer
+
+A person can create an interviewer by talking to the designer, by typing one description, or by filling in the form. The first two produce a **draft**: an interviewer input that is shown for review and is saved only when the person saves it through `POST`/`PUT /api/interviewers`. Nothing saves a draft on its own.
+
+- **Designer preset.** `interviewer/presets/designer.ts` holds the designer (`interviewer-designer`), a preset with no tools that talks through the interviewer the person wants and says it cannot save or change anything. It is synced with the other presets.
+- **Ephemeral sessions.** A `session_start` with `interviewerId: "interviewer-designer"` runs a designer session, and one with an inline `draft` runs a trial ("Try it"). `app.ts` gives both `EPHEMERAL_PERSIST` (`ephemeralPersist.ts`) and never calls `persistSessionCreate`, so no session, turn, phase or report row is written and they never appear in `/api/sessions` or the report routes. They share the start path of a stored session: the same concurrent-session cap, turn cap and idle timeout, a server-issued session id, and abandon on close. A trial's draft is validated with `parseInterviewerInput` before the session counter is touched and becomes an in-memory interviewer (`id: "draft"`). A trial ends `complete` with no report, also when no user turn was taken.
+- **Draft generator.** `generateDraft` in `interviewer/designer.ts` makes one structured LLM call, over the designer conversation (at `session_end`, sent as a `draft` message before `session_complete`) or over a one-box description (`POST /api/interviewers/draft`). Its output keeps only the known input fields (an `id`, `ownerId` or `voice` the model adds is dropped) and must pass `parseInterviewerInput`, like a save; the provider retries an invalid reply once. Less than 20 characters of the person's own text is refused without a call. A designer session that cannot make a valid draft ends `session_failed`.
+- **Prompt and budget.** The draft prompt is fixed text only; the conversation or description is data in the user message, one line per turn with newlines collapsed so a turn cannot forge a speaker line. The conversation keeps its last turns up to 24,000 characters. The call has its own output budget (`DRAFT_MAX_TOKENS` 6144), a deliberate exception to the 300-token conversational limit like the report call, and is bounded by `limits.reportTimeoutMs`.
+- **One-box route.** `POST /api/interviewers/draft` allows one draft in flight per owner (429 otherwise) and answers 502 for any failure; see the table above.
+- **Logging.** Logs carry ids, phase counts, statuses and error class names only: `started designer`, `started draft interviewer (N phases) (trial)`, `drafted interviewer (200)`. Never the description, the draft, the interviewer's name or text, or the conversation (unless `DEBUG_LOG_TEXT` is on, as for any turn).
 
 ## Delivery metrics and the report
 
