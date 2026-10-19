@@ -12,14 +12,18 @@ import {
   updateInterviewer,
   type ApiResult,
   type InterviewerDetail,
+  type InterviewerInput,
 } from "../../lib/interviewers";
 import {
+  DEFAULT_RETURN_TO,
   INTERVIEWER_LIMITS,
   clearDraft,
   clearDraftFor,
+  editPathFor,
   emptyInput,
   errorsByPath,
   inputFromDetail,
+  parseDraftInput,
   peekDraft,
   storeDraft,
 } from "../../lib/interviewerForm";
@@ -47,16 +51,13 @@ import {
   type TextKey,
 } from "./formState";
 
-const DRAFT_RETURN_TO = "/interviewers/edit?from=draft";
+const AUTOSAVE_DELAY_MS = 400;
+const LEAVE_MESSAGE = "Leave without saving? Your changes to this interviewer will be lost.";
 const STORAGE_MESSAGE =
   "Try it could not start because this browser is not letting the page keep a draft. Nothing is lost; you can still save.";
 const PRESET_MESSAGE = "Presets can't be edited. Duplicate it to make your own copy.";
 // The schema allows a cloud voice id of 10 to 40 letters and digits (voice.cloud).
 const VOICE_MAX_CHARS = 40;
-
-function editPathFor(id: string): string {
-  return `/interviewers/edit?id=${encodeURIComponent(id)}`;
-}
 
 // A status to show once the editor has moved to another record's URL (after create or
 // duplicate the page remounts, so local state does not survive the move).
@@ -102,6 +103,10 @@ function Editor({ source }: { source: Source }) {
   // The stored draft is read once per mount: StrictMode runs effects twice, and the second run
   // must not set the form again (edits typed in between would be overwritten).
   const draftReadRef = useRef(false);
+  // Autosave of a new form that came from a draft: the edits waiting to be written, and a stop
+  // switch set once the draft is saved (the create clears it; nothing may write it back).
+  const pendingDraftRef = useRef<InterviewerInput | null>(null);
+  const autosaveStoppedRef = useRef(false);
 
   const form = loaded?.form ?? null;
   const record = loaded?.record ?? null;
@@ -179,6 +184,58 @@ function Editor({ source }: { source: Source }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadAttempt]); // the source is fixed for this mount (the page remounts on a new URL)
 
+  // Keep the edits of a draft form across in-app navigation and reloads: write them to the stored
+  // draft a moment after the last change, and flush a waiting write on unmount and page hide.
+  // Only a new form from a draft does this; an existing record's stored draft belongs to Try it.
+  const autosaveOn = loaded !== null && loaded.record === null && loaded.note === "draft";
+  const autosaveForm = autosaveOn ? loaded?.form ?? null : null;
+  useEffect(() => {
+    if (!autosaveOn) return;
+    const flush = () => {
+      const input = pendingDraftRef.current;
+      pendingDraftRef.current = null;
+      if (input && !autosaveStoppedRef.current) storeDraft(input, DEFAULT_RETURN_TO); // a failure is silent
+    };
+    window.addEventListener("beforeunload", flush);
+    return () => {
+      window.removeEventListener("beforeunload", flush);
+      flush();
+    };
+  }, [autosaveOn]);
+  useEffect(() => {
+    if (!autosaveForm) return;
+    const input = inputFromForm(autosaveForm);
+    if (!parseDraftInput(input)) {
+      pendingDraftRef.current = null;
+      return;
+    }
+    pendingDraftRef.current = input;
+    const timer = window.setTimeout(() => {
+      const waiting = pendingDraftRef.current;
+      pendingDraftRef.current = null;
+      if (waiting && !autosaveStoppedRef.current) storeDraft(waiting, DEFAULT_RETURN_TO);
+    }, AUTOSAVE_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [autosaveForm]);
+
+  // Unsaved-edit guard for in-app links: a plain click on an internal link asks first.
+  useEffect(() => {
+    if (!dirty) return;
+    const onClick = (e: MouseEvent) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      if (!(e.target instanceof Element)) return;
+      const a = e.target.closest("a[href]");
+      if (!(a instanceof HTMLAnchorElement)) return;
+      if (a.target === "_blank" || a.hasAttribute("download") || a.origin !== window.location.origin) return;
+      if (!window.confirm(LEAVE_MESSAGE)) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    document.addEventListener("click", onClick, true);
+    return () => document.removeEventListener("click", onClick, true);
+  }, [dirty]);
+
   // Unsaved-edit guard for reloads, closing the tab and leaving the site.
   useEffect(() => {
     if (!dirty) return;
@@ -253,7 +310,11 @@ function Editor({ source }: { source: Source }) {
     }
     // A new form from a draft: that draft is saved now, so a later visit must not bring it
     // back. Any other stored draft (a pending Try it elsewhere) is left alone.
-    if (record === null && loaded.note === "draft") clearDraft();
+    if (record === null && loaded.note === "draft") {
+      autosaveStoppedRef.current = true;
+      pendingDraftRef.current = null;
+      clearDraft();
+    }
     if (!record) {
       pendingNotice = { id: r.value.id, text: "Saved." };
       router.replace(editPathFor(r.value.id));
@@ -264,7 +325,7 @@ function Editor({ source }: { source: Source }) {
 
   function tryIt() {
     if (!loaded || !form || readOnly) return;
-    const returnTo = record ? editPathFor(record.id) : DRAFT_RETURN_TO;
+    const returnTo = record ? editPathFor(record.id) : DEFAULT_RETURN_TO;
     // The base version goes with the draft so the Save after the trial is still version-checked.
     const baseVersion = record ? loaded.putVersion ?? record.version : undefined;
     if (!storeDraft(inputFromForm(form), returnTo, baseVersion)) {

@@ -16,7 +16,7 @@ import {
   type InterviewerDetail,
   type InterviewerInput,
 } from "../lib/interviewers";
-import { peekDraft, storeDraft } from "../lib/interviewerForm";
+import { DEFAULT_RETURN_TO, peekDraft, storeDraft } from "../lib/interviewerForm";
 import type { OrbState } from "../types";
 
 /**
@@ -30,7 +30,6 @@ function parseMode(value: string | null): SessionMode {
   return value === "design" || value === "try" ? value : null;
 }
 
-const DEFAULT_TRY_RETURN_TO = "/interviewers/edit?from=draft";
 
 // Try it never calls the interviewer API: the phase strip and header come from the draft itself.
 function detailFromDraft(input: InterviewerInput): InterviewerDetail {
@@ -191,7 +190,7 @@ function SessionPageInner() {
         demo={demo}
         mode="try"
         start={tryDraft.input}
-        returnTo={tryDraft.returnTo || DEFAULT_TRY_RETURN_TO}
+        returnTo={tryDraft.returnTo || DEFAULT_RETURN_TO}
       />
     );
   }
@@ -219,7 +218,7 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
   const router = useRouter();
   const interviewerId = interviewer.id;
   // Design and try sessions store nothing: they never lead to a report page.
-  const leaveTo = mode === "try" ? returnTo ?? DEFAULT_TRY_RETURN_TO : "/interviewers";
+  const leaveTo = mode === "try" ? returnTo ?? DEFAULT_RETURN_TO : "/interviewers";
 
   // Track actual playback, including buffered speech after tts_end.
   const [audioPlaying, setAudioPlaying] = useState(false);

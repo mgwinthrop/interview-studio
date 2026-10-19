@@ -13,7 +13,7 @@ import {
   requestDraft,
   type InterviewerSummary,
 } from "../lib/interviewers";
-import { storeDraft } from "../lib/interviewerForm";
+import { editPathFor, storeDraft } from "../lib/interviewerForm";
 import { startVoiceSession } from "../lib/voiceSession";
 import { labelStyle, hintStyle, ERROR_COLOR, primaryButtonStyle, secondaryButtonStyle, smallButtonStyle, dangerButtonStyle } from "./edit/FieldRow";
 import { disabledStyle, sectionHeadingStyle } from "./edit/PhaseFields";
@@ -29,10 +29,6 @@ type RowBusy = { id: string; action: "duplicate" | "delete" } | null;
 const DRAFT_STORAGE_MESSAGE =
   "The draft was made, but this browser is not letting the page keep it, so it cannot be opened. Try again, or start from a blank form.";
 const DRAFT_NETWORK_MESSAGE = "Could not reach the server. Your description is still here.";
-
-function editPath(id: string): string {
-  return `/interviewers/edit?id=${encodeURIComponent(id)}`;
-}
 
 export default function InterviewersPage() {
   const router = useRouter();
@@ -117,7 +113,7 @@ export default function InterviewersPage() {
       setFocusToken((n) => n + 1);
       return;
     }
-    router.push(editPath(r.value.id));
+    router.push(editPathFor(r.value.id));
   }
 
   async function remove(id: string) {
@@ -286,7 +282,7 @@ export default function InterviewersPage() {
                 <li key={i.id} style={{ ...panelStyle, margin: 0 }}>
                   <Summary interviewer={i} />
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
-                    <Link href={editPath(i.id)} aria-label={`Edit ${i.name}`} style={smallLinkStyle}>Edit</Link>
+                    <Link href={editPathFor(i.id)} aria-label={`Edit ${i.name}`} style={smallLinkStyle}>Edit</Link>
                     <button
                       type="button"
                       onClick={() => duplicate(i.id)}
@@ -352,7 +348,7 @@ export default function InterviewersPage() {
                 <li key={i.id} style={{ ...panelStyle, margin: 0 }}>
                   <Summary interviewer={i} />
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
-                    <Link href={editPath(i.id)} aria-label={`View ${i.name}`} style={smallLinkStyle}>View</Link>
+                    <Link href={editPathFor(i.id)} aria-label={`View ${i.name}`} style={smallLinkStyle}>View</Link>
                     <button
                       type="button"
                       onClick={() => duplicate(i.id)}

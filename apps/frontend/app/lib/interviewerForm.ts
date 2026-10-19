@@ -72,7 +72,12 @@ export function errorsByPath(errors: FieldError[]): Record<string, string> {
 // ---- Draft hand-off through sessionStorage ----
 
 const DRAFT_KEY = "interviewer_draft";
-const DEFAULT_RETURN_TO = "/interviewers/edit?from=draft";
+export const DEFAULT_RETURN_TO = "/interviewers/edit?from=draft";
+
+/** The editor's URL for a stored interviewer. */
+export function editPathFor(id: string): string {
+  return `/interviewers/edit?id=${encodeURIComponent(id)}`;
+}
 // A tampered value must not be able to inject huge values: strings are capped at twice the
 // limit (the server still enforces the real limit) and arrays are capped for display.
 const MAX_PHASES_STORED = 16;
@@ -270,11 +275,6 @@ function readDraft(remove: boolean): StoredDraft | null {
     }
   }
   return result;
-}
-
-/** Reads and removes the stored draft. Null when missing, corrupt or the wrong shape. */
-export function takeDraft(): StoredDraft | null {
-  return readDraft(true);
 }
 
 /** Reads the stored draft and leaves it in place (Try it must not consume it). */
