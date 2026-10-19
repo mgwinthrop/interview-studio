@@ -518,14 +518,17 @@ function ReportV2Body({ report }: { report: ReportV2View }) {
               </ol>
             </SubSection>
           )}
-          <SubSection title="In plain words">
-            <p style={{ margin: "0 0 8px", fontSize: 13, color: "#6B7A8D", lineHeight: 1.5 }}>
-              A written reading of the numbers above. It is an interpretation, not a measurement.
-            </p>
-            <p dir="auto" style={{ ...panelStyle, margin: 0, borderLeft: "4px solid #087E8B" }}>
-              {delivery.reading}
-            </p>
-          </SubSection>
+          {/* Omitted (no empty frame) when the server dropped a reading that failed its number check. */}
+          {delivery.reading !== undefined && (
+            <SubSection title="In plain words">
+              <p style={{ margin: "0 0 8px", fontSize: 13, color: "#6B7A8D", lineHeight: 1.5 }}>
+                A written reading of the numbers above. It is an interpretation, not a measurement.
+              </p>
+              <p dir="auto" style={{ ...panelStyle, margin: 0, borderLeft: "4px solid #087E8B" }}>
+                {delivery.reading}
+              </p>
+            </SubSection>
+          )}
         </MainSection>
       ) : deliveryUnavailable ? (
         <MainSection title="Delivery">

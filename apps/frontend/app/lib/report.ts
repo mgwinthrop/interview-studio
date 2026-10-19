@@ -47,7 +47,8 @@ export interface ReportV2View {
     strengths: { area: string; quote: string; note: string }[];
     developAreas: { area: string; suggestion: string }[];
   };
-  delivery?: { summary: DeliverySummaryView; reading: string };
+  /** `reading` is absent when the server omitted one that quoted a number outside the summary. */
+  delivery?: { summary: DeliverySummaryView; reading?: string };
   deliveryUnavailable?: true;
   nextSteps: string[];
 }
@@ -120,7 +121,8 @@ function parseV1(o: Obj): ReportV1View | null {
 }
 
 function parseDelivery(v: unknown): ReportV2View["delivery"] | null {
-  if (!isObj(v) || !isStr(v.reading) || !isObj(v.summary)) return null;
+  // A missing reading is valid: the server omits one that quoted a number outside the summary.
+  if (!isObj(v) || (v.reading !== undefined && !isStr(v.reading)) || !isObj(v.summary)) return null;
   const s = v.summary;
   if (!Array.isArray(s.perTurn)) return null;
   const perTurn: DeliverySummaryView["perTurn"] = [];
@@ -135,7 +137,7 @@ function parseDelivery(v: unknown): ReportV2View["delivery"] | null {
     });
   }
   return {
-    reading: v.reading,
+    ...(isStr(v.reading) ? { reading: v.reading } : {}),
     summary: {
       turnsMeasured: numOrNull(s.turnsMeasured),
       totalWords: numOrNull(s.totalWords),
