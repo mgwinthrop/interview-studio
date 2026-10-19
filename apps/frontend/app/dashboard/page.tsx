@@ -327,12 +327,20 @@ export default function DashboardPage() {
                     : null;
 
                 return (
-                  <div
+                  <button
+                    type="button"
                     key={s.id}
                     onClick={() => setSelectedId(s.id)}
                     onMouseEnter={() => setHoveredId(s.id)}
                     onMouseLeave={() => setHoveredId(null)}
+                    aria-current={isSelected ? "true" : undefined}
                     style={{
+                      display: "block",
+                      width: "100%",
+                      boxSizing: "border-box",
+                      border: "none",
+                      textAlign: "left",
+                      font: "inherit",
                       padding: "12px 16px",
                       borderBottom: isSelected
                         ? "none"
@@ -347,9 +355,10 @@ export default function DashboardPage() {
                       transition: "background 0.1s",
                     }}
                   >
-                    <div
+                    <span
                       dir="auto"
                       style={{
+                        display: "block",
                         fontSize: 13,
                         fontWeight: 700,
                         color: "#000000",
@@ -358,9 +367,10 @@ export default function DashboardPage() {
                       }}
                     >
                       {s.interviewerName ?? EARLIER_INTERVIEW_LABEL}
-                    </div>
-                    <div
+                    </span>
+                    <span
                       style={{
+                        display: "block",
                         fontSize: 12,
                         fontWeight: 500,
                         color: "#566475",
@@ -370,7 +380,7 @@ export default function DashboardPage() {
                       {date}
                       {durationMin !== null ? ` · ${durationMin}m` : ""}
                       {` · ${s.turnCount} turns`}
-                    </div>
+                    </span>
                     {s.hasReport && (
                       <span
                         style={{
@@ -387,7 +397,7 @@ export default function DashboardPage() {
                         Report ready
                       </span>
                     )}
-                  </div>
+                  </button>
                 );
               })
             )}
