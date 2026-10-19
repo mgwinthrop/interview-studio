@@ -23,6 +23,7 @@ import {
   storeDraft,
   takeDraft,
 } from "../../lib/interviewerForm";
+import { startVoiceSession } from "../../lib/voiceSession";
 import { ErrorText, TextField, hintStyle, primaryButtonStyle, secondaryButtonStyle } from "./FieldRow";
 import { FocusFields, PhaseFields, disabledStyle, sectionHeadingStyle } from "./PhaseFields";
 import {
@@ -268,7 +269,9 @@ function Editor({ source }: { source: Source }) {
       fail({ kind: "message", text: STORAGE_MESSAGE });
       return;
     }
-    router.push("/session?mode=try");
+    // Through the mic check first unless it has just passed (the session page starts the
+    // microphone only then); the check comes back to the trial. The draft stays stored.
+    startVoiceSession(router, "/session?mode=try");
   }
 
   async function duplicate() {

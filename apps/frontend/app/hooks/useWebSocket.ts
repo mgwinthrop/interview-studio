@@ -28,6 +28,8 @@ interface UseWebSocketReturn {
   lastLatencyMs: number | null;
   /** Specific explanation for the last unexpected close, or null for the generic message. */
   closeReason: string | null;
+  /** The code and server reason of the last unexpected close; null until one happens. */
+  closeInfo: { code: number; reason: string } | null;
   /** The drafted interviewer from a designer session's draft message; null until it arrives. */
   draft: InterviewerInput | null;
   sendMessage: (msg: ClientMessage) => void;
@@ -56,6 +58,7 @@ export function useWebSocket(
   const [sessionFailed, setSessionFailed] = useState(false);
   const [lastLatencyMs, setLastLatencyMs] = useState<number | null>(null);
   const [closeReason, setCloseReason] = useState<string | null>(null);
+  const [closeInfo, setCloseInfo] = useState<{ code: number; reason: string } | null>(null);
   const [draft, setDraft] = useState<InterviewerInput | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -116,6 +119,7 @@ export function useWebSocket(
     setSessionFailed(false);
     setLastLatencyMs(null);
     setCloseReason(null);
+    setCloseInfo(null);
     setDraft(null);
     pendingAssistantIdRef.current = null;
     lastAiEntryIdRef.current = null;
@@ -249,6 +253,7 @@ export function useWebSocket(
       // avoid a flash of the error overlay between cleanup and the new WS opening.
       if (!deliberateCloseRef.current) {
         setCloseReason(CLOSE_REASONS[event.code] ?? null);
+        setCloseInfo({ code: event.code, reason: event.reason });
         setConnectionState("disconnected");
       }
       deliberateCloseRef.current = false;
@@ -274,6 +279,7 @@ export function useWebSocket(
     sessionId,
     lastLatencyMs,
     closeReason,
+    closeInfo,
     draft,
     sendMessage,
     reconnect,

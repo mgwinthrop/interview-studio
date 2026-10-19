@@ -171,15 +171,20 @@ export function parseDraftInput(raw: unknown): InterviewerInput | null {
 // "/\t/evil.com" would become the protocol-relative "//evil.com".
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
 
-function safeReturnTo(v: unknown): string {
-  // Same-site paths only; anything else falls back to the default.
-  if (
+/**
+ * True for a same-site path: starts with one "/", no backslash, no control characters, and
+ * short. Anything else (protocol-relative "//host", "https://…", "/\host") is refused.
+ */
+export function isSameSitePath(v: unknown): v is string {
+  return (
     typeof v === "string" && v.length <= MAX_RETURN_TO_CHARS &&
     v.startsWith("/") && !v.startsWith("//") && !v.includes("\\") && !CONTROL_CHARS.test(v)
-  ) {
-    return v;
-  }
-  return DEFAULT_RETURN_TO;
+  );
+}
+
+function safeReturnTo(v: unknown): string {
+  // Same-site paths only; anything else falls back to the default.
+  return isSameSitePath(v) ? v : DEFAULT_RETURN_TO;
 }
 
 /**

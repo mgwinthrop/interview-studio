@@ -14,6 +14,7 @@ import {
   type InterviewerSummary,
 } from "../lib/interviewers";
 import { storeDraft } from "../lib/interviewerForm";
+import { startVoiceSession } from "../lib/voiceSession";
 import { labelStyle, hintStyle, ERROR_COLOR, primaryButtonStyle, secondaryButtonStyle, smallButtonStyle, dangerButtonStyle } from "./edit/FieldRow";
 import { disabledStyle, sectionHeadingStyle } from "./edit/PhaseFields";
 import { Shell, bodyStyle, panelStyle } from "./edit/EditorParts";
@@ -31,14 +32,6 @@ const DRAFT_NETWORK_MESSAGE = "Could not reach the server. Your description is s
 
 function editPath(id: string): string {
   return `/interviewers/edit?id=${encodeURIComponent(id)}`;
-}
-
-function micGranted(): boolean {
-  try {
-    return Boolean(sessionStorage.getItem("mic_gesture_granted"));
-  } catch {
-    return false;
-  }
 }
 
 export default function InterviewersPage() {
@@ -61,7 +54,6 @@ export default function InterviewersPage() {
   const [description, setDescription] = useState("");
   const [drafting, setDrafting] = useState(false);
   const [draftError, setDraftError] = useState<string | null>(null);
-  const [needMicCheck, setNeedMicCheck] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -148,13 +140,8 @@ export default function InterviewersPage() {
   }
 
   function talkItThrough() {
-    // mic-check always returns to the home page, so it cannot bring the person back here. Go
-    // straight to the designer when the check has passed, otherwise send them to the check first.
-    if (!micGranted()) {
-      setNeedMicCheck(true);
-      return;
-    }
-    router.push(`/session?mode=design&interviewerId=${encodeURIComponent(DESIGNER_ID)}`);
+    // Through the mic check first unless it has just passed; the check comes back to the designer.
+    startVoiceSession(router, `/session?mode=design&interviewerId=${encodeURIComponent(DESIGNER_ID)}`);
   }
 
   const trimmedLength = description.trim().length;
@@ -208,15 +195,6 @@ export default function InterviewersPage() {
           Talk it through starts a short conversation with a designer who asks what you want, then makes a
           draft. You can type instead of speaking once it starts.
         </p>
-        <div role="status">
-          {needMicCheck && (
-            <p style={{ ...bodyStyle, fontWeight: 700 }}>
-              Check your microphone first.{" "}
-              <Link href="/mic-check" style={{ color: "#087E8B" }}>Go to the microphone check</Link>, then come
-              back here and choose Talk it through.
-            </p>
-          )}
-        </div>
 
         <form
           onSubmit={(e) => {

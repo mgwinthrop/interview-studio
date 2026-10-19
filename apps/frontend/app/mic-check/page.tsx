@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Nav } from "../components/Nav";
 import { FlowStepper } from "../components/FlowStepper";
+import { safeSessionNext } from "../lib/voiceSession";
 
 type PermissionState = "pending" | "granted" | "denied";
 type RecordState = "idle" | "recording" | "playing";
@@ -159,7 +160,11 @@ export default function MicCheckPage() {
 
   function handleProceed() {
     sessionStorage.setItem("mic_gesture_granted", "1");
-    router.push("/"); // → persona selection (step 2)
+    // `?next=` brings the person back to the session that sent them here (Try it, Talk it
+    // through). Only same-site session paths are honoured; anything else goes to interviewer
+    // selection (step 2). Read from the URL here, so the page needs no Suspense boundary.
+    const next = safeSessionNext(new URLSearchParams(window.location.search).get("next"));
+    router.push(next ?? "/");
   }
 
   const maxWave = Math.max(...waveform, 1);

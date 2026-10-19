@@ -269,6 +269,7 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
     sessionId,
     lastLatencyMs,
     closeReason,
+    closeInfo,
     draft,
     sendMessage,
     reconnect,
@@ -432,6 +433,17 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
     }
   }, [sessionFailed, stopMic]);
 
+  // Try mode: the server refused the draft itself (missing or invalid fields). Starting over
+  // would send the same draft again, so the page sends the person back to the draft instead.
+  const draftRejected =
+    mode === "try" &&
+    connectionState === "disconnected" &&
+    closeInfo?.code === 1008 &&
+    closeInfo.reason === "invalid draft";
+  useEffect(() => {
+    if (draftRejected) stopMic();
+  }, [draftRejected, stopMic]);
+
   // Redirect to report page when session_complete received.
   // Design and try sessions store no report: their reportId names nothing, so it is ignored.
   useEffect(() => {
@@ -538,6 +550,10 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
   useEffect(() => {
     if (draftStoreFailed) draftStoreRetryRef.current?.focus();
   }, [draftStoreFailed]);
+  const draftRejectedBackRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (draftRejected) draftRejectedBackRef.current?.focus();
+  }, [draftRejected]);
 
   const minutes = String(Math.floor(elapsed / 60)).padStart(2, "0");
   const seconds = String(elapsed % 60).padStart(2, "0");
@@ -605,6 +621,23 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
           <Link href="/" style={overlayPrimaryStyle}>
             Back to start
           </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // Try mode: the draft was refused before the trial started (see draftRejected above).
+  if (draftRejected) {
+    return (
+      <div role="alert" style={overlayStyle}>
+        <h2 style={overlayTitleStyle}>This draft isn&apos;t ready to try yet</h2>
+        <p style={overlayBodyStyle}>
+          Some fields are missing or not valid. Go back to the draft and press Save to see which.
+        </p>
+        <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+          <button ref={draftRejectedBackRef} onClick={goToReportOrHome} style={overlayPrimaryStyle}>
+            Back to the draft
+          </button>
         </div>
       </div>
     );
