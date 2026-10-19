@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Nav } from "./components/Nav";
 import { FlowStepper } from "./components/FlowStepper";
@@ -227,8 +228,50 @@ export default function HomePage() {
               key={interviewer.id}
               interviewer={interviewer}
               onSelect={() => handleSelect(interviewer.id)}
+              editHref={
+                interviewer.source === "custom"
+                  ? `/interviewers/edit?id=${encodeURIComponent(interviewer.id)}`
+                  : undefined
+              }
             />
           ))}
+        {list.status === "ready" && (
+          <div
+            style={{
+              flex: "1 1 300px",
+              maxWidth: 340,
+              background: "#FFFFFF",
+              border: "1px dashed #087E8B",
+              borderRadius: 14,
+              padding: "32px 28px 28px",
+              display: "flex",
+              flexDirection: "column",
+              gap: 16,
+            }}
+          >
+            <h2 style={{ fontSize: 20, fontWeight: 700, color: "#000000", margin: 0, lineHeight: 1.3 }}>
+              Make your own interviewer
+            </h2>
+            <p style={{ fontSize: 16, color: "#4B5563", lineHeight: 1.65, margin: 0, flex: 1 }}>
+              Describe what you want, talk it through, or fill in a form. You review the draft before it is saved.
+            </p>
+            <Link
+              href="/interviewers"
+              style={{
+                padding: "12px 0",
+                borderRadius: 8,
+                border: "1px solid #087E8B",
+                color: "#087E8B",
+                fontSize: 15,
+                fontWeight: 600,
+                textAlign: "center",
+                textDecoration: "none",
+              }}
+            >
+              Make your own interviewer
+            </Link>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -245,9 +288,11 @@ const listMessageStyle: React.CSSProperties = {
 interface PersonaCardProps {
   interviewer: Pick<InterviewerSummary, "name" | "purpose">;
   onSelect: () => void;
+  /** Set for custom interviewers: where to edit them. */
+  editHref?: string;
 }
 
-function PersonaCard({ interviewer, onSelect }: PersonaCardProps) {
+function PersonaCard({ interviewer, onSelect, editHref }: PersonaCardProps) {
   return (
     <div
       style={{
@@ -349,6 +394,15 @@ function PersonaCard({ interviewer, onSelect }: PersonaCardProps) {
       >
         Start conversation →
       </button>
+      {editHref && (
+        <Link
+          href={editHref}
+          aria-label={`Edit ${interviewer.name}`}
+          style={{ fontSize: 13, fontWeight: 600, color: "#087E8B", textAlign: "center" }}
+        >
+          Edit
+        </Link>
+      )}
     </div>
   );
 }

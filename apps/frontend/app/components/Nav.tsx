@@ -61,6 +61,9 @@ export function Nav({ demo }: NavProps) {
         <Link href="/" style={navLinkStyle}>
           Home
         </Link>
+        <Link href="/interviewers" style={navLinkStyle}>
+          Interviewers
+        </Link>
         <Link href="/dashboard" style={navLinkStyle}>
           Dashboard
         </Link>
