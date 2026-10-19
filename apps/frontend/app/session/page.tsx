@@ -238,7 +238,12 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
     return () => { queue.dispose(); audioQueueRef.current = null; };
   }, [handlePlaybackChange]);
 
+  // Design mode: true while "Making your draft…" shows; speech arriving then is not played.
+  // Always false in the other modes.
+  const makingDraftRef = useRef(false);
+
   const handleAudioChunk = useCallback((chunk: ArrayBuffer) => {
+    if (makingDraftRef.current) return;
     audioQueueRef.current?.enqueue(chunk);
   }, []);
 
@@ -435,6 +440,17 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
     }
   }, [sessionComplete, router, mode]);
 
+  // Try mode: set once the page is on its way back to the editor, so it navigates only once.
+  const leftTrialRef = useRef(false);
+  // Try mode: the server can end the trial itself (turn cap); that is the end of the trial,
+  // so go back where "Finish trial" goes. The draft is still stored (it was only peeked).
+  useEffect(() => {
+    if (sessionComplete && mode === "try" && !leftTrialRef.current) {
+      leftTrialRef.current = true;
+      router.push(leaveTo);
+    }
+  }, [sessionComplete, router, mode, leaveTo]);
+
   // Design mode: the draft arrives just before session_complete; hand it to the editor.
   useEffect(() => {
     if (mode === "design" && draft) {
@@ -455,18 +471,28 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
   // The report page needs the server-issued id; before session_started there is none.
   const goToReportOrHome = useCallback(() => {
     if (mode !== null) {
+      if (mode === "try") {
+        if (leftTrialRef.current) return;
+        leftTrialRef.current = true;
+      }
       router.push(leaveTo);
       return;
     }
     router.push(sessionId ? `/report/${sessionId}` : "/");
   }, [router, sessionId, mode, leaveTo]);
 
+  // Design mode: session_end only reaches the server on an open socket with a started
+  // session; until then "Finish and create draft" is disabled (it would wait forever).
+  const designNotReady = mode === "design" && !(connectionState === "connected" && sessionId);
+
   function handleEndSession() {
     if (mode === "design") {
+      if (designNotReady) return;
       // No navigation yet: the server makes the draft, then sends it (or session_failed).
       sendMessage({ type: "session_end" });
       stopMic();
       audioQueueRef.current?.flush();
+      makingDraftRef.current = true;
       setMakingDraft(true);
       return;
     }
@@ -477,6 +503,7 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
 
   // Design mode failure: start a new designer session; the typed text stays in the input.
   const handleDesignRetry = useCallback(() => {
+    makingDraftRef.current = false;
     setMakingDraft(false);
     reconnect();
     if (micUsedRef.current) {
@@ -487,6 +514,19 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
     }
   }, [reconnect, startMic]);
 
+  // Design mode: the draft failed (see the overlay below).
+  const designFailed = mode === "design" && (sessionFailed || (!!sessionComplete && !draft));
+
+  // Design mode: when an overlay replaces the End button, move focus into it.
+  const makingDraftHeadingRef = useRef<HTMLHeadingElement>(null);
+  const designRetryButtonRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (makingDraft) makingDraftHeadingRef.current?.focus();
+  }, [makingDraft]);
+  useEffect(() => {
+    if (designFailed) designRetryButtonRef.current?.focus();
+  }, [designFailed]);
+
   const minutes = String(Math.floor(elapsed / 60)).padStart(2, "0");
   const seconds = String(elapsed % 60).padStart(2, "0");
 
@@ -494,18 +534,33 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
   // Design mode: the server could not make a valid draft (nothing said, or the draft call failed).
   // A completion with no draft before it (which the server never sends) is treated the same,
   // so the page cannot wait on "Making your draft…" forever.
-  if (mode === "design" && (sessionFailed || (sessionComplete && !draft))) {
+  if (designFailed) {
     return (
       <div role="alert" style={overlayStyle}>
         <h2 style={overlayTitleStyle}>No draft yet</h2>
         <p style={overlayBodyStyle}>The designer could not make a draft from this conversation.</p>
         <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
-          <button onClick={handleDesignRetry} style={overlayPrimaryStyle}>
+          <button ref={designRetryButtonRef} onClick={handleDesignRetry} style={overlayPrimaryStyle}>
             Try again
           </button>
           <Link href="/interviewers" style={overlaySecondaryStyle}>
             Back
           </Link>
+        </div>
+      </div>
+    );
+  }
+
+  // Try mode: a trial has no report, so the feedback wording below does not apply.
+  if (sessionFailed && mode === "try") {
+    return (
+      <div role="alert" style={overlayStyle}>
+        <h2 style={overlayTitleStyle}>The trial has ended</h2>
+        <p style={overlayBodyStyle}>The trial ended unexpectedly. Nothing was saved.</p>
+        <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+          <button onClick={goToReportOrHome} style={overlayPrimaryStyle}>
+            Back to the draft
+          </button>
         </div>
       </div>
     );
@@ -561,8 +616,10 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
   // Design mode: waiting for the draft. Nothing to dismiss; the draft or a failure ends it.
   if (makingDraft) {
     return (
-      <div role="status" aria-live="polite" style={overlayStyle}>
-        <h2 style={overlayTitleStyle}>Making your draft…</h2>
+      <div role="status" style={overlayStyle}>
+        <h2 ref={makingDraftHeadingRef} tabIndex={-1} style={overlayTitleStyle}>
+          Making your draft…
+        </h2>
         <p style={overlayBodyStyle}>
           The designer is turning this conversation into a draft interviewer for you to review.
         </p>
@@ -909,6 +966,8 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
         {/* End Session */}
         <button
           onClick={handleEndSession}
+          // Design mode only: disabled until the designer session has started.
+          disabled={designNotReady}
           style={{
             padding: "10px 24px",
             borderRadius: 8,
@@ -921,8 +980,10 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
             letterSpacing: "0.03em",
             transition: "background 0.2s, color 0.2s",
             fontFamily: "var(--font-manrope), sans-serif",
+            ...(designNotReady ? { cursor: "not-allowed", opacity: 0.5 } : {}),
           }}
           onMouseEnter={(e) => {
+            if (designNotReady) return;
             (e.currentTarget as HTMLButtonElement).style.background = "#E9784A";
             (e.currentTarget as HTMLButtonElement).style.color = "#fff";
           }}
@@ -931,7 +992,13 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
             (e.currentTarget as HTMLButtonElement).style.color = "#E9784A";
           }}
         >
-          {mode === "design" ? "Finish and create draft" : mode === "try" ? "Finish trial" : "End Session"}
+          {mode === "design"
+            ? designNotReady
+              ? "Connecting to the designer…"
+              : "Finish and create draft"
+            : mode === "try"
+              ? "Finish trial"
+              : "End Session"}
         </button>
       </footer>
     </div>
