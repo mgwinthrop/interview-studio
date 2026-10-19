@@ -1,5 +1,6 @@
 // Small labelled fields for the interviewer editor: a visible label tied to the input, a live
 // character count, and the field's error as text (never colour alone).
+import { secondaryButtonStyle } from "../../lib/ui";
 import { fieldId } from "./formState";
 
 export const ERROR_COLOR = "#B42318";
@@ -131,27 +132,6 @@ export function TurnsField({ path, label, value, onChange, error, max, readOnly 
     </div>
   );
 }
-
-export const primaryButtonStyle: React.CSSProperties = {
-  padding: "12px 24px",
-  borderRadius: 8,
-  border: "none",
-  background: "#087E8B",
-  color: "#FFFFFF",
-  fontSize: 15,
-  fontWeight: 600,
-  cursor: "pointer",
-  fontFamily: "var(--font-manrope), sans-serif",
-  letterSpacing: "0.01em",
-  textDecoration: "none",
-};
-
-export const secondaryButtonStyle: React.CSSProperties = {
-  ...primaryButtonStyle,
-  background: "#FFFFFF",
-  color: "#087E8B",
-  border: "1px solid #087E8B",
-};
 
 export const smallButtonStyle: React.CSSProperties = {
   ...secondaryButtonStyle,

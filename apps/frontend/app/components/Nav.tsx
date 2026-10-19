@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { DemoBadge } from "./DemoBadge";
 
 interface NavProps {
   demo?: boolean;
@@ -41,21 +42,7 @@ export function Nav({ demo }: NavProps) {
       {/* Right: nav links + demo badge + more */}
       <div className="nav-links-group" style={{ display: "flex", alignItems: "center", gap: 4 }}>
         {demo && (
-          <span
-            style={{
-              fontSize: 10,
-              fontWeight: 600,
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-              background: "#FDF1D0",
-              color: "#8B6200",
-              padding: "3px 10px",
-              borderRadius: 999,
-              marginRight: 8,
-            }}
-          >
-            Demo Mode
-          </span>
+          <DemoBadge style={{ marginRight: 8 }}>Demo Mode</DemoBadge>
         )}
 
         <Link href="/" style={navLinkStyle}>

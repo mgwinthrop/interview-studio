@@ -28,7 +28,8 @@ import {
   storeDraft,
 } from "../../lib/interviewerForm";
 import { startVoiceSession } from "../../lib/voiceSession";
-import { ErrorText, TextField, hintStyle, primaryButtonStyle, secondaryButtonStyle } from "./FieldRow";
+import { ErrorText, TextField, hintStyle } from "./FieldRow";
+import { primaryButtonStyle, secondaryButtonStyle } from "../../lib/ui";
 import { FocusFields, PhaseFields, disabledStyle, sectionHeadingStyle } from "./PhaseFields";
 import {
   ActionBar,

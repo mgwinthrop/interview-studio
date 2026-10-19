@@ -1,217 +1,33 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { useVAD } from "../../hooks/useVAD";
 import { AudioQueue } from "../../lib/audioQueue";
 import { Nav } from "../components/Nav";
+import { DemoBadge } from "../components/DemoBadge";
 import { PhaseStrip } from "../components/PhaseStrip";
 import { AgentPanel } from "../components/AgentPanel";
 import { LiveTranscript } from "../components/LiveTranscript";
-import {
-  DESIGNER_ID,
-  fetchInterviewer,
-  type InterviewerDetail,
-  type InterviewerInput,
-} from "../lib/interviewers";
-import { DEFAULT_RETURN_TO, peekDraft, storeDraft } from "../lib/interviewerForm";
+import { DEFAULT_RETURN_TO, storeDraft } from "../lib/interviewerForm";
 import type { OrbState } from "../types";
-
-/**
- * `design`: a conversation with the designer that ends in a draft for the editor.
- * `try`: a conversation with an unsaved draft from sessionStorage. Neither stores anything.
- * Null is the normal interview.
- */
-type SessionMode = "design" | "try" | null;
-
-function parseMode(value: string | null): SessionMode {
-  return value === "design" || value === "try" ? value : null;
-}
-
-
-// Try it never calls the interviewer API: the phase strip and header come from the draft itself.
-function detailFromDraft(input: InterviewerInput): InterviewerDetail {
-  return { ...input, id: "", source: "custom", version: 0, createdAt: "", updatedAt: "" };
-}
-
-// Full-screen error state shared by "connection lost" and "session failed".
-const overlayStyle: React.CSSProperties = {
-  position: "fixed",
-  inset: 0,
-  zIndex: 50,
-  background: "#102B33",
-  display: "flex",
-  flexDirection: "column",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 16,
-  fontFamily: "var(--font-manrope), sans-serif",
-};
-const overlayTitleStyle: React.CSSProperties = {
-  fontSize: 20,
-  fontWeight: 700,
-  color: "#FFFFFF",
-  margin: 0,
-  letterSpacing: "-0.01em",
-};
-const overlayBodyStyle: React.CSSProperties = {
-  fontSize: 16,
-  color: "#6B7A8D",
-  margin: 0,
-  textAlign: "center",
-  maxWidth: 400,
-  lineHeight: 1.6,
-};
-const overlayPrimaryStyle: React.CSSProperties = {
-  padding: "12px 28px",
-  borderRadius: 8,
-  border: "none",
-  background: "#087E8B",
-  color: "#FFFFFF",
-  fontSize: 15,
-  fontWeight: 600,
-  cursor: "pointer",
-  fontFamily: "var(--font-manrope), sans-serif",
-  letterSpacing: "0.01em",
-  textDecoration: "none",
-};
-const overlaySecondaryStyle: React.CSSProperties = {
-  ...overlayPrimaryStyle,
-  border: "1px solid rgba(255,255,255,0.3)",
-  background: "transparent",
-};
-
-function LoadingScreen() {
-  return (
-    <div
-      role="status"
-      aria-label="Loading session"
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        height: "100vh",
-        background: "#F4F5F1",
-        color: "#6B7A8D",
-        fontSize: 16,
-      }}
-    >
-      Loading…
-    </div>
-  );
-}
-
-// Inner component — must be inside <Suspense> because it calls useSearchParams().
-// Loads the interviewer first; the conversation (and its WebSocket) mounts only once
-// the interviewer is known to exist, so an unknown id never opens a session.
-function SessionPageInner() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  // The designer's id always means design mode (the server runs a designer session for it,
-  // which ends in a draft, never a report), even on a link without mode=design.
-  const mode: SessionMode =
-    searchParams.get("interviewerId") === DESIGNER_ID ? "design" : parseMode(searchParams.get("mode"));
-  // Links from before interviewers existed have no interviewerId, so they redirect home below.
-  // Design mode always talks to the designer, whatever id the link carries.
-  const interviewerId = mode === "design" ? DESIGNER_ID : searchParams.get("interviewerId") ?? "";
-  const demo = searchParams.get("demo") === "true";
-
-  const [interviewer, setInterviewer] = useState<InterviewerDetail | null>(null);
-  const [loadFailed, setLoadFailed] = useState(false);
-  const [loadAttempt, setLoadAttempt] = useState(0);
-  // Try mode: the stored draft, read once (peek, so the editor still finds it afterwards).
-  const [tryDraft, setTryDraft] = useState<{ input: InterviewerInput; returnTo: string } | null>(null);
-  const tryDraftReadRef = useRef(false);
-
-  // Try mode: read the draft once; a missing or corrupt one sends the user to a blank editor.
-  useEffect(() => {
-    if (mode !== "try" || tryDraftReadRef.current) return;
-    tryDraftReadRef.current = true;
-    const stored = peekDraft();
-    if (!stored) {
-      router.replace("/interviewers/edit");
-      return;
-    }
-    setTryDraft(stored);
-    setInterviewer(detailFromDraft(stored.input));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // mode doesn't change during a session
-
-  // Guard: redirect to interviewer selection if the id is missing or unknown.
-  useEffect(() => {
-    if (mode === "try") return; // never calls the interviewer API
-    if (!interviewerId) {
-      router.replace("/");
-      return;
-    }
-    let cancelled = false;
-    setLoadFailed(false);
-    fetchInterviewer(interviewerId)
-      .then((found) => {
-        if (cancelled) return;
-        if (found) setInterviewer(found);
-        else router.replace("/");
-      })
-      .catch(() => {
-        if (!cancelled) setLoadFailed(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadAttempt]); // interviewerId doesn't change during a session
-
-  if (loadFailed) {
-    return (
-      <div role="alert" style={overlayStyle}>
-        <h2 style={overlayTitleStyle}>Could not load the interviewer</h2>
-        <p style={overlayBodyStyle}>Check your connection, then try again.</p>
-        <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
-          <button onClick={() => setLoadAttempt((n) => n + 1)} style={overlayPrimaryStyle}>
-            Try again
-          </button>
-          <Link href="/" style={overlaySecondaryStyle}>
-            Back to start
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
-  if (!interviewer) return <LoadingScreen />;
-
-  if (mode === "try") {
-    if (!tryDraft) return <LoadingScreen />;
-    return (
-      <SessionView
-        interviewer={interviewer}
-        demo={demo}
-        mode="try"
-        start={tryDraft.input}
-        returnTo={tryDraft.returnTo || DEFAULT_RETURN_TO}
-      />
-    );
-  }
-
-  if (mode === "design") {
-    return <SessionView interviewer={interviewer} demo={demo} mode="design" start={DESIGNER_ID} />;
-  }
-
-  return <SessionView interviewer={interviewer} demo={demo} />;
-}
-
-interface SessionViewProps {
-  interviewer: InterviewerDetail;
-  demo: boolean;
-  /** Omitted for the normal interview. */
-  mode?: SessionMode;
-  /** What the session runs (design and try modes); the normal interview uses interviewer.id. */
-  start?: string | InterviewerInput;
-  /** Try mode: where "Finish trial" goes. */
-  returnTo?: string;
-}
+import {
+  ConnectionLostOverlay,
+  DesignFailedOverlay,
+  DraftNotKeptOverlay,
+  DraftRejectedOverlay,
+  MakingDraftOverlay,
+  PausedOverlay,
+  SessionFailedOverlay,
+  SessionFooter,
+  SttToast,
+  TextInputBar,
+  TrialBanner,
+  TrialEndedOverlay,
+} from "./ModeParts";
+import { LoadingScreen, SessionPageInner, type SessionViewProps } from "./SessionLoader";
+import { headerBarStyle, interviewerNameStyle, sessionIdStyle, sessionRootStyle, timerStyle } from "./styles";
 
 // The live conversation. Mounted only after the interviewer has loaded.
 function SessionView({ interviewer, demo, mode = null, start, returnTo }: SessionViewProps) {
@@ -564,86 +380,20 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
   // Design mode: the server could not make a valid draft (nothing said, or the draft call failed).
   // A completion with no draft before it (which the server never sends) is treated the same,
   // so the page cannot wait on "Making your draft…" forever.
-  // Design mode: the draft was made but this browser would not keep it for the editor.
   if (mode === "design" && draftStoreFailed) {
-    return (
-      <div role="alert" style={overlayStyle}>
-        <h2 style={overlayTitleStyle}>Draft not kept</h2>
-        <p style={overlayBodyStyle}>Your draft could not be kept in this browser. Try again.</p>
-        <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
-          <button ref={draftStoreRetryRef} onClick={handOffDraft} style={overlayPrimaryStyle}>
-            Retry
-          </button>
-        </div>
-      </div>
-    );
+    return <DraftNotKeptOverlay retryRef={draftStoreRetryRef} onRetry={handOffDraft} />;
   }
 
   if (designFailed) {
-    return (
-      <div role="alert" style={overlayStyle}>
-        <h2 style={overlayTitleStyle}>No draft yet</h2>
-        <p style={overlayBodyStyle}>The designer could not make a draft from this conversation.</p>
-        <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
-          <button ref={designRetryButtonRef} onClick={handleDesignRetry} style={overlayPrimaryStyle}>
-            Try again
-          </button>
-          <Link href="/interviewers" style={overlaySecondaryStyle}>
-            Back
-          </Link>
-        </div>
-      </div>
-    );
+    return <DesignFailedOverlay retryRef={designRetryButtonRef} onRetry={handleDesignRetry} />;
   }
 
-  // Try mode: a trial has no report, so the feedback wording below does not apply.
-  if (sessionFailed && mode === "try") {
-    return (
-      <div role="alert" style={overlayStyle}>
-        <h2 style={overlayTitleStyle}>The trial has ended</h2>
-        <p style={overlayBodyStyle}>The trial ended unexpectedly. Nothing was saved.</p>
-        <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
-          <button onClick={goToReportOrHome} style={overlayPrimaryStyle}>
-            Back to the draft
-          </button>
-        </div>
-      </div>
-    );
-  }
+  if (sessionFailed && mode === "try") return <TrialEndedOverlay onBack={goToReportOrHome} />;
 
-  // Session failed: the server ended the session without a report and closes the socket.
-  if (sessionFailed) {
-    return (
-      <div role="alert" style={overlayStyle}>
-        <h2 style={overlayTitleStyle}>The session could not be completed</h2>
-        <p style={overlayBodyStyle}>
-          Something went wrong while preparing your feedback, so no report was saved.
-        </p>
-        <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
-          <Link href="/" style={overlayPrimaryStyle}>
-            Back to start
-          </Link>
-        </div>
-      </div>
-    );
-  }
+  if (sessionFailed) return <SessionFailedOverlay />;
 
   // Try mode: the draft was refused before the trial started (see draftRejected above).
-  if (draftRejected) {
-    return (
-      <div role="alert" style={overlayStyle}>
-        <h2 style={overlayTitleStyle}>This draft isn&apos;t ready to try yet</h2>
-        <p style={overlayBodyStyle}>
-          Some fields are missing or not valid. Go back to the draft and press Save to see which.
-        </p>
-        <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
-          <button ref={draftRejectedBackRef} onClick={goToReportOrHome} style={overlayPrimaryStyle}>
-            Back to the draft
-          </button>
-        </div>
-      </div>
-    );
-  }
+  if (draftRejected) return <DraftRejectedOverlay backRef={draftRejectedBackRef} onBack={goToReportOrHome} />;
 
   // Shows when WS drops mid-session. Guards against normal session end:
   // after session_complete or End Session, we navigate before onclose fires,
@@ -653,55 +403,19 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
 
   if (connectionError) {
     return (
-      <div role="alert" style={overlayStyle}>
-        <h2 style={overlayTitleStyle}>Connection lost</h2>
-        <p style={overlayBodyStyle}>
-          {closeReason ??
-            "The connection to the interviewer was lost and this conversation cannot be resumed. Reconnecting starts a new conversation."}
-        </p>
-        <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
-          {/* Primary: open a new connection, which the server treats as a new session */}
-          {/* (design mode also clears "Making your draft…" and restarts the mic it stopped) */}
-          <button onClick={mode === "design" ? handleDesignRetry : reconnect} style={overlayPrimaryStyle}>
-            Start over
-          </button>
-          {/* Secondary: leave; the report page explains that this session has no report.
-              Design and try sessions have no report, so they go back to the interviewers. */}
-          <button onClick={goToReportOrHome} style={overlaySecondaryStyle}>
-            End session
-          </button>
-        </div>
-      </div>
+      <ConnectionLostOverlay
+        closeReason={closeReason}
+        // design mode also clears "Making your draft…" and restarts the mic it stopped
+        onStartOver={mode === "design" ? handleDesignRetry : reconnect}
+        onEnd={goToReportOrHome}
+      />
     );
   }
 
-  // Design mode: waiting for the draft. Nothing to dismiss; the draft or a failure ends it.
-  if (makingDraft) {
-    return (
-      <div role="status" style={overlayStyle}>
-        <h2 ref={makingDraftHeadingRef} tabIndex={-1} style={overlayTitleStyle}>
-          Making your draft…
-        </h2>
-        <p style={overlayBodyStyle}>
-          The designer is turning this conversation into a draft interviewer for you to review.
-        </p>
-      </div>
-    );
-  }
+  if (makingDraft) return <MakingDraftOverlay headingRef={makingDraftHeadingRef} />;
 
   return (
-    <div
-      className="session-root"
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        height: "100vh",
-        background: "#F4F5F1",
-        color: "#000000",
-        fontFamily: "var(--font-manrope), sans-serif",
-        overflow: "hidden",
-      }}
-    >
+    <div className="session-root" style={sessionRootStyle}>
       {/* Nav */}
       <Nav />
 
@@ -709,82 +423,30 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
       <PhaseStrip phases={phaseNames} currentPhase={currentPhase} />
 
       {/* Session header bar */}
-      <div
-        className="session-header-bar"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "10px 24px",
-          background: "#FFFFFF",
-          borderBottom: "1px solid #E2E6EA",
-          flexShrink: 0,
-        }}
-      >
+      <div className="session-header-bar" style={headerBarStyle}>
         {/* Interviewer name */}
-        <span dir="auto" style={{ fontSize: 15, fontWeight: 700, color: "#000000", overflowWrap: "anywhere" }}>
+        <span dir="auto" style={interviewerNameStyle}>
           {mode === "design" ? "Designing an interviewer" : interviewer.name}
         </span>
 
         {/* Session ID — hidden on mobile */}
-        <span className="session-id-label" style={{ fontSize: 11, color: "#6B7A8D", fontFamily: "monospace" }}>
+        <span className="session-id-label" style={sessionIdStyle}>
           {sessionId ? `interview_${sessionId.slice(0, 11)}` : ""}
         </span>
 
         {/* Right cluster: signal + timer + demo badge */}
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           {/* Timer */}
-          <div
-            className="session-timer-display"
-            style={{
-              fontSize: 20,
-              fontWeight: 600,
-              color: "#000000",
-              letterSpacing: "0.05em",
-              fontVariantNumeric: "tabular-nums",
-              fontFamily: "var(--font-manrope), monospace",
-            }}
-          >
+          <div className="session-timer-display" style={timerStyle}>
             {minutes}:{seconds}
           </div>
 
           {/* Demo badge */}
-          {demo && (
-            <span
-              style={{
-                fontSize: 10,
-                fontWeight: 600,
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-                background: "#FDF1D0",
-                color: "#8B6200",
-                padding: "3px 10px",
-                borderRadius: 999,
-              }}
-            >
-              DEMO MODE
-            </span>
-          )}
+          {demo && <DemoBadge>DEMO MODE</DemoBadge>}
         </div>
       </div>
 
-      {/* Try mode: say plainly that this conversation is not kept */}
-      {mode === "try" && (
-        <div
-          role="status"
-          style={{
-            padding: "8px 24px",
-            background: "#FDF1D0",
-            color: "#8B6200",
-            fontSize: 14,
-            fontWeight: 600,
-            borderBottom: "1px solid #E2E6EA",
-            flexShrink: 0,
-          }}
-        >
-          Trying a draft — nothing from this conversation is saved
-        </div>
-      )}
+      {mode === "try" && <TrialBanner />}
 
       {/* Main content — Agent Panel + Transcript */}
       <main
@@ -829,240 +491,24 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
         </section>
       </main>
 
-      {/* Paused overlay — full-screen dim so presenter and audience see paused state clearly */}
-      {isPaused && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="paused-title"
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 40,
-            background: "rgba(11, 22, 59, 0.82)",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: 16,
-            backdropFilter: "blur(2px)",
-          }}
-        >
-          <div style={{ fontSize: 48, lineHeight: 1 }} aria-hidden="true">⏸</div>
-          <p
-            id="paused-title"
-            style={{
-              fontSize: 22,
-              fontWeight: 700,
-              color: "#FFFFFF",
-              margin: 0,
-              letterSpacing: "-0.01em",
-              fontFamily: "var(--font-manrope), sans-serif",
-            }}
-          >
-            Session paused
-          </p>
-          <button
-            ref={pauseOverlayButtonRef}
-            onClick={handleResume}
-            style={{
-              marginTop: 8,
-              padding: "12px 32px",
-              borderRadius: 8,
-              border: "none",
-              background: "#087E8B",
-              color: "#FFFFFF",
-              fontSize: 16,
-              fontWeight: 600,
-              cursor: "pointer",
-              fontFamily: "var(--font-manrope), sans-serif",
-              letterSpacing: "0.01em",
-            }}
-          >
-            ▶ Resume session
-          </button>
-        </div>
-      )}
+      {isPaused && <PausedOverlay resumeRef={pauseOverlayButtonRef} onResume={handleResume} />}
 
       {/* STT error banner — non-blocking, auto-dismisses after 3s */}
-      {sttError && (
-        <div
-          role="alert"
-          aria-live="polite"
-          style={{
-            position: "fixed",
-            bottom: 72,
-            left: "50%",
-            transform: "translateX(-50%)",
-            background: "#FFCEB9",
-            border: "1px solid #E9784A",
-            borderRadius: 8,
-            padding: "10px 20px",
-            fontSize: 14,
-            color: "#CF370B",
-            fontWeight: 500,
-            pointerEvents: "none",
-            zIndex: 10,
-            whiteSpace: "nowrap",
-          }}
-        >
-          Didn&rsquo;t catch that — please repeat
-        </div>
-      )}
+      {sttError && <SttToast />}
 
       {/* Text input fallback — fixed bar above footer, hidden by default (spec §7) */}
-      {showTextInput && (
-        <div
-          className="session-text-input-bar"
-          style={{
-            position: "fixed",
-            bottom: 53, // footer height
-            left: 0,
-            right: 0,
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "10px 32px",
-            borderTop: "1px solid #E2E6EA",
-            background: "#FFFFFF",
-            zIndex: 5,
-          }}
-        >
-          <input
-            type="text"
-            aria-label="Type your message"
-            value={textInput}
-            onChange={(e) => setTextInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") handleTextSend(); }}
-            placeholder="Type your message…"
-            autoFocus
-            style={{
-              flex: 1,
-              padding: "10px 16px",
-              borderRadius: 8,
-              border: "1px solid #E2E6EA",
-              background: "#F4F5F1",
-              color: "#000000",
-              fontSize: 16,
-              fontFamily: "var(--font-manrope), sans-serif",
-            }}
-          />
-          <button
-            onClick={handleTextSend}
-            style={{
-              padding: "10px 20px",
-              borderRadius: 8,
-              border: "none",
-              background: "#087E8B",
-              color: "#fff",
-              fontSize: 14,
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            Send
-          </button>
-        </div>
-      )}
+      {showTextInput && <TextInputBar value={textInput} onChange={setTextInput} onSend={handleTextSend} />}
 
-      {/* Bottom bar — Type toggle + End Session */}
-      <footer
-        className="session-footer"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "flex-end",
-          gap: 12,
-          padding: "12px 24px",
-          borderTop: "1px solid #E2E6EA",
-          background: "#FFFFFF",
-          flexShrink: 0,
-        }}
-      >
-        {/* Text input toggle */}
-        <button
-          onClick={() => setShowTextInput((v) => !v)}
-          aria-label="Type message instead of speaking"
-          aria-pressed={showTextInput}
-          style={{
-            padding: "8px 14px",
-            borderRadius: 8,
-            border: `1px solid ${showTextInput ? "#087E8B" : "#E2E6EA"}`,
-            background: showTextInput ? "#D8F0EC" : "transparent",
-            color: showTextInput ? "#087E8B" : "#6B7A8D",
-            fontSize: 14,
-            fontWeight: 500,
-            cursor: "pointer",
-            lineHeight: 1,
-            transition: "background 0.2s, color 0.2s, border-color 0.2s",
-            fontFamily: "var(--font-manrope), sans-serif",
-          }}
-        >
-          ↩ Type instead
-        </button>
-
-        {/* Pause / Resume */}
-        <button
-          onClick={isPaused ? handleResume : handlePause}
-          aria-label={isPaused ? "Resume session" : "Pause session"}
-          style={{
-            padding: "10px 24px",
-            borderRadius: 8,
-            border: `1px solid ${isPaused ? "#087E8B" : "#6B7A8D"}`,
-            background: isPaused ? "#087E8B" : "transparent",
-            color: isPaused ? "#FFFFFF" : "#6B7A8D",
-            fontSize: 14,
-            fontWeight: 600,
-            cursor: "pointer",
-            letterSpacing: "0.03em",
-            transition: "background 0.2s, color 0.2s, border-color 0.2s",
-            fontFamily: "var(--font-manrope), sans-serif",
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-          }}
-        >
-          {isPaused ? "▶ Resume" : "⏸ Pause"}
-        </button>
-
-        {/* End Session */}
-        <button
-          onClick={handleEndSession}
-          // Design mode only: disabled until the designer session has started.
-          disabled={designNotReady}
-          style={{
-            padding: "10px 24px",
-            borderRadius: 8,
-            border: "1px solid #E9784A",
-            background: "transparent",
-            color: "#E9784A",
-            fontSize: 14,
-            fontWeight: 600,
-            cursor: "pointer",
-            letterSpacing: "0.03em",
-            transition: "background 0.2s, color 0.2s",
-            fontFamily: "var(--font-manrope), sans-serif",
-            ...(designNotReady ? { cursor: "not-allowed", opacity: 0.5 } : {}),
-          }}
-          onMouseEnter={(e) => {
-            if (designNotReady) return;
-            (e.currentTarget as HTMLButtonElement).style.background = "#E9784A";
-            (e.currentTarget as HTMLButtonElement).style.color = "#fff";
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.background = "transparent";
-            (e.currentTarget as HTMLButtonElement).style.color = "#E9784A";
-          }}
-        >
-          {mode === "design"
-            ? designNotReady
-              ? "Connecting to the designer…"
-              : "Finish and create draft"
-            : mode === "try"
-              ? "Finish trial"
-              : "End Session"}
-        </button>
-      </footer>
+      <SessionFooter
+        mode={mode}
+        showTextInput={showTextInput}
+        onToggleText={() => setShowTextInput((v) => !v)}
+        isPaused={isPaused}
+        onPause={handlePause}
+        onResume={handleResume}
+        designNotReady={designNotReady}
+        onEnd={handleEndSession}
+      />
     </div>
   );
 }
@@ -1071,7 +517,7 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
 export default function SessionPage() {
   return (
     <Suspense fallback={<LoadingScreen />}>
-      <SessionPageInner />
+      <SessionPageInner View={SessionView} />
     </Suspense>
   );
 }

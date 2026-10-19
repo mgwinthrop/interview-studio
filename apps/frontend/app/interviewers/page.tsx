@@ -15,7 +15,8 @@ import {
 } from "../lib/interviewers";
 import { editPathFor, storeDraft } from "../lib/interviewerForm";
 import { startVoiceSession } from "../lib/voiceSession";
-import { labelStyle, hintStyle, ERROR_COLOR, primaryButtonStyle, secondaryButtonStyle, smallButtonStyle, dangerButtonStyle } from "./edit/FieldRow";
+import { labelStyle, hintStyle, ERROR_COLOR, smallButtonStyle, dangerButtonStyle } from "./edit/FieldRow";
+import { primaryButtonStyle, secondaryButtonStyle } from "../lib/ui";
 import { disabledStyle, sectionHeadingStyle } from "./edit/PhaseFields";
 import { Shell, bodyStyle, panelStyle } from "./edit/EditorParts";
 

@@ -7,9 +7,8 @@ import {
   dangerButtonStyle,
   hintStyle,
   labelStyle,
-  primaryButtonStyle,
-  secondaryButtonStyle,
 } from "./FieldRow";
+import { primaryButtonStyle, secondaryButtonStyle } from "../../lib/ui";
 import { disabledStyle, sectionHeadingStyle } from "./PhaseFields";
 import { labelForPath, targetIdForPath, type FormState } from "./formState";
 
