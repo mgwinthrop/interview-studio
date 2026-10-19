@@ -6,7 +6,7 @@ The tool supports different kinds of conversations: exploring an idea, telling a
 
 ## Available today
 
-The current prototype includes four preset interviewers: Tell a story, Explain an idea, Rehearse an interview and Work out a point of view. It supports:
+The current prototype includes four preset interviewers (Tell a story, Explain an idea, Rehearse an interview and Work out a point of view) and lets you create your own. It supports:
 
 - Voice conversations with follow-up questions and interrupt handling.
 - An animated interviewer with listening, thinking, speaking and connection states.
