@@ -205,7 +205,11 @@ function Editor({ source }: { source: Source }) {
   useEffect(() => {
     if (!autosaveForm) return;
     const input = inputFromForm(autosaveForm);
-    if (!parseDraftInput(input)) {
+    // A half-typed turns value would be written as missing over a good stored one: keep the last good write.
+    const halfTyped = autosaveForm.phases.some((p) =>
+      [p.minTurns, p.maxTurns].some((t) => t.trim() !== "" && !/^\d{1,3}$/.test(t.trim())),
+    );
+    if (halfTyped || !parseDraftInput(input)) {
       pendingDraftRef.current = null;
       return;
     }
@@ -218,15 +222,19 @@ function Editor({ source }: { source: Source }) {
     return () => window.clearTimeout(timer);
   }, [autosaveForm]);
 
-  // Unsaved-edit guard for in-app links: a plain click on an internal link asks first.
+  // Unsaved-edit guard for in-app links: a plain click on an internal link asks first. A new form
+  // from a draft is not guarded: its edits are autosaved and flushed on unmount.
+  const guardLinks = dirty && !autosaveOn;
   useEffect(() => {
-    if (!dirty) return;
+    if (!guardLinks) return;
     const onClick = (e: MouseEvent) => {
       if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       if (!(e.target instanceof Element)) return;
       const a = e.target.closest("a[href]");
       if (!(a instanceof HTMLAnchorElement)) return;
       if (a.target === "_blank" || a.hasAttribute("download") || a.origin !== window.location.origin) return;
+      // Hash-only and same-page links (the error links jump to a field) do not leave the page.
+      if (a.pathname === window.location.pathname && a.search === window.location.search) return;
       if (!window.confirm(LEAVE_MESSAGE)) {
         e.preventDefault();
         e.stopPropagation();
@@ -234,7 +242,7 @@ function Editor({ source }: { source: Source }) {
     };
     document.addEventListener("click", onClick, true);
     return () => document.removeEventListener("click", onClick, true);
-  }, [dirty]);
+  }, [guardLinks]);
 
   // Unsaved-edit guard for reloads, closing the tab and leaving the site.
   useEffect(() => {
