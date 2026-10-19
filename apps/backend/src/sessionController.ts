@@ -3,7 +3,8 @@ import type { Config } from "./config";
 import type * as Persistence from "./persistence";
 import { computeTurnMetrics, type TurnMetrics } from "./delivery/metrics";
 import type { Providers, Word } from "./providers/types";
-import type { InterviewerDefinition } from "./interviewer/schema";
+import type { InterviewerDefinition, InterviewerInput } from "./interviewer/schema";
+import { generateDraft } from "./interviewer/designer";
 import { advancePhase, buildTurnRequest, type TurnSession } from "./orchestrator";
 import { generateReport } from "./reportGenerator";
 import { SentenceChunker } from "./sentenceChunker";
@@ -11,8 +12,15 @@ import type { ConversationTurn, ServerToClientMessage } from "./types";
 
 export type ControllerState = "idle" | "listening" | "thinking" | "speaking";
 export type EndedStatus = "complete" | "failed" | "abandoned";
+/**
+ * What end() produces: "interview" a stored report; "trial" nothing (it just ends complete);
+ * "designer" an interviewer draft sent to the client as a `draft` message.
+ */
+export type SessionKind = "interview" | "designer" | "trial";
 
 export interface ControllerDeps {
+  /** Defaults to "interview". */
+  kind?: SessionKind;
   sessionId: string;
   ownerId: string;
   /** The session's snapshot: fixed for the life of the session. */
@@ -86,6 +94,8 @@ export class SessionController {
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   /** Gap from noteResponseGap() waiting for the next audio utterance; never given to text. */
   private pendingGapMs: number | null = null;
+  /** Designer only: the validated draft, set just before the complete write; sent by finish(). */
+  private draft: InterviewerInput | null = null;
 
   private started = false;
   /** No new input is accepted: end() has begun or abandon() was called. */
@@ -415,7 +425,7 @@ export class SessionController {
       timer = setTimeout(() => resolve("timeout"), this.deps.config.limits.reportTimeoutMs);
       if (typeof timer === "object" && typeof timer.unref === "function") timer.unref();
     });
-    const work = this.produceReport(reportAbort);
+    const work = this.produceOutcome(reportAbort);
     const outcome = await Promise.race([work, deadline]);
     if (timer) clearTimeout(timer);
 
@@ -442,28 +452,51 @@ export class SessionController {
     this.reportAbort = null;
     this._state = "idle";
     this.finished = true;
+    // The draft goes out here and nowhere else: only when the outcome is decided complete and
+    // no abandon() happened, synchronously before onEnded. A draft finished after the deadline
+    // or an abandon is never sent, since this point has passed or the guard is false.
+    const draft = this.draft;
+    this.draft = null;
+    if (result === "complete" && !this.abandoned && draft) {
+      this.deps.sendJson({ type: "draft", draft });
+    }
     // An abandon() during end() reports the outcome itself once its own write lands.
     if (!this.abandoned) this.notifyEnded(result);
     return result;
   }
 
-  /** Waits for the (cancelled) in-flight turn, then generates and stores the report and the status. */
-  private async produceReport(reportAbort: AbortController): Promise<"complete" | "failed"> {
+  /**
+   * Waits for the (cancelled) in-flight turn, then produces what this kind of session ends
+   * with (a stored report, nothing, or a draft) and writes the status.
+   */
+  private async produceOutcome(reportAbort: AbortController): Promise<"complete" | "failed"> {
     const { persist } = this.deps;
+    const kind = this.deps.kind ?? "interview";
     let result: "complete" | "failed";
     try {
       while (this.active) await this.active;
       await Promise.all(this.writes);
       reportAbort.signal.throwIfAborted();
-      const report = await generateReport(
-        this._turns,
-        this.deps.interviewer,
-        this.deps.providers.llm,
-        reportAbort.signal,
-        { showFillerCounts: this.deps.config.reportFillerCounts },
-      );
-      reportAbort.signal.throwIfAborted();
-      await persist.persistReport(this.sessionId, report);
+      if (kind === "interview") {
+        const report = await generateReport(
+          this._turns,
+          this.deps.interviewer,
+          this.deps.providers.llm,
+          reportAbort.signal,
+          { showFillerCounts: this.deps.config.reportFillerCounts },
+        );
+        reportAbort.signal.throwIfAborted();
+        await persist.persistReport(this.sessionId, report);
+      } else if (kind === "designer") {
+        const draft = await generateDraft(
+          { kind: "conversation", turns: this._turns },
+          this.deps.providers.llm,
+          reportAbort.signal,
+        );
+        reportAbort.signal.throwIfAborted();
+        // Held for finish(), which sends it only if the session really ends complete.
+        this.draft = draft;
+      }
       const ok = await persist.persistSessionStatus(this.sessionId, "complete");
       if (!ok) this.log("complete not recorded: session already ended");
       result = ok ? "complete" : "failed";

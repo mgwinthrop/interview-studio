@@ -1,4 +1,5 @@
 import type { DeliverySummary, TurnMetrics } from "./delivery/metrics";
+import type { InterviewerInput } from "./interviewer/schema";
 
 // Typed outbound messages — all send(ws, ...) calls must use this union (spec §5.3).
 // tts_chunk is sent as a raw binary frame (the controller's sendAudio) — not through send().
@@ -12,7 +13,9 @@ export type ServerToClientMessage =
   | { type: "session_complete"; reportId: string }
   | { type: "session_failed"; reason: string }
   | { type: "stt_error"; reason: string }
-  | { type: "latency_metric"; ms: number };
+  | { type: "latency_metric"; ms: number }
+  /** Designer sessions only: the validated interviewer draft, sent just before the session ends complete. */
+  | { type: "draft"; draft: InterviewerInput };
 
 export interface ConversationTurn {
   id: string;

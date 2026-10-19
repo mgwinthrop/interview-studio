@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionController, type ControllerDeps } from "../sessionController";
+import { EPHEMERAL_PERSIST } from "../ephemeralPersist";
 import { createMockProviders, type MockScript } from "../providers/mock";
 import type { Providers } from "../providers/types";
 import { loadConfig, type Config } from "../config";
@@ -86,12 +87,14 @@ function setup(
     onEnded?: ControllerDeps["onEnded"];
     interviewer?: InterviewerDefinition;
     config?: Partial<Config>;
+    kind?: ControllerDeps["kind"];
   } = {},
 ) {
   const events: Event[] = [];
   const persist = makePersist();
   const onEnded = vi.fn(opts.onEnded ?? (() => {}));
   const ctl = new SessionController({
+    ...(opts.kind ? { kind: opts.kind } : {}),
     sessionId: "s-1",
     ownerId: "owner-1",
     interviewer: opts.interviewer ?? PRESETS[0],
@@ -1465,5 +1468,290 @@ describe("SessionController delivery metrics", () => {
     const all = spies.flatMap((s) => s.mock.calls).flat().join(" ");
     expect(all).not.toContain("4321");
     expect(all).not.toContain("8765");
+  });
+});
+
+const DRAFT = {
+  name: "Pitch coach",
+  purpose: "Practise a two-minute product pitch.",
+  persona: "You are a calm, curious pitch coach.",
+  style: "You ask one short question at a time.",
+  opening: "Greet the person and ask what they are pitching.",
+  closing: "Thank the person and say the reflection will follow.",
+  phases: [
+    { name: "Warm up", instruction: "Ask an easy opening question.", minTurns: 1, maxTurns: 2 },
+    { name: "Pitch", instruction: "Ask for the pitch and follow up.", minTurns: 2, maxTurns: 4 },
+    { name: "Wrap up", instruction: "Ask what they take away." },
+  ],
+  focus: ["Clarity of the main point"],
+  contentFeedback: true,
+  deliveryFeedback: true,
+};
+
+const DESIGNER_TEXT = "I want an interviewer that helps me practise a short product pitch.";
+
+describe("EPHEMERAL_PERSIST", () => {
+  it("has the four persist functions, all doing nothing; persistSessionStatus resolves true", async () => {
+    expect(Object.keys(EPHEMERAL_PERSIST).sort()).toEqual([
+      "persistPhaseTransition",
+      "persistReport",
+      "persistSessionStatus",
+      "persistTurn",
+    ]);
+    await expect(EPHEMERAL_PERSIST.persistSessionStatus("s-1", "complete")).resolves.toBe(true);
+    await expect(EPHEMERAL_PERSIST.persistSessionStatus("s-1", "abandoned")).resolves.toBe(true);
+    await expect(
+      EPHEMERAL_PERSIST.persistTurn({ id: "t", sessionId: "s-1", role: "user", content: "x", phase: "p", timestamp: new Date() }),
+    ).resolves.toBeUndefined();
+    await expect(EPHEMERAL_PERSIST.persistPhaseTransition("s-1", "p")).resolves.toBeUndefined();
+    await expect(EPHEMERAL_PERSIST.persistReport("s-1", {} as ReportV2)).resolves.toBeUndefined();
+  });
+
+  it("a designer session runs end to end on EPHEMERAL_PERSIST", async () => {
+    const sent: ServerToClientMessage[] = [];
+    const onEnded = vi.fn();
+    const ctl = new SessionController({
+      kind: "designer",
+      sessionId: "s-e",
+      ownerId: "owner-1",
+      interviewer: PRESETS[0],
+      demo: false,
+      providers: createMockProviders({ llmReplies: [LONG_REPLY], structured: DRAFT }),
+      config: makeConfig(),
+      sendJson: (msg) => sent.push(msg),
+      sendAudio: () => {},
+      persist: EPHEMERAL_PERSIST,
+      onEnded,
+    });
+    await ctl.start();
+    ctl.handleText(DESIGNER_TEXT);
+    await expect(ctl.end()).resolves.toBe("complete");
+    expect(sent.filter((m) => m.type === "draft")).toHaveLength(1);
+    expect(onEnded.mock.calls).toEqual([["complete"]]);
+  });
+});
+
+describe("SessionController designer kind", () => {
+  it("designer end sends exactly one draft before onEnded('complete') and writes no report", async () => {
+    const providers = createMockProviders({ llmReplies: [LONG_REPLY], structured: DRAFT });
+    const structured = vi.spyOn(providers.llm, "structured");
+    let typesAtEnd: string[] = [];
+    const s = setup({ kind: "designer", providers, onEnded: () => (typesAtEnd = s.types()) });
+    await s.ctl.start();
+    s.ctl.handleText(DESIGNER_TEXT);
+    await expect(s.ctl.end()).resolves.toBe("complete");
+    await s.ctl.settled();
+    const drafts = s.json().filter((m) => m.type === "draft");
+    expect(drafts).toEqual([{ type: "draft", draft: DRAFT }]);
+    // The draft went out before the ended callback fired, and nothing after it.
+    expect(typesAtEnd.at(-1)).toBe("draft");
+    expect(s.types().at(-1)).toBe("draft");
+    expect(s.onEnded.mock.calls).toEqual([["complete"]]);
+    expect(s.persist.persistReport).not.toHaveBeenCalled();
+    // One structured call: the draft, over the committed conversation.
+    expect(structured).toHaveBeenCalledTimes(1);
+    expect(structured.mock.calls[0][0].messages[0].content).toContain(`Person: ${DESIGNER_TEXT}`);
+  });
+
+  it("designer end with no user turn: failed, no draft message", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const providers = createMockProviders({ llmReplies: [LONG_REPLY], structured: DRAFT });
+    const structured = vi.spyOn(providers.llm, "structured");
+    const { ctl, json, persist, onEnded } = setup({ kind: "designer", providers });
+    await ctl.start();
+    await expect(ctl.end()).resolves.toBe("failed");
+    expect(json().some((m) => m.type === "draft")).toBe(false);
+    expect(onEnded.mock.calls).toEqual([["failed"]]);
+    expect(persist.persistSessionStatus.mock.calls).toEqual([["s-1", "failed"]]);
+    expect(persist.persistReport).not.toHaveBeenCalled();
+    expect(structured).not.toHaveBeenCalled();
+    expect(err.mock.calls.flat().join(" ")).toContain("DraftError");
+  });
+
+  it("designer end when the LLM structured call fails: failed, no draft, no text in logs", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const providers = createMockProviders({ llmReplies: [LONG_REPLY], structured: DRAFT });
+    vi.spyOn(providers.llm, "structured").mockRejectedValueOnce(new TypeError("upstream said: secret"));
+    const { ctl, json, persist, onEnded } = setup({ kind: "designer", providers });
+    await ctl.start();
+    ctl.handleText(DESIGNER_TEXT);
+    await expect(ctl.end()).resolves.toBe("failed");
+    expect(json().some((m) => m.type === "draft")).toBe(false);
+    expect(onEnded.mock.calls).toEqual([["failed"]]);
+    expect(persist.persistReport).not.toHaveBeenCalled();
+    const all = [...err.mock.calls, ...log.mock.calls].flat().join(" ");
+    expect(all).toContain("DraftError");
+    expect(all).not.toContain("secret");
+    expect(all).not.toContain(DESIGNER_TEXT);
+  });
+
+  it("designer end with an invalid draft from the model: failed, no draft", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { ctl, json, onEnded } = setup({
+      kind: "designer",
+      script: { structured: { ...DRAFT, phases: [] } },
+    });
+    await ctl.start();
+    ctl.handleText(DESIGNER_TEXT);
+    await expect(ctl.end()).resolves.toBe("failed");
+    expect(json().some((m) => m.type === "draft")).toBe(false);
+    expect(onEnded.mock.calls).toEqual([["failed"]]);
+  });
+
+  it("designer end when the draft call outlives reportTimeoutMs: failed, no draft, a late draft is not sent", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const providers = createMockProviders({ llmReplies: [LONG_REPLY] });
+    let draftSignal: AbortSignal | undefined;
+    // Ignores the abort on purpose and resolves a valid draft after the deadline.
+    providers.llm.structured = (req, signal) => {
+      draftSignal = signal;
+      return new Promise((resolve) => setTimeout(() => resolve(req.schema.parse(DRAFT)), 8000));
+    };
+    const { ctl, json, persist, onEnded } = setup({ kind: "designer", providers, limits: { reportTimeoutMs: 5000 } });
+    await ctl.start();
+    ctl.handleText(DESIGNER_TEXT);
+    await ctl.settled();
+
+    const ending = ctl.end();
+    await vi.advanceTimersByTimeAsync(4999);
+    expect(onEnded).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(ending).resolves.toBe("failed");
+    expect(draftSignal?.aborted).toBe(true);
+    expect(onEnded.mock.calls).toEqual([["failed"]]);
+    // The late draft arrives and must not be sent.
+    await vi.advanceTimersByTimeAsync(10_000);
+    await ctl.settled();
+    expect(json().some((m) => m.type === "draft")).toBe(false);
+    expect(onEnded).toHaveBeenCalledTimes(1);
+    // Never complete: only failed writes (the late work's own failed write, like the report path).
+    expect(persist.persistSessionStatus.mock.calls.map((c) => c[1]).every((st) => st === "failed")).toBe(true);
+    expect(persist.persistReport).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("abandon during designer end sends no draft", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const providers = createMockProviders({ llmReplies: [LONG_REPLY] });
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    // Resolves a valid draft only when released, ignoring the abort.
+    vi.spyOn(providers.llm, "structured").mockImplementation(async (req) => {
+      await held;
+      return req.schema.parse(DRAFT);
+    });
+    const { ctl, json, persist, onEnded } = setup({ kind: "designer", providers });
+    await ctl.start();
+    ctl.handleText(DESIGNER_TEXT);
+    await ctl.settled();
+    const ending = ctl.end();
+    await vi.waitFor(() => expect(providers.llm.structured).toHaveBeenCalled(), { interval: 1 });
+    ctl.abandon();
+    release();
+    await expect(ending).resolves.toBe("failed");
+    await ctl.settled();
+    expect(json().some((m) => m.type === "draft")).toBe(false);
+    expect(onEnded.mock.calls).toEqual([["abandoned"]]);
+    expect(persist.persistSessionStatus.mock.calls[0]).toEqual(["s-1", "abandoned"]);
+    expect(persist.persistReport).not.toHaveBeenCalled();
+  });
+
+  it("abandon racing a designer end whose complete write is still pending sends no draft", async () => {
+    const providers = createMockProviders({ llmReplies: [LONG_REPLY], structured: DRAFT });
+    const { ctl, json, persist, onEnded } = setup({ kind: "designer", providers });
+    let releaseStatus!: () => void;
+    const statusHeld = new Promise<void>((r) => (releaseStatus = r));
+    let reached!: () => void;
+    const reachedStatus = new Promise<void>((r) => (reached = r));
+    persist.persistSessionStatus.mockImplementation(async (_id, status) => {
+      if (status === "complete") {
+        reached();
+        await statusHeld;
+      }
+      return true;
+    });
+    await ctl.start();
+    ctl.handleText(DESIGNER_TEXT);
+    await ctl.settled();
+    const ending = ctl.end();
+    await reachedStatus;
+    ctl.abandon();
+    releaseStatus();
+    await ending;
+    await ctl.settled();
+    expect(json().some((m) => m.type === "draft")).toBe(false);
+    expect(onEnded.mock.calls).toEqual([["abandoned"]]);
+  });
+});
+
+describe("SessionController trial kind", () => {
+  it("trial end: complete, no structured LLM call at all, no report written", async () => {
+    const providers = createMockProviders({ llmReplies: [LONG_REPLY], structured: REPORT });
+    const structured = vi.spyOn(providers.llm, "structured");
+    const { ctl, json, persist, onEnded } = setup({ kind: "trial", providers });
+    await ctl.start();
+    ctl.handleText(LONG_TEXT);
+    await expect(ctl.end()).resolves.toBe("complete");
+    expect(structured).not.toHaveBeenCalled();
+    expect(persist.persistReport).not.toHaveBeenCalled();
+    expect(persist.persistSessionStatus.mock.calls).toEqual([["s-1", "complete"]]);
+    expect(json().some((m) => m.type === "draft")).toBe(false);
+    expect(onEnded.mock.calls).toEqual([["complete"]]);
+  });
+
+  it("trial end with no user turn still ends complete", async () => {
+    const { ctl, onEnded } = setup({ kind: "trial" });
+    await ctl.start();
+    await expect(ctl.end()).resolves.toBe("complete");
+    expect(onEnded.mock.calls).toEqual([["complete"]]);
+  });
+});
+
+describe.each(["designer", "trial"] as const)("SessionController %s kind limits", (kind) => {
+  it("ends automatically when user turns reach maxTurnsPerSession", async () => {
+    const { ctl, json, onEnded } = setup({
+      kind,
+      script: { structured: DRAFT },
+      limits: { maxTurnsPerSession: 2 },
+    });
+    await ctl.start();
+    ctl.handleText(DESIGNER_TEXT);
+    ctl.handleText("second and last answer here");
+    ctl.handleText("over the limit");
+    await ctl.settled();
+    const users = json().filter((m) => m.type === "transcript" && m.role === "user");
+    expect(users).toHaveLength(2);
+    expect(onEnded.mock.calls).toEqual([["complete"]]);
+    expect(json().filter((m) => m.type === "draft")).toHaveLength(kind === "designer" ? 1 : 0);
+  });
+
+  it("idle timeout abandons under fake timers, and activity resets it", async () => {
+    vi.useFakeTimers();
+    const { ctl, persist, json, onEnded } = setup({ kind, script: { structured: DRAFT }, limits: { idleTimeoutMs: 1000 } });
+    const abandon = vi.spyOn(ctl, "abandon");
+    await ctl.start();
+    await vi.advanceTimersByTimeAsync(900);
+    ctl.handleText(DESIGNER_TEXT);
+    await ctl.settled();
+    await vi.advanceTimersByTimeAsync(900);
+    expect(abandon).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(200);
+    expect(abandon).toHaveBeenCalledTimes(1);
+    await ctl.settled();
+    expect(persist.persistSessionStatus).toHaveBeenCalledWith("s-1", "abandoned");
+    expect(onEnded.mock.calls).toEqual([["abandoned"]]);
+    expect(json().some((m) => m.type === "draft")).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("drops the sixth queued utterance with stt_error busy", async () => {
+    const { ctl, json } = setup({ kind, script: { ttsDelayMs: 5 } });
+    await ctl.start();
+    ctl.handleText("running");
+    for (let i = 0; i < 6; i++) ctl.handleText(`queued ${i}`);
+    expect(json().filter((m) => m.type === "stt_error")).toEqual([{ type: "stt_error", reason: "busy" }]);
+    await ctl.settled();
   });
 });
