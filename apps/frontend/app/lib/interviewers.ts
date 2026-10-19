@@ -12,19 +12,58 @@ export interface InterviewerSummary {
 
 export interface InterviewerPhase {
   name: string;
-  instruction?: string;
+  instruction: string;
   minTurns?: number;
   maxTurns?: number;
 }
 
-/** The fields of the full record that the UI uses. */
-export interface InterviewerDetail {
-  id: string;
+/** The editable fields of an interviewer (the body of create and update). */
+export interface InterviewerInput {
   name: string;
   purpose: string;
-  source: "preset" | "custom";
+  persona: string;
+  style: string;
+  opening: string;
+  closing: string;
   phases: InterviewerPhase[];
+  focus: string[];
+  contentFeedback: boolean;
+  deliveryFeedback: boolean;
+  voice?: { cloud?: string };
 }
+
+/** The full record as the API returns it (everything except the owner). */
+export interface InterviewerDetail extends InterviewerInput {
+  id: string;
+  source: "preset" | "custom";
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FieldError {
+  path: string;
+  message: string;
+}
+
+export type ApiResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; kind: "invalid"; errors: FieldError[] }
+  | {
+      ok: false;
+      kind: "conflict" | "not_found" | "forbidden" | "busy" | "failed" | "network";
+      message: string;
+    };
+
+/**
+ * The one interviewer id the frontend knows. The designer is hidden from the list, so it cannot
+ * be found there; the session page loads it by this id.
+ */
+export const DESIGNER_ID = "interviewer-designer";
+
+/** Mirrors apps/backend/src/interviewer/designer.ts. */
+export const MAX_DESCRIPTION_CHARS = 4000;
+export const MIN_DESCRIPTION_CHARS = 20;
 
 /** Label for sessions stored before interviewers had names (interviewerName is null). */
 export const EARLIER_INTERVIEW_LABEL = "Earlier interview";
@@ -52,4 +91,124 @@ export async function fetchInterviewer(id: string): Promise<InterviewerDetail | 
   if (res.status === 404) return null;
   if (!res.ok) throw new Error("Could not load interviewer");
   return (await res.json()) as InterviewerDetail;
+}
+
+// ---- Create, update, duplicate, delete, draft ----
+// These never throw: every outcome is an ApiResult. Messages are fixed client text; only the
+// per-field errors of a 422 come from the server.
+
+const MESSAGES = {
+  network: "Could not reach the server.",
+  conflict: "This interviewer was changed somewhere else. Reload it and try again.",
+  not_found: "That interviewer no longer exists.",
+  forbidden: "Presets cannot be changed. Duplicate it to make your own copy.",
+  busy: "A draft is already being made.",
+  failed: "Something went wrong. Please try again.",
+  draftFailed: "The draft could not be made. Please try again.",
+} as const;
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/** Reads the field errors of a 422 body, keeping only well-formed string pairs. */
+function readFieldErrors(body: unknown): FieldError[] {
+  const raw = isRecord(body) && Array.isArray(body.errors) ? body.errors : [];
+  const errors: FieldError[] = [];
+  for (const e of raw.slice(0, 100)) {
+    if (isRecord(e) && typeof e.path === "string" && typeof e.message === "string") {
+      errors.push({ path: e.path, message: e.message });
+    }
+  }
+  if (errors.length === 0) errors.push({ path: "", message: "Some fields are not valid." });
+  return errors;
+}
+
+async function request<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+  opts: { empty?: boolean; failedMessage?: string } = {},
+): Promise<ApiResult<T>> {
+  let res: Response;
+  try {
+    res = await fetch(`${apiUrl}${path}`, {
+      method,
+      ...(body !== undefined
+        ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+        : {}),
+    });
+  } catch {
+    return { ok: false, kind: "network", message: MESSAGES.network };
+  }
+
+  const failedMessage = opts.failedMessage ?? MESSAGES.failed;
+  if (res.ok) {
+    if (opts.empty) return { ok: true, value: null as T };
+    try {
+      return { ok: true, value: (await res.json()) as T };
+    } catch {
+      return { ok: false, kind: "failed", message: failedMessage };
+    }
+  }
+
+  switch (res.status) {
+    case 422: {
+      let parsed: unknown = null;
+      try {
+        parsed = await res.json();
+      } catch {
+        // Fall through to the generic field error.
+      }
+      return { ok: false, kind: "invalid", errors: readFieldErrors(parsed) };
+    }
+    case 409:
+      return { ok: false, kind: "conflict", message: MESSAGES.conflict };
+    case 403:
+      return { ok: false, kind: "forbidden", message: MESSAGES.forbidden };
+    case 404:
+      return { ok: false, kind: "not_found", message: MESSAGES.not_found };
+    case 429:
+      return { ok: false, kind: "busy", message: MESSAGES.busy };
+    default:
+      return { ok: false, kind: "failed", message: failedMessage };
+  }
+}
+
+const enc = encodeURIComponent;
+
+export function createInterviewer(input: InterviewerInput): Promise<ApiResult<InterviewerDetail>> {
+  return request("POST", "/api/interviewers", input);
+}
+
+/** `version` is the version the edit started from; a newer stored version gives kind "conflict". */
+export function updateInterviewer(
+  id: string,
+  version: number,
+  input: InterviewerInput,
+): Promise<ApiResult<InterviewerDetail>> {
+  return request("PUT", `/api/interviewers/${enc(id)}`, { ...input, version });
+}
+
+export function duplicateInterviewer(id: string): Promise<ApiResult<InterviewerDetail>> {
+  return request("POST", `/api/interviewers/${enc(id)}/duplicate`);
+}
+
+export function deleteInterviewer(id: string): Promise<ApiResult<null>> {
+  return request("DELETE", `/api/interviewers/${enc(id)}`, undefined, { empty: true });
+}
+
+/** Asks the designer for a draft from a description. Nothing is saved. 429 is busy, 502 failed. */
+export async function requestDraft(description: string): Promise<ApiResult<InterviewerInput>> {
+  const r = await request<{ draft?: unknown }>(
+    "POST",
+    "/api/interviewers/draft",
+    { description },
+    { failedMessage: MESSAGES.draftFailed },
+  );
+  if (!r.ok) return r;
+  if (!isRecord(r.value) || !isRecord(r.value.draft)) {
+    return { ok: false, kind: "failed", message: MESSAGES.draftFailed };
+  }
+  return { ok: true, value: r.value.draft as unknown as InterviewerInput };
 }

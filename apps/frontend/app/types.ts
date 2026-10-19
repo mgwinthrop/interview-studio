@@ -1,6 +1,8 @@
 // Shared client-side types for the AI Interview Tool frontend.
 // These must stay in sync with the backend protocol defined in spec §5.3.
 
+import type { InterviewerInput } from "./lib/interviewers";
+
 // Orb state — drives AgentPanel visual (spec §7 Agent Panel)
 export type OrbState = "listening" | "thinking" | "speaking" | "interrupted";
 
@@ -24,12 +26,16 @@ export type ServerMessage =
   | { type: "session_complete"; reportId: string }
   | { type: "session_failed"; reason: string }
   | { type: "stt_error"; reason?: string }
-  | { type: "latency_metric"; ms: number };
+  | { type: "latency_metric"; ms: number }
+  // Designer sessions only: the drafted interviewer, sent before session_complete.
+  | { type: "draft"; draft: InterviewerInput };
 
 // Discriminated union of all client → server message types (spec §5.3)
 export type ClientMessage =
   // The server issues the session id (session_started) and starts at the interviewer's first phase.
   | { type: "session_start"; interviewerId: string; demo: boolean }
+  // Try it: an unsaved draft instead of an interviewer id (the server validates it).
+  | { type: "session_start"; draft: InterviewerInput; demo: boolean }
   | { type: "session_end" }
   | { type: "interrupt" }
   | { type: "text_input"; content: string }
