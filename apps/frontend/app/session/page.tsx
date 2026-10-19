@@ -10,8 +10,32 @@ import { Nav } from "../components/Nav";
 import { PhaseStrip } from "../components/PhaseStrip";
 import { AgentPanel } from "../components/AgentPanel";
 import { LiveTranscript } from "../components/LiveTranscript";
-import { fetchInterviewer, type InterviewerDetail } from "../lib/interviewers";
+import {
+  DESIGNER_ID,
+  fetchInterviewer,
+  type InterviewerDetail,
+  type InterviewerInput,
+} from "../lib/interviewers";
+import { peekDraft, storeDraft } from "../lib/interviewerForm";
 import type { OrbState } from "../types";
+
+/**
+ * `design`: a conversation with the designer that ends in a draft for the editor.
+ * `try`: a conversation with an unsaved draft from sessionStorage. Neither stores anything.
+ * Null is the normal interview.
+ */
+type SessionMode = "design" | "try" | null;
+
+function parseMode(value: string | null): SessionMode {
+  return value === "design" || value === "try" ? value : null;
+}
+
+const DEFAULT_TRY_RETURN_TO = "/interviewers/edit?from=draft";
+
+// Try it never calls the interviewer API: the phase strip and header come from the draft itself.
+function detailFromDraft(input: InterviewerInput): InterviewerDetail {
+  return { ...input, id: "", source: "custom", version: 0, createdAt: "", updatedAt: "" };
+}
 
 // Full-screen error state shared by "connection lost" and "session failed".
 const overlayStyle: React.CSSProperties = {
@@ -86,16 +110,36 @@ function LoadingScreen() {
 function SessionPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const mode = parseMode(searchParams.get("mode"));
   // Links from before interviewers existed have no interviewerId, so they redirect home below.
-  const interviewerId = searchParams.get("interviewerId") ?? "";
+  // Design mode always talks to the designer, whatever id the link carries.
+  const interviewerId = mode === "design" ? DESIGNER_ID : searchParams.get("interviewerId") ?? "";
   const demo = searchParams.get("demo") === "true";
 
   const [interviewer, setInterviewer] = useState<InterviewerDetail | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
+  // Try mode: the stored draft, read once (peek, so the editor still finds it afterwards).
+  const [tryDraft, setTryDraft] = useState<{ input: InterviewerInput; returnTo: string } | null>(null);
+  const tryDraftReadRef = useRef(false);
+
+  // Try mode: read the draft once; a missing or corrupt one sends the user to a blank editor.
+  useEffect(() => {
+    if (mode !== "try" || tryDraftReadRef.current) return;
+    tryDraftReadRef.current = true;
+    const stored = peekDraft();
+    if (!stored) {
+      router.replace("/interviewers/edit");
+      return;
+    }
+    setTryDraft(stored);
+    setInterviewer(detailFromDraft(stored.input));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // mode doesn't change during a session
 
   // Guard: redirect to interviewer selection if the id is missing or unknown.
   useEffect(() => {
+    if (mode === "try") return; // never calls the interviewer API
     if (!interviewerId) {
       router.replace("/");
       return;
@@ -136,18 +180,43 @@ function SessionPageInner() {
 
   if (!interviewer) return <LoadingScreen />;
 
+  if (mode === "try") {
+    if (!tryDraft) return <LoadingScreen />;
+    return (
+      <SessionView
+        interviewer={interviewer}
+        demo={demo}
+        mode="try"
+        start={tryDraft.input}
+        returnTo={tryDraft.returnTo || DEFAULT_TRY_RETURN_TO}
+      />
+    );
+  }
+
+  if (mode === "design") {
+    return <SessionView interviewer={interviewer} demo={demo} mode="design" start={DESIGNER_ID} />;
+  }
+
   return <SessionView interviewer={interviewer} demo={demo} />;
 }
 
 interface SessionViewProps {
   interviewer: InterviewerDetail;
   demo: boolean;
+  /** Omitted for the normal interview. */
+  mode?: SessionMode;
+  /** What the session runs (design and try modes); the normal interview uses interviewer.id. */
+  start?: string | InterviewerInput;
+  /** Try mode: where "Finish trial" goes. */
+  returnTo?: string;
 }
 
 // The live conversation. Mounted only after the interviewer has loaded.
-function SessionView({ interviewer, demo }: SessionViewProps) {
+function SessionView({ interviewer, demo, mode = null, start, returnTo }: SessionViewProps) {
   const router = useRouter();
   const interviewerId = interviewer.id;
+  // Design and try sessions store nothing: they never lead to a report page.
+  const leaveTo = mode === "try" ? returnTo ?? DEFAULT_TRY_RETURN_TO : "/interviewers";
 
   // Track actual playback, including buffered speech after tts_end.
   const [audioPlaying, setAudioPlaying] = useState(false);
@@ -195,9 +264,10 @@ function SessionView({ interviewer, demo }: SessionViewProps) {
     sessionId,
     lastLatencyMs,
     closeReason,
+    draft,
     sendMessage,
     reconnect,
-  } = useWebSocket(interviewerId, demo, handleAudioChunk, handleTtsEnd, handleSttError);
+  } = useWebSocket(start ?? interviewerId, demo, handleAudioChunk, handleTtsEnd, handleSttError);
 
   // Sessions start in the interviewer's first phase; phase_change then names the current one.
   const phaseNames = interviewer.phases.map((p) => p.name);
@@ -276,7 +346,7 @@ function SessionView({ interviewer, demo }: SessionViewProps) {
     return Math.max(0, speechStartedAtMs - endedAt);
   }, []);
 
-  const { startMic, stopMic, pauseMic, resumeMic } = useVAD({
+  const { micActive, startMic, stopMic, pauseMic, resumeMic } = useVAD({
     sendMessage: sendMessageWithFlush,
     aiSpeaking: aiSpeaking || audioPlaying,
     onSpeechSent: handleSpeechSent,
@@ -357,28 +427,90 @@ function SessionView({ interviewer, demo }: SessionViewProps) {
     }
   }, [sessionFailed, stopMic]);
 
-  // Redirect to report page when session_complete received
+  // Redirect to report page when session_complete received.
+  // Design and try sessions store no report: their reportId names nothing, so it is ignored.
   useEffect(() => {
-    if (sessionComplete) {
+    if (sessionComplete && mode === null) {
       router.push(`/report/${sessionComplete.reportId}`);
     }
-  }, [sessionComplete, router]);
+  }, [sessionComplete, router, mode]);
+
+  // Design mode: the draft arrives just before session_complete; hand it to the editor.
+  useEffect(() => {
+    if (mode === "design" && draft) {
+      storeDraft(draft);
+      router.push("/interviewers/edit?from=design");
+    }
+  }, [mode, draft, router]);
+
+  // Design mode: "Finish and create draft" was pressed and the draft is being made.
+  const [makingDraft, setMakingDraft] = useState(false);
+  // Design mode: whether the mic ever ran, so "Try again" restarts it (and never prompts
+  // for a microphone the user chose not to use).
+  const micUsedRef = useRef(false);
+  useEffect(() => {
+    if (micActive) micUsedRef.current = true;
+  }, [micActive]);
 
   // The report page needs the server-issued id; before session_started there is none.
   const goToReportOrHome = useCallback(() => {
+    if (mode !== null) {
+      router.push(leaveTo);
+      return;
+    }
     router.push(sessionId ? `/report/${sessionId}` : "/");
-  }, [router, sessionId]);
+  }, [router, sessionId, mode, leaveTo]);
 
   function handleEndSession() {
+    if (mode === "design") {
+      // No navigation yet: the server makes the draft, then sends it (or session_failed).
+      sendMessage({ type: "session_end" });
+      stopMic();
+      audioQueueRef.current?.flush();
+      setMakingDraft(true);
+      return;
+    }
     audioQueueRef.current?.flush();
     sendMessage({ type: "session_end" });
     goToReportOrHome();
   }
 
+  // Design mode failure: start a new designer session; the typed text stays in the input.
+  const handleDesignRetry = useCallback(() => {
+    setMakingDraft(false);
+    reconnect();
+    if (micUsedRef.current) {
+      audioQueueRef.current
+        ?.resume()
+        .catch((err) => console.error("AudioContext.resume() failed:", err))
+        .then(() => startMic());
+    }
+  }, [reconnect, startMic]);
+
   const minutes = String(Math.floor(elapsed / 60)).padStart(2, "0");
   const seconds = String(elapsed % 60).padStart(2, "0");
 
   // ── Error overlays (all hooks must be above this) ─────────────────────────
+  // Design mode: the server could not make a valid draft (nothing said, or the draft call failed).
+  // A completion with no draft before it (which the server never sends) is treated the same,
+  // so the page cannot wait on "Making your draft…" forever.
+  if (mode === "design" && (sessionFailed || (sessionComplete && !draft))) {
+    return (
+      <div role="alert" style={overlayStyle}>
+        <h2 style={overlayTitleStyle}>No draft yet</h2>
+        <p style={overlayBodyStyle}>The designer could not make a draft from this conversation.</p>
+        <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+          <button onClick={handleDesignRetry} style={overlayPrimaryStyle}>
+            Try again
+          </button>
+          <Link href="/interviewers" style={overlaySecondaryStyle}>
+            Back
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   // Session failed: the server ended the session without a report and closes the socket.
   if (sessionFailed) {
     return (
@@ -400,7 +532,7 @@ function SessionView({ interviewer, demo }: SessionViewProps) {
   // after session_complete or End Session, we navigate before onclose fires,
   // so sessionComplete will already be truthy and this branch won't trigger.
   const connectionError =
-    (connectionState === "error" || connectionState === "disconnected") && !sessionComplete;
+    (connectionState === "error" || connectionState === "disconnected") && !sessionComplete && !draft;
 
   if (connectionError) {
     return (
@@ -412,14 +544,28 @@ function SessionView({ interviewer, demo }: SessionViewProps) {
         </p>
         <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
           {/* Primary: open a new connection, which the server treats as a new session */}
-          <button onClick={reconnect} style={overlayPrimaryStyle}>
+          {/* (design mode also clears "Making your draft…" and restarts the mic it stopped) */}
+          <button onClick={mode === "design" ? handleDesignRetry : reconnect} style={overlayPrimaryStyle}>
             Start over
           </button>
-          {/* Secondary: leave; the report page explains that this session has no report */}
+          {/* Secondary: leave; the report page explains that this session has no report.
+              Design and try sessions have no report, so they go back to the interviewers. */}
           <button onClick={goToReportOrHome} style={overlaySecondaryStyle}>
             End session
           </button>
         </div>
+      </div>
+    );
+  }
+
+  // Design mode: waiting for the draft. Nothing to dismiss; the draft or a failure ends it.
+  if (makingDraft) {
+    return (
+      <div role="status" aria-live="polite" style={overlayStyle}>
+        <h2 style={overlayTitleStyle}>Making your draft…</h2>
+        <p style={overlayBodyStyle}>
+          The designer is turning this conversation into a draft interviewer for you to review.
+        </p>
       </div>
     );
   }
@@ -458,7 +604,7 @@ function SessionView({ interviewer, demo }: SessionViewProps) {
       >
         {/* Interviewer name */}
         <span dir="auto" style={{ fontSize: 15, fontWeight: 700, color: "#000000", overflowWrap: "anywhere" }}>
-          {interviewer.name}
+          {mode === "design" ? "Designing an interviewer" : interviewer.name}
         </span>
 
         {/* Session ID — hidden on mobile */}
@@ -502,6 +648,24 @@ function SessionView({ interviewer, demo }: SessionViewProps) {
           )}
         </div>
       </div>
+
+      {/* Try mode: say plainly that this conversation is not kept */}
+      {mode === "try" && (
+        <div
+          role="status"
+          style={{
+            padding: "8px 24px",
+            background: "#FDF1D0",
+            color: "#8B6200",
+            fontSize: 14,
+            fontWeight: 600,
+            borderBottom: "1px solid #E2E6EA",
+            flexShrink: 0,
+          }}
+        >
+          Trying a draft — nothing from this conversation is saved
+        </div>
+      )}
 
       {/* Main content — Agent Panel + Transcript */}
       <main
@@ -767,7 +931,7 @@ function SessionView({ interviewer, demo }: SessionViewProps) {
             (e.currentTarget as HTMLButtonElement).style.color = "#E9784A";
           }}
         >
-          End Session
+          {mode === "design" ? "Finish and create draft" : mode === "try" ? "Finish trial" : "End Session"}
         </button>
       </footer>
     </div>

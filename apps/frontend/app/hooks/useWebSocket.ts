@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { TranscriptEntry, ServerMessage, ClientMessage } from "../types";
+import type { InterviewerInput } from "../lib/interviewers";
 
 export type ConnectionState = "connecting" | "connected" | "disconnected" | "error";
 
@@ -27,12 +28,19 @@ interface UseWebSocketReturn {
   lastLatencyMs: number | null;
   /** Specific explanation for the last unexpected close, or null for the generic message. */
   closeReason: string | null;
+  /** The drafted interviewer from a designer session's draft message; null until it arrives. */
+  draft: InterviewerInput | null;
   sendMessage: (msg: ClientMessage) => void;
   reconnect: () => void;
 }
 
+/**
+ * `start` names what the session runs: a string is an interviewerId, an object is an unsaved
+ * draft (Try it). It is read when the socket opens, so a new object identity on a later render
+ * never reopens the socket; only reconnect() does.
+ */
 export function useWebSocket(
-  interviewerId: string,
+  start: string | InterviewerInput,
   demo: boolean,
   onAudioChunk?: (chunk: ArrayBuffer) => void,
   onTtsEnd?: () => void,
@@ -48,6 +56,7 @@ export function useWebSocket(
   const [sessionFailed, setSessionFailed] = useState(false);
   const [lastLatencyMs, setLastLatencyMs] = useState<number | null>(null);
   const [closeReason, setCloseReason] = useState<string | null>(null);
+  const [draft, setDraft] = useState<InterviewerInput | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   // Tracks the id of the pending partial assistant entry so subsequent partials
@@ -92,7 +101,7 @@ export function useWebSocket(
 
   useEffect(() => {
     const wsUrl = process.env.NEXT_PUBLIC_WS_URL;
-    if (!wsUrl || !interviewerId) {
+    if (!wsUrl || !start) {
       console.error(!wsUrl ? "NEXT_PUBLIC_WS_URL is not set" : "interviewerId is required");
       setConnectionState("error");
       return;
@@ -107,6 +116,7 @@ export function useWebSocket(
     setSessionFailed(false);
     setLastLatencyMs(null);
     setCloseReason(null);
+    setDraft(null);
     pendingAssistantIdRef.current = null;
     lastAiEntryIdRef.current = null;
 
@@ -117,7 +127,10 @@ export function useWebSocket(
 
     ws.onopen = () => {
       setConnectionState("connected");
-      const startMsg: ClientMessage = { type: "session_start", interviewerId, demo };
+      const startMsg: ClientMessage =
+        typeof start === "string"
+          ? { type: "session_start", interviewerId: start, demo }
+          : { type: "session_start", draft: start, demo };
       ws.send(JSON.stringify(startMsg));
     };
 
@@ -212,6 +225,11 @@ export function useWebSocket(
           setSessionFailed(true);
           break;
 
+        case "draft":
+          // Designer sessions only; session_complete follows.
+          setDraft(msg.draft);
+          break;
+
         case "latency_metric":
           setLastLatencyMs(msg.ms);
           break;
@@ -241,7 +259,7 @@ export function useWebSocket(
       ws.close();
       wsRef.current = null;
     };
-    // demo/interviewerId are read once at mount — intentional.
+    // demo/start are read when the socket opens (mount or reconnect), never on re-render — intentional.
     // reconnectTrigger increments on explicit reconnect, which opens a new session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reconnectTrigger]);
@@ -256,6 +274,7 @@ export function useWebSocket(
     sessionId,
     lastLatencyMs,
     closeReason,
+    draft,
     sendMessage,
     reconnect,
   };
