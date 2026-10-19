@@ -1427,6 +1427,40 @@ describe("GET report: format and status", () => {
     }
   });
 
+  it("returns a stored format 2 report whose delivery has no reading unchanged", async () => {
+    const r = await start();
+    await seedStored("fmt-nr", "local", "active");
+    const summary = {
+      turnsMeasured: 1,
+      totalWords: 42,
+      speakingTimeSec: 18.5,
+      averageWordsPerMinute: 130,
+      pauseCount: 2,
+      longestPauseSec: 1.4,
+      medianResponseGapMs: null,
+      fillerCount: null,
+      perTurn: [{ turn: 1, wordCount: 42, wordsPerMinute: 130, longestPauseSec: 1.4, responseGapMs: null }],
+    };
+    await persistence.persistReport("fmt-nr", {
+      format: 2,
+      sessionId: "fmt-nr",
+      generatedAt: new Date("2026-10-18T12:00:00.000Z"),
+      nextSteps: ["Try one thing."],
+      delivery: { summary },
+    });
+    await persistence.persistSessionStatus("fmt-nr", "complete");
+    const res = await fetch(`${r.base}/api/session/fmt-nr/report`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      format: 2,
+      sessionId: "fmt-nr",
+      generatedAt: "2026-10-18T12:00:00.000Z",
+      nextSteps: ["Try one thing."],
+      delivery: { summary },
+      interviewerName: PRESET.name,
+    });
+  });
+
   it("a failed session with user turns and a snapshot has canRegenerate true", async () => {
     const r = await start();
     await seedStored("cr-yes", "local", "failed");

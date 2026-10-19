@@ -516,3 +516,72 @@ describe("generateReport", () => {
     expect(err.message).not.toContain(INTERVIEWER.name);
   });
 });
+
+describe("generateReport: the reading check", () => {
+  const OMITTED = "[report] reading omitted: quoted a number outside the summary";
+  const INVENTED = `You spoke at 150 words per minute. ${SECRET_OUT}`;
+
+  it("omits a reading that quotes an invented number; the report still completes with the code summary", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { report } = await run(withSwitches(true, true), turns(), HIDE, { ...fullOutput, deliveryReading: INVENTED });
+      expect(report.format).toBe(2);
+      expect(report.content).toEqual(CONTENT);
+      expect(report.nextSteps).toEqual(["Open with the outcome."]);
+      expect(report.delivery).toBeDefined();
+      expect(report.delivery!.reading).toBeUndefined();
+      expect("reading" in report.delivery!).toBe(false);
+      expect(report.delivery!.summary).toEqual({ ...summarizeDelivery(turns())!, fillerCount: null });
+      const lines = [...log.mock.calls, ...warn.mock.calls, ...error.mock.calls].map((c) => c.join(" "));
+      expect(lines).toContain(OMITTED);
+      for (const line of lines) {
+        expect(line).not.toContain(SECRET_OUT);
+        expect(line).not.toContain("150");
+        expect(line).not.toContain("zebra-quokka");
+      }
+    } finally {
+      log.mockRestore();
+      warn.mockRestore();
+      error.mockRestore();
+    }
+  });
+
+  it("keeps a reading whose numbers all come from the summary", async () => {
+    // METRICS: 134.1 wpm, longest pause 4.37 s, gap 2917 ms; 2 answers, both measured.
+    const reading = "Both of your 2 answers ran at about 134 words per minute, with a 2.9 second gap and a 4.4 s pause.";
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const { report } = await run(withSwitches(true, true), turns(), HIDE, { ...fullOutput, deliveryReading: reading });
+      expect(report.delivery!.reading).toBe(reading);
+      expect(log.mock.calls.map((c) => c.join(" "))).not.toContain(OMITTED);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("checks the filler count against the summary the report keeps (hidden means not quotable)", async () => {
+    const reading = "You used 22 filler sounds.";
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const hidden = await run(withSwitches(true, true), turns(), HIDE, { ...fullOutput, deliveryReading: reading });
+      expect(hidden.report.delivery!.reading).toBeUndefined();
+      const shown = await run(withSwitches(true, true), turns(), { showFillerCounts: true }, {
+        ...fullOutput,
+        deliveryReading: reading,
+      });
+      expect(shown.report.delivery!.reading).toBe(reading);
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it("the mock-profile report still has its reading", async () => {
+    const { createProviders } = await import("../providers");
+    const { loadConfig } = await import("../config");
+    const { llm } = createProviders(loadConfig({ PROFILE: "mock", DATABASE_URL: "file:./unused.db" }));
+    const report = await generateReport(turns(), withSwitches(true, true), llm, live(), HIDE);
+    expect(report.delivery!.reading).toBe("Mock reading of the delivery numbers.");
+  });
+});

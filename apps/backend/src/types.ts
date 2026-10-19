@@ -52,7 +52,11 @@ export interface ReportV2 {
     strengths: { area: string; quote: string; note: string }[];
     developAreas: { area: string; suggestion: string }[];
   };
-  delivery?: { summary: DeliverySummary; reading: string };
+  /**
+   * `reading` is absent when the model's reading quoted a number outside the summary
+   * (see delivery/readingCheck.ts); reports stored before that check always have one.
+   */
+  delivery?: { summary: DeliverySummary; reading?: string };
   /** Set when delivery feedback was on but no spoken answers were measured. */
   deliveryUnavailable?: true;
   nextSteps: string[];

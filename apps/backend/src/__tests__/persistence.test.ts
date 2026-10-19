@@ -377,6 +377,24 @@ describe("report v2", () => {
     });
   });
 
+  it("reads back a stored report whose delivery has a summary but no reading as format 2", async () => {
+    await p.persistSessionCreate("rv2-nr", "a", INTERVIEWER);
+    const r: ReportV2 = { ...report("rv2-nr"), delivery: { summary: SUMMARY } };
+    await p.persistReport("rv2-nr", r);
+    const found = (await p.readReportFromDb("rv2-nr", "a"))?.report as ReportV2;
+    expect(found).toEqual(r);
+    expect(found.format).toBe(2);
+    expect(found.delivery?.summary).toEqual(SUMMARY);
+    expect(found.delivery && "reading" in found.delivery).toBe(false);
+  });
+
+  it("still reads an older stored report that has a reading", async () => {
+    await p.persistSessionCreate("rv2-old", "a", INTERVIEWER);
+    await p.persistReport("rv2-old", report("rv2-old"));
+    const found = (await p.readReportFromDb("rv2-old", "a"))?.report as ReportV2;
+    expect(found.delivery).toEqual({ summary: SUMMARY, reading: "Steady." });
+  });
+
   it("fills the legacy columns with derived values", async () => {
     const row = await prisma.report.findUnique({ where: { sessionId: "rv2" } });
     expect(row).toMatchObject({ summary: "s", overallAssessment: "one two", highlightsJson: "[]" });
@@ -427,6 +445,20 @@ describe("report v2", () => {
     ["bad date", JSON.stringify({ format: 2, sessionId: "rv-bad", generatedAt: "nope", nextSteps: [] })],
     ["format 3", JSON.stringify({ format: 3, sessionId: "rv-bad", generatedAt: "2026-10-18T12:00:00.000Z", nextSteps: [] })],
     ["null", "null"],
+    [
+      "delivery without summary",
+      JSON.stringify({ format: 2, sessionId: "rv-bad", generatedAt: "2026-10-18T12:00:00.000Z", nextSteps: [], delivery: { reading: "x" } }),
+    ],
+    [
+      "non-string reading",
+      JSON.stringify({
+        format: 2,
+        sessionId: "rv-bad",
+        generatedAt: "2026-10-18T12:00:00.000Z",
+        nextSteps: [],
+        delivery: { summary: { perTurn: [] }, reading: 5 },
+      }),
+    ],
   ])("falls back to the legacy columns when reportJson is corrupt (%s)", async (name, json) => {
     const id = `rv-bad-${name.replace(/ /g, "-")}`;
     await p.persistSessionCreate(id, "a", INTERVIEWER);

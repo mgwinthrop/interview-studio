@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { summarizeDelivery, type DeliverySummary } from "./delivery/metrics";
+import { readingQuotesOnlySuppliedNumbers } from "./delivery/readingCheck";
 import type { InterviewerDefinition } from "./interviewer/schema";
 import type { LlmProvider } from "./providers/types";
 import type { ConversationTurn, ReportV2 } from "./types";
@@ -240,7 +241,16 @@ export async function generateReport(
   };
   if (parts.content && parsed.content) report.content = parsed.content;
   if (summary && parsed.deliveryReading !== undefined) {
-    report.delivery = { summary, reading: parsed.deliveryReading };
+    // Soft check: a reading that quotes a number the code did not supply is left out; the
+    // code-computed summary and the rest of the report are kept. The log line is fixed and
+    // carries no reading text.
+    const counts = { answers: userTurns.length, measured };
+    if (readingQuotesOnlySuppliedNumbers(parsed.deliveryReading, summary, counts)) {
+      report.delivery = { summary, reading: parsed.deliveryReading };
+    } else {
+      console.warn("[report] reading omitted: quoted a number outside the summary");
+      report.delivery = { summary };
+    }
   }
   if (deliveryWithoutData) report.deliveryUnavailable = true;
   return report;

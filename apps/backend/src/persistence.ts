@@ -77,7 +77,13 @@ function parseReportV2(json: string | null): ReportV2 | null {
     }
     if (r.delivery !== undefined) {
       const d = r.delivery;
-      if (!isRecord(d) || !isStr(d.reading) || !isRecord(d.summary) || !Array.isArray(d.summary.perTurn)) {
+      // `reading` is optional: it is omitted when it failed the reading check.
+      if (
+        !isRecord(d) ||
+        (d.reading !== undefined && !isStr(d.reading)) ||
+        !isRecord(d.summary) ||
+        !Array.isArray(d.summary.perTurn)
+      ) {
         return null;
       }
     }

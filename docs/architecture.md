@@ -134,7 +134,7 @@ Per audio turn, `ConversationTurn.metricsJson` holds the numbers above and nothi
 
 ### Report structure
 
-`reportGenerator.ts` returns a `ReportV2`: `format: 2`, optional `content` (`summary`, up to 4 `strengths` each with an `area`, an exact `quote` and a `note`, and up to 4 `developAreas`), optional `delivery` (the `summary` from code plus the model's plain-language `reading`), `deliveryUnavailable` when delivery was asked for but no data exists, and 1 or 2 `nextSteps`. Field limits are in `REPORT_LIMITS`.
+`reportGenerator.ts` returns a `ReportV2`: `format: 2`, optional `content` (`summary`, up to 4 `strengths` each with an `area`, an exact `quote` and a `note`, and up to 4 `developAreas`), optional `delivery` (the `summary` from code plus the model's plain-language `reading`, which is left out when it fails the reading check below), `deliveryUnavailable` when delivery was asked for but no data exists, and 1 or 2 `nextSteps`. Field limits are in `REPORT_LIMITS`.
 
 Which parts are asked for comes from the interviewer's snapshot:
 
@@ -144,6 +144,19 @@ Which parts are asked for comes from the interviewer's snapshot:
 - When delivery is off, the model is not given the numbers.
 
 The model's output is checked against a schema built for that request: requested parts are required and anything else is dropped. A report that fails validation (after the provider's retry) fails the session.
+
+### The reading check
+
+The prompt tells the model to quote no number that is not in the summary; `readingQuotesOnlySuppliedNumbers` (`delivery/readingCheck.ts`) enforces it in code. Every number written in digits in the `reading` must match a supplied value: any numeric summary field (including each `perTurn` entry's `turn`, `wordCount`, `wordsPerMinute`, `longestPauseSec` and `responseGapMs`), the total number of answers, the number measured, or the pause threshold (0.7 s). Null fields are skipped, so a hidden filler count or an unmeasured value cannot be quoted.
+
+It is lenient on rounding and units, strict on invented numbers:
+
+- **Rounding:** a number written with `d` decimals matches a value that rounds to it at `d` decimals, so 142.3 wpm may be written "142", and 1.84 s "1.8" or "2".
+- **Units:** the unit written right after the number narrows what it may match. "words per minute" or "wpm" matches only a pace. "ms" or "milliseconds" matches a millisecond value, or seconds times 1000. "s" or "seconds" matches a seconds value, or milliseconds divided by 1000 (a 1200 ms gap may be "1.2 seconds"). "min" or "minutes" matches seconds divided by 60 or milliseconds divided by 60,000 (45.2 s of speech may be "0.75 minutes"). "%" or "percent" never matches, since the summary holds no percentages. Any other number ("3 of your 4 answers", "answer 2", "6 pauses") may match any value as given, divided by 1000 or divided by 60.
+- **Separators:** `,` is a decimal separator when one or two digits follow it ("1,84") and a thousands separator otherwise ("1,200").
+- **Limit:** only digits are checked. Number words ("three answers") are not.
+
+The check is soft. When the reading fails it, the reading is omitted, the report still completes with the code-computed `summary`, and the server logs the fixed line `[report] reading omitted: quoted a number outside the summary` (no reading text). `ReportV2.delivery.reading` is therefore optional; reports stored before the check always have one and load as before. The report page shows the "In plain words" block only when a reading exists, with nothing in its place otherwise.
 
 ### Report prompt layout
 
