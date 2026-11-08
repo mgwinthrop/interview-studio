@@ -1,5 +1,7 @@
 import prisma from "./db";
 import { errName } from "./errors";
+import type { PriceRow } from "./settings";
+import { listPrices } from "./settingsStore";
 
 // LLM usage recording: numbers and ids only. Never prompts, transcripts, responses or drafts.
 
@@ -21,14 +23,12 @@ export interface UsageRecord extends UsageMeta {
 
 export type PriceTable = Record<string, { inputPerMtok: number; outputPerMtok: number; asOf: string }>;
 
-/**
- * USD per million tokens, by model id. Ships empty on purpose: prices are not guessed. To enable
- * cost estimates, the owner adds an entry per model from Anthropic's published pricing page
- * (https://www.anthropic.com/pricing), e.g.
- *   "claude-sonnet-4-6": { inputPerMtok: <input price>, outputPerMtok: <output price>, asOf: "YYYY-MM-DD" },
- * with `asOf` set to the date the page was read. Without an entry every estimate is null.
- */
-export const PRICES: PriceTable = {};
+/** Converts stored price rows (model -> entry) in one place. */
+export function priceTableFrom(rows: readonly PriceRow[]): PriceTable {
+  const table: PriceTable = {};
+  for (const r of rows) table[r.model] = { inputPerMtok: r.inputPerMtok, outputPerMtok: r.outputPerMtok, asOf: r.asOf };
+  return table;
+}
 
 /** The owner used when a call site has none (the local-mode owner, as in auth.ts). */
 const DEFAULT_OWNER = "local";
@@ -36,7 +36,7 @@ const DEFAULT_OWNER = "local";
 /** Estimated cost in USD, or null when a token count is missing or the model has no price. */
 export function estimateCostUsd(
   r: Pick<UsageRecord, "model" | "inputTokens" | "outputTokens">,
-  prices: PriceTable = PRICES,
+  prices: PriceTable,
 ): number | null {
   const price = Object.prototype.hasOwnProperty.call(prices, r.model) ? prices[r.model] : undefined;
   if (!price || r.inputTokens === null || r.outputTokens === null) return null;
@@ -44,11 +44,21 @@ export function estimateCostUsd(
 }
 
 /**
- * Stores one usage row. Never throws: a failure is logged by error class only. Callers may
- * fire and forget it; it never delays or fails the LLM call it describes.
+ * Stores one usage row. Prices come from the owner's stored prices unless a table is passed; the
+ * cost is fixed at record time, so a price saved later affects only later rows. If the price
+ * lookup fails the row is stored with a null cost. Never throws: a failure is logged by error
+ * class only. Callers may fire and forget it; it never delays or fails the LLM call it describes.
  */
-export async function recordUsage(r: UsageRecord, prices: PriceTable = PRICES): Promise<void> {
+export async function recordUsage(r: UsageRecord, prices?: PriceTable): Promise<void> {
   try {
+    if (!prices) {
+      try {
+        prices = priceTableFrom(await listPrices(r.ownerId ?? DEFAULT_OWNER));
+      } catch (err) {
+        console.error(`[usage] price lookup failed: ${errName(err)}`);
+        prices = {};
+      }
+    }
     await prisma.llmUsage.create({
       data: {
         ownerId: r.ownerId ?? DEFAULT_OWNER,
@@ -74,12 +84,13 @@ function priceTableAsOf(prices: PriceTable): string | null {
 
 /**
  * Usage of one owner over the last `sinceDays` days, per feature (sorted by name). A feature's
- * cost sums only the calls that had an estimate; it is null when none had one.
+ * cost sums only the calls that had an estimate; it is null when none had one. The price date is
+ * the latest `asOf` among the owner's stored prices (null when none, or when they cannot be read).
  */
 export async function summarizeUsage(
   ownerId: string,
   sinceDays: number,
-  prices: PriceTable = PRICES,
+  prices?: PriceTable,
 ): Promise<{
   byFeature: {
     feature: string;
@@ -90,6 +101,12 @@ export async function summarizeUsage(
   }[];
   priceTableAsOf: string | null;
 }> {
+  let priceAsOf: string | null = null;
+  try {
+    priceAsOf = priceTableAsOf(prices ?? priceTableFrom(await listPrices(ownerId)));
+  } catch (err) {
+    console.error(`[usage] price lookup failed: ${errName(err)}`);
+  }
   const since = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000);
   const groups = await prisma.llmUsage.groupBy({
     by: ["feature"],
@@ -106,7 +123,7 @@ export async function summarizeUsage(
       outputTokens: g._sum.outputTokens ?? 0,
       estimatedCostUsd: g._sum.estimatedCostUsd ?? null,
     })),
-    priceTableAsOf: priceTableAsOf(prices),
+    priceTableAsOf: priceAsOf,
   };
 }
 

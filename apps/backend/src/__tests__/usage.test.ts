@@ -65,9 +65,12 @@ describe("estimateCostUsd", () => {
     expect(usage.estimateCostUsd(record({ outputTokens: null }), TEST_PRICES)).toBeNull();
   });
 
-  it("ships an empty price table, so the default gives null", () => {
-    expect(usage.PRICES).toEqual({});
-    expect(usage.estimateCostUsd(record({ model: "claude-sonnet-4-6" }))).toBeNull();
+  it("is null with an empty table, and priceTableFrom keys rows by model", () => {
+    expect(usage.estimateCostUsd(record(), {})).toBeNull();
+    expect(usage.priceTableFrom([{ model: "model-a", inputPerMtok: 2, outputPerMtok: 10, asOf: "2026-01-15" }])).toEqual({
+      "model-a": { inputPerMtok: 2, outputPerMtok: 10, asOf: "2026-01-15" },
+    });
+    expect(usage.priceTableFrom([])).toEqual({});
   });
 });
 
@@ -114,11 +117,61 @@ describe("recordUsage", () => {
       name = "SecretDbError";
     }
     vi.spyOn(prisma.llmUsage, "create").mockRejectedValueOnce(new SecretDbError("okapi-detail"));
-    await expect(usage.recordUsage(record())).resolves.toBeUndefined();
+    await expect(usage.recordUsage(record(), TEST_PRICES)).resolves.toBeUndefined();
     const logged = error.mock.calls.flat().join(" ");
     expect(logged).toContain("[usage]");
     expect(logged).toContain("SecretDbError");
     expect(logged).not.toContain("okapi-detail");
+  });
+
+  describe("with stored prices", () => {
+    const savePrice = (over: Record<string, unknown> = {}) =>
+      prisma.modelPrice.upsert({
+        where: { ownerId_model: { ownerId: "local", model: "model-a" } },
+        create: { ownerId: "local", model: "model-a", inputPerMtok: 2, outputPerMtok: 10, asOf: "2026-01-15", ...over },
+        update: { inputPerMtok: 2, outputPerMtok: 10, asOf: "2026-01-15", ...over },
+      });
+    beforeEach(async () => {
+      await prisma.modelPrice.deleteMany();
+    });
+
+    it("writes the computed cost from the owner's stored price", async () => {
+      await savePrice();
+      await usage.recordUsage(record());
+      expect((await prisma.llmUsage.findFirstOrThrow()).estimatedCostUsd).toBeCloseTo(7, 10);
+    });
+
+    it("writes a null cost when there is no price row, or only another owner's", async () => {
+      await prisma.modelPrice.create({
+        data: { ownerId: "someone-else", model: "model-a", inputPerMtok: 2, outputPerMtok: 10, asOf: "2026-01-15" },
+      });
+      await usage.recordUsage(record());
+      expect((await prisma.llmUsage.findFirstOrThrow()).estimatedCostUsd).toBeNull();
+    });
+
+    it("a price saved later changes only rows recorded later", async () => {
+      await savePrice();
+      await usage.recordUsage(record());
+      await savePrice({ inputPerMtok: 4, outputPerMtok: 20 });
+      await usage.recordUsage(record());
+      const costs = (await prisma.llmUsage.findMany()).map((r) => r.estimatedCostUsd as number).sort((a, b) => a - b);
+      expect(costs).toHaveLength(2);
+      expect(costs[0]).toBeCloseTo(7, 10);
+      expect(costs[1]).toBeCloseTo(14, 10);
+    });
+
+    it("records a null cost, does not throw and logs only the class when the lookup fails", async () => {
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      class PriceDbError extends Error {
+        name = "PriceDbError";
+      }
+      vi.spyOn(prisma.modelPrice, "findMany").mockRejectedValueOnce(new PriceDbError("secret-detail"));
+      await expect(usage.recordUsage(record())).resolves.toBeUndefined();
+      expect((await prisma.llmUsage.findFirstOrThrow()).estimatedCostUsd).toBeNull();
+      const logged = error.mock.calls.flat().join(" ");
+      expect(logged).toContain("[usage] price lookup failed: PriceDbError");
+      expect(logged).not.toContain("secret-detail");
+    });
   });
 });
 
@@ -153,7 +206,35 @@ describe("summarizeUsage and usageForSession", () => {
       { feature: "persona-draft", calls: 1, inputTokens: 100, outputTokens: 10, estimatedCostUsd: null },
       { feature: "report", calls: 1, inputTokens: 100, outputTokens: 10, estimatedCostUsd: 0.25 },
     ]);
+  });
+
+  it("takes priceTableAsOf from the owner's stored prices (latest date, owner-scoped, null when none)", async () => {
+    await prisma.modelPrice.deleteMany();
     expect((await usage.summarizeUsage("local", 30)).priceTableAsOf).toBeNull();
+    await prisma.modelPrice.createMany({
+      data: [
+        { ownerId: "local", model: "model-a", inputPerMtok: 2, outputPerMtok: 10, asOf: "2026-01-15" },
+        { ownerId: "local", model: "model-b", inputPerMtok: 1, outputPerMtok: 1, asOf: "2026-03-01" },
+        { ownerId: "someone-else", model: "model-a", inputPerMtok: 1, outputPerMtok: 1, asOf: "2027-01-01" },
+      ],
+    });
+    expect((await usage.summarizeUsage("local", 30)).priceTableAsOf).toBe("2026-03-01");
+    expect((await usage.summarizeUsage("nobody", 30)).priceTableAsOf).toBeNull();
+    await prisma.modelPrice.deleteMany();
+  });
+
+  it("returns a null priceTableAsOf when the price lookup fails, logging the class only", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    class PriceDbError extends Error {
+      name = "PriceDbError";
+    }
+    vi.spyOn(prisma.modelPrice, "findMany").mockRejectedValueOnce(new PriceDbError("secret-detail"));
+    const s = await usage.summarizeUsage("local", 30);
+    expect(s.priceTableAsOf).toBeNull();
+    expect(Array.isArray(s.byFeature)).toBe(true);
+    const logged = error.mock.calls.flat().join(" ");
+    expect(logged).toContain("PriceDbError");
+    expect(logged).not.toContain("secret-detail");
   });
 
   it("usageForSession totals one session for its owner only", async () => {

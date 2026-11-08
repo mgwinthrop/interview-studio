@@ -78,7 +78,7 @@ model LlmUsage {
   model            String
   inputTokens      Int?
   outputTokens     Int?
-  // Estimated at record time from usage.ts PRICES; null when the model has no price entry.
+  // Estimated at record time from the owner's stored model prices (ModelPrice); null when the model has no price.
   estimatedCostUsd Float?
 
   @@index([ownerId])
