@@ -54,14 +54,14 @@ flowchart TD
     B["Describe it<br/>one or two sentences"] --> D
     C["Blank form<br/>fill in every field"] --> E
     D["Draft<br/>not saved anywhere"] --> E["Editor"]
-    E -- "Try it" --> T["Practice conversation<br/>nothing is stored"]
+    E -- "Try it" --> T["Practice conversation<br/>no transcript is stored"]
     T --> E
     E -- "Save" --> S[("Saved interviewer")]
 ```
 
 - A **draft** is only a proposal. Nothing saves it until you press **Save**.
 - **Try it** runs a practice conversation with the interviewer as it stands in the form. No session, transcript or report is kept, and nothing appears in your history.
-- The designer conversation also stores nothing.
+- The designer conversation also stores no session, turns or report; it writes only numbers-only usage rows (owner id, no session id).
 - You can keep up to 50 custom interviewers.
 - You can duplicate, edit and delete custom interviewers on the Interviewers page.
 

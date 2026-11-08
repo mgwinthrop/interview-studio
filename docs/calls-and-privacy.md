@@ -10,7 +10,7 @@ You paste one or more Microsoft Teams call transcripts. The tool builds a draft 
 
 The flow, at `/interviewers/calls`:
 
-1. **Paste** a transcript (up to 24,000 characters per call for the parser). The edit box and the draft route allow up to 30,000 characters per call, because role labels can make the redacted text slightly longer; this is also why a long paste in the edit box can be cut. Request bodies are limited to 256kb for speakers and redact, and 768kb for draft.
+1. **Paste** a transcript (up to 24,000 characters per call for the parser). The edit box and the draft route allow up to 30,000 characters per call, because role labels can make the redacted text slightly longer; this is also why the edit box has its own 30,000-character limit and cuts text typed or pasted beyond it. The "characters sent" figure on the confirm screen is approximate, because the `CALLS:` and `CALL n:` headers the server adds are not counted. Request bodies are limited to 256kb for speakers and redact, and 768kb for draft.
 2. **Speakers.** The server finds the speakers. You pick the buyer. Check this list: a line such as "Total 10:00" inside someone's speech can look like a speaker header.
 3. **Redaction.** The server replaces names, your names-to-hide list, emails, phone numbers, URLs and money amounts with placeholders.
 4. **Review.** You read the highlighted result, tick suggestions, edit the text and fix anything redaction missed. This is the real control.
@@ -27,7 +27,7 @@ Nothing is stored from the pasted calls: not the original, not the redacted text
 |---|---|---|---|---|
 | Pasted transcript | Your browser to your own backend server (`/speakers`, `/redact`) | No | Names and other identifying detail in the text | Redaction runs on the backend you operate and makes no provider call. Call text is never logged. |
 | Redacted, approved text (buyer lines plus the line before each) | Your backend to Anthropic's API, only after Confirm | Not by this tool. Anthropic's own retention terms apply. | Detail the redaction missed reaches a third party | Review step, confirmation step, the cloud-send switch, size caps, leak check on the reply |
-| Draft interviewer | Anthropic's API back to your browser | No, until you save it | The model repeats a name or term | Leak check; you review the draft in the editor |
+| Draft interviewer | Anthropic's API back to your browser | No, until you save it. While the editor is open the draft is held in this browser tab's sessionStorage (`interviewer_draft`); it is removed when you save it as a new interviewer, and otherwise stays until the tab is closed | The model repeats a name or term | Leak check; you review the draft in the editor |
 | Saved persona (including `behaviours`) | Your SQLite database | Yes | It is stored text the model wrote | You edit it before saving; delete it like any interviewer |
 | Rehearsal audio | Your browser to your backend, then to the speech provider (ElevenLabs) | Audio is never stored by this tool | Provider-side handling of voice | Operator contract and settings with the provider |
 | Rehearsal transcript and report | Anthropic's API (conversation, report) | Yes, in your SQLite database | Same as any session | Delete route, `RETENTION_DAYS` |
@@ -58,6 +58,7 @@ It is deterministic code on your backend. No model is involved.
 **It does not catch, or it over-catches:**
 
 - Names and organisations that are not in the speaker list or your names-to-hide list. Client company names, other people who are mentioned but do not speak, products and places are not redacted unless you type them into the names list or tick them from the suggestions. The suggestions are only suggestions. This is the main way to over-trust redaction.
+- Short name parts: a first or last name part shorter than 3 characters (Li, Wu, Ng, Xu, Ed, Al, Jo) is not redacted on its own and is ignored by the leak check, so it can stay visible even though the full name is replaced. Add such names to the "names to hide" list, which does redact them (an entry of 2 characters is accepted and applied; the leak check still ignores it), and read the text in full.
 - Spelled-out numbers ("fifty thousand").
 - Nicknames and abbreviations of a name or company, unless you add them to your list.
 - Names and terms glued to other text with no word boundary ("PriyaShah").
@@ -68,7 +69,7 @@ It is deterministic code on your backend. No model is involved.
 - Unusual ranges, such as "10-20-30%" and "$50/75": an end can stay visible.
 - Over-redaction: years ("2026") become an amount placeholder, "5mm" and long digit runs too, and "2023-2024" can become a contact placeholder.
 - Context that identifies a client without naming them: an industry, a product, a story only that client could tell.
-- A speaker with a name in a non-cased script (for example Chinese) whose header is separated from the time by a tab or two or more spaces makes the whole parse fail, with a message that no speakers were found. With a single space, the same kind of header is treated as plain text, with no message: that speaker is not in the speaker list, their name stays visible in the text, and their lines merge into the previous speaker. Read the speaker list and the redacted text in full.
+- A speaker header whose name does not have the expected shape (1 to 6 words, each capitalised or one of a few lowercase particles such as "van" or "de", with no sentence punctuation). Examples: a name in a non-cased script (for example Chinese), a lowercase name ("Tom jones 0:10"), "Last, First" ("Shah, Priya 0:03") or an e-mail address. With a single space before the time, the header is treated as plain text, with no message: that speaker is not in the speaker list, their name stays visible in the text, their lines merge into the previous speaker, and later `Buyer:` labels can attach to the wrong person. With a tab or two or more spaces before the time, the same headers make the whole paste fail with a message that no speakers were found. That fails safe, but directory-style "Last, First" display names cannot be used until the format is changed. Check the speaker list against the call before you choose the buyer, and read the redacted text in full.
 
 The review step is the real control. Read the text before you approve it. Do not describe the result as anonymised, or as safe, secure or compliant.
 
