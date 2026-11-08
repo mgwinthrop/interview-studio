@@ -21,10 +21,12 @@ export function FlowStepper({ currentStep }: FlowStepperProps) {
         background: "#102B33",
         borderBottom: "1px solid rgba(255,255,255,0.06)",
         display: "flex",
+        // Wrap so the steps never force sideways scrolling on narrow screens (WCAG 1.4.10 Reflow).
+        flexWrap: "wrap",
         alignItems: "center",
         gap: 4,
-        padding: "0 24px",
-        height: 44,
+        padding: "6px 24px",
+        minHeight: 44,
         flexShrink: 0,
       }}
     >
