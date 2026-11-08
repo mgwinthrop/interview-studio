@@ -272,6 +272,20 @@ describe("generateDraft calls source", () => {
       expect(metas).toEqual([meta, meta]);
     });
 
+    it("passes the model to both model calls on a leak retry, and none when not given", async () => {
+      const models: unknown[] = [];
+      const llm: LlmProvider = {
+        stream: async function* () {},
+        async structured(req) {
+          models.push("model" in req ? req.model : "absent");
+          return req.schema.parse(models.length % 2 === 1 ? LEAKY : VALID_DRAFT);
+        },
+      };
+      await expect(generateDraft(source(), llm, live(), undefined, "d-model")).resolves.toEqual(VALID_DRAFT);
+      await expect(generateDraft(source(), llm, live())).resolves.toEqual(VALID_DRAFT);
+      expect(models).toEqual(["d-model", "d-model", "absent", "absent"]);
+    });
+
     it("retry is not attempted when the first draft is clean", async () => {
       const { llm, calls: rec } = sequenceLlm(VALID_DRAFT, LEAKY);
       await expect(generateDraft(source(), llm, live())).resolves.toEqual(VALID_DRAFT);

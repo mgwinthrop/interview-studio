@@ -16,6 +16,8 @@ import {
   setupServerTestEnv,
 } from "./helpers/server";
 import { MEASURED, regenerate, seedStored, statusOf } from "./helpers/report";
+import { BUILT_IN } from "../settings";
+import type { SettingsService } from "../settingsService";
 
 const env = setupServerTestEnv();
 
@@ -319,6 +321,29 @@ describe("POST /api/session/:sessionId/report/regenerate", () => {
     expect(ok.status).toBe(200);
     expect(calls.n).toBe(2);
     expect(await statusOf(env, "rg-fail")).toBe("complete");
+  });
+
+  it("uses the report model read from settings when the regenerate runs", async () => {
+    const models: (string | undefined)[] = [];
+    const { customize } = structuredWith(async (_n, req) => {
+      models.push(req.model);
+      return req.schema.parse(VALID_REPORT);
+    });
+    let reportModel = "r-at-start";
+    const owners: string[] = [];
+    const settings = {
+      get: async (ownerId: string) => {
+        owners.push(ownerId);
+        return { ...BUILT_IN, reportModel };
+      },
+    } as unknown as SettingsService;
+    const r = await start({ customize, settings });
+    await seedStored(env, "rg-model", "local", "failed");
+    reportModel = "r-current";
+    const res = await regenerate(r, "rg-model");
+    expect(res.status).toBe(200);
+    expect(models).toEqual(["r-current"]);
+    expect(owners).toContain("local");
   });
 
   it("invalid model output is 502 and the session stays failed", async () => {

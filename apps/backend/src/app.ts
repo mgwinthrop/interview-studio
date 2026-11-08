@@ -16,7 +16,12 @@ import type { Providers } from "./providers/types";
 import { createSessionRouter } from "./reportRoutes";
 import { createMockCatalog, createModelCatalog } from "./modelCatalog";
 import { createSettingsRouter } from "./settingsRoutes";
-import { createSettingsService, type SettingsService } from "./settingsService";
+import {
+  createSettingsService,
+  staticSettings,
+  type SettingsService,
+  type SettingsSource,
+} from "./settingsService";
 import * as settingsStore from "./settingsStore";
 import * as usage from "./usage";
 import { createUsageRouter } from "./usageRoutes";
@@ -41,20 +46,23 @@ export interface App {
  * The one-box draft maker behind POST /api/interviewers/draft. One draft per owner at a time
  * (an in-memory set, taken before the first await and released in finally); the call is bounded
  * by limits.reportTimeoutMs. A DraftError, a provider error or a timeout is 502; the cause is
- * logged by class name only, never the description or the draft.
+ * logged by class name only, never the description or the draft. The draft model is read from
+ * `settings` for each request.
  */
 export function createDraftMaker(
   config: Config,
   llm: Providers["llm"],
+  settings: SettingsSource = staticSettings(),
 ): InterviewerRouterDeps["makeDraft"] {
   const drafting = new Set<string>();
   return async (ownerId, text) => {
     if (drafting.has(ownerId)) return { ok: false, status: 429 };
     drafting.add(ownerId);
     try {
-      const outcome = await withDeadline(config.limits.reportTimeoutMs, (signal) =>
-        generateDraft({ kind: "description", text }, llm, signal, { feature: "designer-draft", ownerId }),
-      );
+      const outcome = await withDeadline(config.limits.reportTimeoutMs, async (signal) => {
+        const { draftModel } = await settings.get(ownerId);
+        return generateDraft({ kind: "description", text }, llm, signal, { feature: "designer-draft", ownerId }, draftModel);
+      });
       if (!outcome.ok) {
         console.error(`[http] draft interviewer 502: ${outcome.why}`);
         return { ok: false, status: 502 };
@@ -69,17 +77,23 @@ export function createDraftMaker(
 /**
  * Draft from approved calls. Same guards as createDraftMaker: one draft per owner (taken before
  * the first await), bounded by limits.reportTimeoutMs, 429 when busy, 502 on any failure. Only
- * the failure reason is logged, never call text, forbidden strings or the draft.
+ * the failure reason is logged, never call text, forbidden strings or the draft. The draft model
+ * is read from `settings` for each request and used on every call, the leak retry included.
  */
-export function createCallsDraftMaker(config: Config, llm: Providers["llm"]): CallsDraftMaker {
+export function createCallsDraftMaker(
+  config: Config,
+  llm: Providers["llm"],
+  settings: SettingsSource = staticSettings(),
+): CallsDraftMaker {
   const drafting = new Set<string>();
   return async (ownerId, calls) => {
     if (drafting.has(ownerId)) return { ok: false, status: 429 };
     drafting.add(ownerId);
     try {
-      const outcome = await withDeadline(config.limits.reportTimeoutMs, (signal) =>
-        generateDraft({ kind: "calls", calls }, llm, signal, { feature: "persona-draft", ownerId }),
-      );
+      const outcome = await withDeadline(config.limits.reportTimeoutMs, async (signal) => {
+        const { draftModel } = await settings.get(ownerId);
+        return generateDraft({ kind: "calls", calls }, llm, signal, { feature: "persona-draft", ownerId }, draftModel);
+      });
       if (!outcome.ok) {
         console.error(`[http] draft from calls 502: ${outcome.why}`);
         return { ok: false, status: 502 };
@@ -96,7 +110,8 @@ export function createApp(deps: AppDeps): App {
   const persist = deps.persist ?? persistence;
   const interviewers = deps.interviewers ?? interviewerStore;
   const authenticate = createAuthenticator(config);
-  // The one settings service for this app; later wiring hands it to sessions and reports.
+  // The one settings service for this app: the settings routes, draft makers, regenerate and
+  // every WebSocket session all read through it.
   const settings =
     deps.settings ??
     createSettingsService({
@@ -132,13 +147,17 @@ export function createApp(deps: AppDeps): App {
     createCallsRouter({
       config,
       ownerOf,
-      makeCallsDraft: createCallsDraftMaker(config, providers.llm),
+      makeCallsDraft: createCallsDraftMaker(config, providers.llm, settings),
     }),
   );
 
   app.use(
     "/api/interviewers",
-    createInterviewerRouter({ store: interviewers, ownerOf, makeDraft: createDraftMaker(config, providers.llm) }),
+    createInterviewerRouter({
+      store: interviewers,
+      ownerOf,
+      makeDraft: createDraftMaker(config, providers.llm, settings),
+    }),
   );
 
   app.get(
@@ -164,13 +183,13 @@ export function createApp(deps: AppDeps): App {
   app.use("/api/settings", createSettingsRouter({ service: settings, ownerOf }));
 
   // Transcript, report, regenerate, delete and the session list (absolute paths).
-  app.use(createSessionRouter({ config, llm: providers.llm, persist }));
+  app.use(createSessionRouter({ config, llm: providers.llm, persist, settings }));
 
   const server = http.createServer(app);
 
   // ── WebSocket ──────────────────────────────────────────────────────────────
 
-  const ws = attachWebSocket({ server, config, providers, persist, interviewers, authenticate });
+  const ws = attachWebSocket({ server, config, providers, persist, interviewers, authenticate, settings });
 
   return {
     server,

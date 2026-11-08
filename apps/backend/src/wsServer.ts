@@ -13,6 +13,7 @@ import type * as persistence from "./persistence";
 import type { Providers } from "./providers/types";
 import { SessionController, type EndedStatus } from "./sessionController";
 import * as registry from "./sessionRegistry";
+import { staticSettings, type SettingsSource } from "./settingsService";
 import {
   FAILED_REASON,
   MAX_TEXT_INPUT_BYTES,
@@ -34,6 +35,8 @@ export interface WsServerDeps {
   persist: typeof persistence;
   interviewers: typeof interviewerStore;
   authenticate: ReturnType<typeof createAuthenticator>;
+  /** Given to every session (interview, designer and trial). Defaults to staticSettings(). */
+  settings?: SettingsSource;
 }
 
 export interface WsServer {
@@ -48,6 +51,7 @@ export interface WsServer {
 /** The single WebSocket endpoint, attached to the server's upgrade event. */
 export function attachWebSocket(deps: WsServerDeps): WsServer {
   const { server, config, providers, persist, interviewers, authenticate } = deps;
+  const settings = deps.settings ?? staticSettings();
 
   const wss = new WebSocketServer({ noServer: true, maxPayload: config.limits.maxPayloadBytes });
   /** Controllers created by this app that have not reported onEnded yet. */
@@ -180,6 +184,7 @@ export function attachWebSocket(deps: WsServerDeps): WsServer {
           demo,
           providers,
           config,
+          settings,
           sendJson: (msg) => {
             if (msg.type !== "tts_chunk") send(ws, msg);
           },
