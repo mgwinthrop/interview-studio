@@ -1,6 +1,10 @@
 # WebSocket Protocol
 
+This is the reference for the messages between the browser and the backend. Read it if you are building a client or changing the protocol. For the big picture first, see [How it works](how-it-works.md).
+
 The backend exposes a single WebSocket endpoint at the root path (`ws://host/`). All JSON messages are typed — never send untyped blobs. Binary frames carry audio data only.
+
+**On this page:** [Typical session flow](#typical-session-flow) · [Connection](#connection) · [Sessions](#sessions) · [Client → Server](#client--server) · [Server → Client](#server--client) · [Close codes](#close-codes) · [Binary frame detection](#binary-frame-detection)
 
 ## Connection
 
@@ -57,7 +61,7 @@ When a stored session is created, the server copies the full interviewer definit
 | `failed` | The session ended but the report could not be generated or stored. |
 | `abandoned` | The socket closed before `session_end`, or the session idled out. |
 
-A session leaves `active` exactly once. The only other transition is `failed` to `complete`, made over HTTP when a failed report is regenerated (`POST /api/session/:sessionId/report/regenerate`, see `architecture.md`); it is not a WebSocket message. If the socket closes after `session_end` has been sent, the report is still generated and the session can still become `complete`. Ending is bounded: if the in-flight turn and the report have not finished within `limits.reportTimeoutMs` (90 seconds by default) of `session_end`, both are aborted, the session becomes `failed` and the server sends `session_failed` (if the socket is still open).
+A session leaves `active` exactly once. The only other transition is `failed` to `complete`, made over HTTP when a failed report is regenerated (`POST /api/session/:sessionId/report/regenerate`, see [Reports](reports.md#failed-reports)); it is not a WebSocket message. If the socket closes after `session_end` has been sent, the report is still generated and the session can still become `complete`. Ending is bounded: if the in-flight turn and the report have not finished within `limits.reportTimeoutMs` (90 seconds by default) of `session_end`, both are aborted, the session becomes `failed` and the server sends `session_failed` (if the socket is still open).
 
 ## Client → Server
 
@@ -119,28 +123,37 @@ The client sets `ws.binaryType = "arraybuffer"` so binary frames arrive as `Arra
 
 ## Typical session flow
 
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant S as Server
+    Note over C,S: Upgrade: origin and auth checks. A refusal is HTTP 401 or 403, before any WebSocket opens.
+    C->>S: session_start { interviewerId }
+    Note right of S: Must be the first frame, or the socket closes 1008
+    S-->>C: session_started { sessionId }
+    S-->>C: transcript (assistant, partial) per sentence of the greeting
+    S-->>C: tts_start
+    S-->>C: tts_chunk (binary, repeated)
+    S-->>C: transcript (assistant, final)
+    S-->>C: tts_end
+    opt measured by the client
+        C->>S: turn_timing { responseGapMs }
+    end
+    C->>S: audio (binary PCM, one utterance)
+    S-->>C: transcript (user)
+    S-->>C: transcript (assistant, partial) per sentence
+    S-->>C: tts_start
+    S-->>C: tts_chunk (binary, repeated)
+    S-->>C: latency_metric { ms }
+    S-->>C: transcript (assistant, final)
+    S-->>C: tts_end
+    C->>S: session_end
+    alt report stored
+        S-->>C: session_complete { reportId }
+    else report failed
+        S-->>C: session_failed { reason }
+    end
+    S-->>C: close 1000
 ```
-Client                          Server
-  │  (upgrade: auth + origin check; 401/403 refuses before the handshake)
-  │── session_start { interviewerId } ▶│  (first frame; otherwise close 1008)
-  │◀─ session_started { sessionId } │
-  │◀─ transcript (assistant, partial: true, greeting) ──│  (per sentence)
-  │◀─ tts_start ────────────────────│
-  │◀─ tts_chunk (binary) ──────────│  (repeated)
-  │◀─ transcript (assistant, final) │
-  │◀─ tts_end ──────────────────────│
-  │
-  │── turn_timing { responseGapMs } ▶│  (optional, just before the audio it belongs to)
-  │── audio (binary, PCM) ─────────▶│  (one utterance)
-  │◀─ transcript (user) ────────────│
-  │◀─ transcript (assistant, partial: true) ──│  (per sentence)
-  │◀─ tts_start ────────────────────│
-  │◀─ tts_chunk (binary) ──────────│
-  │◀─ latency_metric ───────────────│
-  │◀─ transcript (assistant, final) │
-  │◀─ tts_end ──────────────────────│
-  │
-  │── session_end ─────────────────▶│
-  │◀─ session_complete { reportId } │   or   ◀─ session_failed { reason }
-  │◀─ close 1000 ───────────────────│
-```
+
+An `interrupt` message can arrive at any point while the server is thinking or speaking. See [Interruptions](how-it-works.md#interruptions).

@@ -1,93 +1,94 @@
 # Interview Studio
 
-Interview Studio helps you find your voice through guided conversation and helpful feedback. An AI interviewer asks questions, explores your answers and gives you space to develop what you want to say. After the conversation, review the transcript and a written reflection, including how you delivered your answers, to see what came across and what you want to explore further.
+**Find your voice through guided conversation.** An AI interviewer asks you questions, follows up on your answers and gives you space to work out what you want to say. Afterwards you get a transcript and a written reflection on what you said and how you delivered it.
 
-The tool supports different kinds of conversations: exploring an idea, telling a story, rehearsing an interview or working through a point of view. You can also create your own interviewers to suit the conversation and feedback you need.
+![The Interview Studio home page, showing the four conversation phases and the preset interviewers](docs/images/studio-home.jpg)
 
-## Available today
+Use it to explore an idea, tell a story, rehearse an interview or work through a point of view. You can also build your own interviewers.
 
-The current prototype includes four preset interviewers (Tell a story, Explain an idea, Rehearse an interview and Work out a point of view) and lets you create your own. It supports:
+> **Status:** a single-user prototype that runs on your own machine. It is not a hosted service. See [Before you deploy it](docs/operations.md#before-you-put-this-on-a-network).
 
-- Voice conversations with follow-up questions and interrupt handling.
-- An animated interviewer with listening, thinking, speaking and connection states.
-- Transcripts and session history stored in a local SQLite database. Audio is never stored.
-- A three-part report: Content (what you said), Delivery (pace, pauses, answer length and time to start answering, measured in code from word timings, with a plain-language reading) and Next steps. Filler-word counts are off by default (`REPORT_FILLER_COUNTS=1` shows them). A failed report can be regenerated from the report page.
-- Custom interviewers (purpose, persona, style, phases and their lengths, focus and feedback switches), created by talking to a designer, from a one-line description or from a blank form, then reviewed, tried, edited, duplicated or deleted on the Interviewers page.
-- Responsive layouts, accessible state labels and reduced-motion support.
+## How it works
 
-Animation follows actual audio playback; it does not provide phoneme-level lip sync.
+```mermaid
+flowchart LR
+    You([You speak]) --> Browser["Browser<br/>detects when you stop talking"]
+    Browser --> Backend["Backend<br/>speech to text, then Claude,<br/>then text to speech"]
+    Backend --> Hear([You hear the reply])
+    Backend --> Report["Transcript and report<br/>saved in a local SQLite file"]
+```
 
-## How to use it
-
-1. Check your microphone and choose one of the available interviewers.
-2. Talk with the interviewer. Each interviewer sets its own phases and pace, so sessions vary in length.
-3. Respond to follow-up questions, take your time, or interrupt to clarify a point.
-4. Review the transcript and report to decide what you want to express differently or explore next.
-
-## Create your own interviewers
-
-Open **Interviewers** in the navigation. There are three ways to start:
-
-- **Talk it through**: a short conversation with a designer who asks what you want the interviewer for, then makes a draft. You can speak or type.
-- **Describe it**: write a sentence or two about the interviewer you want and get a draft back.
-- **Start from a blank form**: fill in every field yourself.
-
-A draft opens in the editor for review. **Try it** runs a practice conversation with the interviewer as it stands in the form, without saving it. Neither Try it nor the designer stores anything: no session, transcript or report is kept, and they do not appear in your history. Nothing is saved until you press **Save**. Presets cannot be changed; duplicate one to make your own copy. You can keep up to 50 custom interviewers.
-
-The goal is to help you find your own voice and receive useful feedback on the conversation, rather than prescribe one correct way to speak.
+A conversation moves through four phases (intro, share, deep dive, wrap up). When it ends, the report covers **Content** (what you said), **Delivery** (pace, pauses, answer length) and **Next steps**. Audio is never stored. [How it works](docs/how-it-works.md) explains each step with diagrams.
 
 ## Quick start
 
-Requires Node.js 20+ and your own Anthropic and ElevenLabs API keys. Cartesia is optional.
+You need **Node.js 20 or later** and **git**. Check with `node -v`.
+
+### 1. Try it without API keys
+
+Mock mode uses scripted replies, so you can see the whole flow before paying for anything.
 
 ```sh
+git clone https://github.com/mgwinthrop/interview-studio.git
+cd interview-studio
+
 npm --prefix apps/backend ci
 npm --prefix apps/frontend ci
 cp apps/backend/.env.example apps/backend/.env
 cp apps/frontend/.env.example apps/frontend/.env.local
+(cd apps/backend && npx prisma generate)
 ```
 
-Add your keys to `apps/backend/.env`, then run in separate terminals:
+Start the backend in one terminal:
 
 ```sh
 cd apps/backend
-npx prisma generate
-npm run dev
+PROFILE=mock npm run dev
 ```
+
+You should see `Server listening on 127.0.0.1:3001 (profile mock, auth local)`.
+
+Start the frontend in a second terminal:
 
 ```sh
 cd apps/frontend
 npm run dev
 ```
 
-Open http://localhost:3000. To preview all avatar states without credentials, a backend or microphone access, open http://localhost:3000/avatar.
+Open <http://localhost:3000>. The app asks for microphone access before the first conversation, even in mock mode. To look around without a microphone, open <http://localhost:3000/avatar>.
 
-## Architecture
+### 2. Use real conversations
 
-Next.js / React / TypeScript frontend → WebSocket → Node / Express backend. The voice pipeline uses Silero VAD, ElevenLabs Scribe, Claude and ElevenLabs TTS, with an optional Cartesia fallback. Prisma persists sessions in SQLite. The avatar is an inline SVG component with CSS animation: no additional avatar service or subscription.
+You need two API keys. Each provider bills your own account.
 
-## Verification
+| Key | Used for | Where to get it |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | The interviewer's questions and your report | [console.anthropic.com](https://console.anthropic.com/) |
+| `ELEVENLABS_API_KEY` | Speech to text and the interviewer's voice | [elevenlabs.io](https://elevenlabs.io/) |
+
+Put both in `apps/backend/.env`. Then restart the backend **without** `PROFILE=mock`:
 
 ```sh
-npm test
-npm --prefix apps/frontend run lint
-npm --prefix apps/frontend run build
-npm --prefix apps/backend run build
+cd apps/backend
+npm run dev
 ```
 
-## Scope and data
+If something goes wrong, see [Troubleshooting](docs/getting-started.md#troubleshooting).
 
-This is a single-user prototype. By default it accepts connections from this machine only (loopback, with Host and Origin checks); setting `AUTH_TOKEN` enables an optional shared-token mode, and there are no per-user accounts. Run locally or behind access controls; publishing source does not make the application suitable for unrestricted public hosting. Speech is sent to the configured speech provider, and transcripts are sent to the configured language model. Use practice content, not confidential interview or candidate data. Provider calls incur charges on your accounts.
+## Learn more
 
-## Customization
+| If you want to… | Read |
+|---|---|
+| Set up step by step, or fix a problem | [Getting started](docs/getting-started.md) |
+| Understand how a conversation flows through the system | [How it works](docs/how-it-works.md) |
+| Create or change interviewers | [Interviewers](docs/interviewers.md) |
+| See how the report is built | [Reports](docs/reports.md) |
+| Run it safely, configure it, or host it | [Operations](docs/operations.md) |
+| Build a client or change the protocol | [WebSocket protocol](docs/websocket-protocol.md) |
+| Contribute | [Contributing](docs/contributing.md) |
 
-- `apps/frontend/app/components/InterviewerAvatar.tsx`: character artwork and labels.
-- `apps/frontend/app/globals.css`: animation, colors and reduced-motion behavior.
-- `apps/frontend/app/components/Nav.tsx`: product name and navigation.
-- `apps/backend/src/interviewer/presets/`: the preset interviewers, their prompts and phase settings.
+`AGENTS.md` and `CLAUDE.md` hold instructions for AI coding assistants working in this repo. You can ignore them.
 
 ## Project background
 
 Based on the AI Interview Tool implementation at commit `ffb890a`, with an animated interviewer, playback feedback and local setup documentation. No open-source license has been specified.
-
-[Source repository](https://github.com/mgwinthrop/interview-studio)
