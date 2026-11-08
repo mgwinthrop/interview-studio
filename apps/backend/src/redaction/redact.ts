@@ -58,30 +58,55 @@ const phoneDigits = (m: string) => {
 };
 
 // --- Amounts ----------------------------------------------------------------------------------
-// Used only next to a currency, unit or suffix, so space-separated thousands ("10 000") are safe here.
-const NUM = String.raw`(?:\d{1,3}(?:,\d{3})+|\d{1,3}(?:\.\d{3})+(?=,\d)|\d{1,3}(?:[   ]\d{3})+|\d+)(?:[.,]\d+)?`;
-const SUFFIX = String.raw`(?:(?:[kKmM]|bn|\s(?:million|billion|thousand|grand))(?![\p{L}\p{N}]))`;
+// All amount patterns are case-insensitive ("usd 500", "3BN").
+// Used only next to a currency, unit or suffix, so space-separated thousands ("10 000", with a regular,
+// no-break, thin or narrow no-break space) are safe here.
+const NUM = String.raw`(?:\d{1,3}(?:,\d{3})+|\d{1,3}(?:\.\d{3})+(?=,\d)|\d{1,3}(?:[    ]\d{3})+|\d+)(?:[.,]\d+)?`;
+const SUFFIX = String.raw`(?:(?:k|m|bn|mn|mm|\s(?:million|billion|thousand|grand))(?![\p{L}\p{N}]))`;
 const PER = String.raw`\s?\/\s?(?:hr|hour|h|day|d|wk|week|mo|month|yr|year|annum|head|person|seat|user)(?![\p{L}])`;
+const PER_WORDS = String.raw`\s(?:an?|per)\s(?:hour|day|week|month|year|head|person|seat|user)(?![\p{L}])`;
+const SYMBOL = "[£$€¥₹]";
 const CODES = "USD|EUR|GBP|AUD|CAD|CHF|JPY|INR|NZD|SGD";
-const AMOUNT_RES = [
+const PRE = String.raw`(?:${SYMBOL}|(?<![\p{L}\p{N}])(?:${CODES}))\s?`;
+const POST = String.raw`[    ]?(?:${SYMBOL}|(?:${CODES}|pounds?|dollars?|euros?|quid|bucks)(?![\p{L}]))`;
+const PCT = String.raw`\s?(?:%|percent${B_END}|per cent${B_END})`;
+// One end of a range: optional currency before, number, optional suffix, optional currency or percent after.
+const END = String.raw`(?:${PRE})?${NUM}${SUFFIX}?(?:${POST}|${PCT})?`;
+const NUM_START = String.raw`(?<![\p{L}\p{N}.,])`;
+// A range counts as an amount only if it carries a currency, a size suffix or a percent somewhere.
+const AMOUNT_SIGNAL = new RegExp(
+  String.raw`${SYMBOL}|%|\d(?:k|m|bn|mn|mm)(?![\p{L}])|(?<![\p{L}])(?:${CODES}|pounds?|dollars?|euros?|quid|bucks|percent|per cent|million|billion|thousand|grand)(?![\p{L}])`,
+  "iu",
+);
+const amountRange = (m: string) => (AMOUNT_SIGNAL.test(m) ? m.length : null);
+
+const AMOUNT_RES: { re: RegExp; accept?: (m: string) => number | null }[] = [
+  // Ranges, as one span with both ends and any unit: $50-75/hr, 20-25%, 2-3k a month, $50 to 75 per hour,
+  // and "between 10 and 15%" (the word "between" itself stays).
+  {
+    re: new RegExp(
+      String.raw`(?:(?<=(?<![\p{L}])between\s{1,3})${END}\s{1,3}and\s{1,3}|${NUM_START}${END}\s{0,3}(?:[-–—]|\sto\s)\s{0,3})${END}(?:${PER}|${PER_WORDS})?`,
+      "giu",
+    ),
+    accept: amountRange,
+  },
   // Currency symbol or code, then a number: £1,200, $50/hr, USD 5,000, EUR 40k.
-  new RegExp(String.raw`(?:[£$€¥₹]|${B_START}(?:${CODES}))\s?${NUM}${SUFFIX}?(?:${PER})?`, "gu"),
-  // Number then a currency code or word: 250 GBP, 30 dollars.
-  new RegExp(
-    String.raw`${B_START}${NUM}${SUFFIX}?\s?(?:${CODES}|pounds?|dollars?|euros?|quid|bucks)(?![\p{L}])`,
-    "giu",
-  ),
+  { re: new RegExp(String.raw`${PRE}${NUM}${SUFFIX}?(?:${PER})?`, "giu") },
+  // Number then a currency symbol, code or word: 250 GBP, 300 €, 30 dollars.
+  { re: new RegExp(String.raw`${NUM_START}${NUM}${SUFFIX}?${POST}`, "giu") },
   // Pence: 50p.
-  new RegExp(String.raw`${B_START}\d+(?:\.\d+)?p${B_END}`, "gu"),
+  { re: new RegExp(String.raw`${B_START}\d+(?:\.\d+)?p${B_END}`, "giu") },
   // Number with a size suffix: 1.2k, 1.5m, 3bn, 2 million.
-  new RegExp(String.raw`${B_START}${NUM}${SUFFIX}`, "gu"),
+  { re: new RegExp(String.raw`${NUM_START}${NUM}${SUFFIX}`, "giu") },
   // Percentages: 20%, 12.5 percent.
-  new RegExp(String.raw`${B_START}\d+(?:\.\d+)?\s?(?:%|percent${B_END}|per cent${B_END})`, "giu"),
+  { re: new RegExp(String.raw`${B_START}\d+(?:\.\d+)?${PCT}`, "giu") },
   // Bare numbers of 4+ digits, with or without separators: 12,500, 1.200,50, 4000.
-  new RegExp(
-    String.raw`(?<![\p{L}\p{N}.,])(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d{4,}(?:\.\d+)?)(?![\p{N}])`,
-    "gu",
-  ),
+  {
+    re: new RegExp(
+      String.raw`(?<![\p{L}\p{N}.,])(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d{4,}(?:\.\d+)?)(?![\p{N}])`,
+      "gu",
+    ),
+  },
 ];
 
 const CONTACT_PASSES: Pass[] = [
@@ -90,18 +115,35 @@ const CONTACT_PASSES: Pass[] = [
   { re: DOMAIN, change: "contact", placeholder: CONTACT, accept: trimTrailing },
   { re: PHONE, change: "contact", placeholder: CONTACT, accept: phoneDigits },
 ];
-const AMOUNT_PASSES: Pass[] = AMOUNT_RES.map((re) => ({ re, change: "amount", placeholder: AMOUNT }));
+const AMOUNT_PASSES: Pass[] = AMOUNT_RES.map(({ re, accept }) => ({
+  re,
+  accept,
+  change: "amount",
+  placeholder: AMOUNT,
+}));
+
+// Straight, curly and modifier-letter apostrophes are treated as the same character in names.
+const APOSTROPHES = /['’ʼ]/g;
+const ANY_APOSTROPHE = "['’ʼ]";
 
 // One case-insensitive alternation, longest first so a full name wins over its parts.
 function wordListRe(words: string[], possessive: boolean): RegExp | null {
   if (words.length === 0) return null;
-  const alts = [...words].sort((a, b) => b.length - a.length).map(escapeRe).join("|");
-  const poss = possessive ? "(?:['’]s)?" : "";
+  const alts = [...words]
+    .sort((a, b) => b.length - a.length)
+    .map((w) => escapeRe(w).replace(APOSTROPHES, ANY_APOSTROPHE))
+    .join("|");
+  const poss = possessive ? `(?:${ANY_APOSTROPHE}s)?` : "";
   return new RegExp(`${B_START}(?:${alts})${poss}${B_END}`, "giu");
 }
 
+// Parts are split on spaces, dots and hyphens ("Priya.Shah"); a part with an apostrophe also
+// yields its pieces ("O'Brien" and "Brien").
 function nameParts(name: string): string[] {
-  return name.split(/[\s-]+/).filter((p) => p.length >= MIN_PART && !PARTICLES.has(p.toLowerCase()));
+  return name
+    .split(/[\s.-]+/)
+    .flatMap((w) => [w, ...(/['’ʼ]/.test(w) ? w.split(/['’ʼ]+/) : [])])
+    .filter((p) => p.length >= MIN_PART && !PARTICLES.has(p.toLowerCase()));
 }
 
 function dedupe(items: string[]): string[] {
@@ -124,28 +166,44 @@ interface Span {
   placeholder: string;
 }
 
+// Overlapping spans are merged so no character of either survives. The merged span takes the
+// placeholder of the longest one; on a tie the earlier pass wins (contacts, names, terms, amounts).
 function findSpans(text: string, passes: Pass[]): Span[] {
-  const taken = new Uint8Array(text.length);
-  const spans: Span[] = [];
+  const owner = new Int32Array(text.length).fill(-1);
+  const spans: (Span | null)[] = [];
   for (const pass of passes) {
     for (const m of text.matchAll(pass.re)) {
       const start = m.index ?? 0;
       const len = pass.accept ? pass.accept(m[0]) : m[0].length;
       if (!len) continue;
-      const end = start + len;
-      let free = true;
-      for (let i = start; i < end; i++) {
-        if (taken[i]) {
-          free = false;
-          break;
+      let merged: Span = { start, end: start + len, change: pass.change, placeholder: pass.placeholder };
+      const hit = new Set<number>();
+      for (let i = start; i < merged.end; i++) if (owner[i] >= 0) hit.add(owner[i]);
+      if (hit.size > 0) {
+        // Ids grow in pass order, so visiting them sorted lets the earliest span keep a tie.
+        let winner = merged;
+        let winnerLen = -1;
+        let lo = merged.start;
+        let hi = merged.end;
+        for (const id of [...hit].sort((a, b) => a - b)) {
+          const s = spans[id] as Span;
+          lo = Math.min(lo, s.start);
+          hi = Math.max(hi, s.end);
+          if (s.end - s.start > winnerLen) {
+            winner = s;
+            winnerLen = s.end - s.start;
+          }
+          spans[id] = null;
         }
+        if (len > winnerLen) winner = merged;
+        merged = { start: lo, end: hi, change: winner.change, placeholder: winner.placeholder };
       }
-      if (!free) continue;
-      taken.fill(1, start, end);
-      spans.push({ start, end, change: pass.change, placeholder: pass.placeholder });
+      const id = spans.length;
+      spans.push(merged);
+      owner.fill(id, merged.start, merged.end);
     }
   }
-  return spans.sort((a, b) => a.start - b.start);
+  return spans.filter((s): s is Span => s !== null).sort((a, b) => a.start - b.start);
 }
 
 function toSegments(text: string, spans: Span[]): Segment[] {
@@ -206,11 +264,13 @@ function lineSuggestions(text: string, spans: Span[], out: Set<string>): void {
 
 // --- Entry point ------------------------------------------------------------------------------
 export function redactCall(call: ParsedCall, counterpart: string, terms: string[]): RedactionResult {
+  const norm = (s: string) => s.normalize("NFC").trim();
+  const buyer = norm(counterpart);
   const roles = new Map<string, Role>();
   let ours = 0;
   for (const l of call.lines) {
     if (roles.has(l.speaker)) continue;
-    roles.set(l.speaker, l.speaker === counterpart ? "Buyer" : `Our side ${++ours}`);
+    roles.set(l.speaker, norm(l.speaker) === buyer ? "Buyer" : `Our side ${++ours}`);
   }
 
   // The counterpart is redacted even if they never speak in this call.

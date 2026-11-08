@@ -169,6 +169,89 @@ describe("redactCall", () => {
     }
   });
 
+  describe("review round 1", () => {
+    it("splits speaker labels containing dots into name parts", () => {
+      const r = redactCall(call([{ speaker: "Marcus Webb", text: "Priya said so, ask Shah" }]), "Priya.Shah", []);
+      expect(r.lines[0].segments.map((s) => s.text).join("")).toBe("[NAME] said so, ask [NAME]");
+      expect(r.forbidden).toEqual(expect.arrayContaining(["Priya.Shah", "Priya", "Shah"]));
+    });
+
+    it("treats straight, curly and modifier apostrophes in names as the same", () => {
+      const r = redactCall(
+        call([{ speaker: "Marcus Webb", text: "Ask O’Brien and Brien. Then oʼbrien's notes and O'Brien’s." }]),
+        "Sean O'Brien",
+        [],
+      );
+      expect(r.lines[0].segments.map((s) => s.text).join("")).toBe(
+        "Ask [NAME] and [NAME]. Then [NAME] notes and [NAME].",
+      );
+      expect(r.forbidden).toEqual(expect.arrayContaining(["Sean O'Brien", "Sean", "Brien"]));
+    });
+
+    it("redacts amount ranges as one span", () => {
+      const cases: [string, string][] = [
+        ["It is $50-75/hr now.", "It is [AMOUNT] now."],
+        ["It is £50-60 an hour now.", "It is [AMOUNT] now."],
+        ["A 20-25% cut.", "A [AMOUNT] cut."],
+        ["A cut between 10 and 15% maybe.", "A cut between [AMOUNT] maybe."],
+        ["About 2-3k a month.", "About [AMOUNT]."],
+        ["From $50 to 75 per hour.", "From [AMOUNT]."],
+        ["Roughly £1,000–£1,500 total.", "Roughly [AMOUNT] total."],
+      ];
+      for (const [input, out] of cases) expect(one(input)).toBe(out);
+      // Ranges with no currency, suffix or percent are left alone.
+      expect(one("Pages 10-15 and between 3 and 4 people.")).toBe("Pages 10-15 and between 3 and 4 people.");
+    });
+
+    it("matches a currency symbol after the number", () => {
+      expect(one("It costs 300€, 300 € or 1 200 € or 1 200 €.")).toBe(
+        "It costs [AMOUNT], [AMOUNT] or [AMOUNT] or [AMOUNT].",
+      );
+    });
+
+    it("lets a longer term win over a speaker-name part inside it", () => {
+      const r = redactCall(call([{ speaker: "Marcus Webb", text: "We use Webb Logistics daily." }]), BUYER, [
+        "Webb Logistics",
+      ]);
+      expect(r.lines[0].segments).toEqual([
+        { text: "We use " },
+        { text: "[CLIENT]", change: "term" },
+        { text: " daily." },
+      ]);
+      expect(r.suggestions).not.toContain("Logistics");
+      expect(r.forbidden).toContain("Webb Logistics");
+    });
+
+    it("merges partly overlapping spans so no part survives", () => {
+      expect(one("Marcus Webb Logistics called.", ["Webb Logistics"])).toBe("[CLIENT] called.");
+    });
+
+    it("matches currency codes and suffixes case-insensitively", () => {
+      expect(one("It is usd 500 total, gbp 300, 3BN or 1.5mn and 2MM.")).toBe(
+        "It is [AMOUNT] total, [AMOUNT], [AMOUNT] or [AMOUNT] and [AMOUNT].",
+      );
+    });
+
+    it("normalises the counterpart before comparing with speaker labels", () => {
+      const r = redactCall(call([{ speaker: "Zoë Park", text: "Hi." }]), " Zoë Park ", []);
+      expect(r.lines[0].role).toBe("Buyer");
+    });
+
+    it("redacts long runs of ranges and trailing symbols quickly", () => {
+      const unit = "$50-75/hr, 20-25% and 1 200 € or between 10 and 15k, ";
+      // Whole units only, so no range is cut in half at the end.
+      const text = unit.repeat(Math.floor(24_000 / unit.length));
+      const digits = "1-".repeat(12_000);
+      const spaced = "1 2".repeat(8_000);
+      const start = performance.now();
+      const r = redactCall(call([{ speaker: SELLER, text }]), BUYER, []);
+      redactCall(call([{ speaker: SELLER, text: digits }]), BUYER, []);
+      redactCall(call([{ speaker: SELLER, text: spaced }]), BUYER, []);
+      expect(performance.now() - start).toBeLessThan(1000);
+      expect(r.lines[0].segments.map((s) => s.text).join("")).not.toMatch(/\d/);
+    });
+  });
+
   it("redacts a 24,000-character line quickly", () => {
     const unit = "Priya said £1,200 to Acme at a@b.co, ok. ";
     const text = unit.repeat(Math.ceil(24_000 / unit.length)).slice(0, 24_000);
