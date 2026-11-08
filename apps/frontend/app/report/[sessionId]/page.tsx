@@ -6,6 +6,7 @@ import { apiUrl } from "../../lib/config";
 import { Nav } from "../../components/Nav";
 import { FlowStepper } from "../../components/FlowStepper";
 import { ReportView } from "../../components/ReportView";
+import { fetchSessionUsage, formatCount, formatUsd, type UsageTotals } from "../../lib/usage";
 import {
   parseReport,
   parseReportFailure,
@@ -262,6 +263,7 @@ function ReportPageInner() {
       <Nav />
       <FlowStepper currentStep={4} />
       <main id="main-content" tabIndex={-1}>
+        <SessionUsageLine sessionId={sessionId} />
         <ReportView
           report={report!}
           interviewerName={report!.interviewerName}
@@ -298,6 +300,28 @@ async function readJson(res: Response): Promise<unknown> {
   } catch {
     return null;
   }
+}
+
+// One muted line of usage numbers; renders nothing until it has some, and nothing on any failure.
+function SessionUsageLine({ sessionId }: { sessionId: string }) {
+  const [usage, setUsage] = useState<UsageTotals | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchSessionUsage(sessionId).then((r) => {
+      if (!cancelled && r.kind === "ok" && r.value.calls > 0) setUsage(r.value);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
+  if (!usage) return null;
+  return (
+    <p style={{ margin: 0, padding: "8px 32px 0", fontSize: 13, color: "#566475" }}>
+      Usage for this session: {formatCount(usage.calls)} model {usage.calls === 1 ? "call" : "calls"},{" "}
+      {formatCount(usage.inputTokens)} input tokens, {formatCount(usage.outputTokens)} output tokens.
+      {usage.estimatedCostUsd !== null && ` Estimated cost: ${formatUsd(usage.estimatedCostUsd)} USD.`}
+    </p>
+  );
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
