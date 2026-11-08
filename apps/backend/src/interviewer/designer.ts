@@ -146,7 +146,7 @@ const SYSTEM_PROMPT = [DRAFT_INTRO, MATERIAL, FIELDS, RULES, JSON_SHAPE, FINAL_L
  * Every character that can read as a line break: CR, LF, VT, FF, NEL, LINE SEPARATOR and
  * PARAGRAPH SEPARATOR. Written as escapes on purpose (LS and PS end a line in source code too).
  */
-const LINE_BREAKS = /[\r\n\u000B\u000C\u0085\u2028\u2029]+/g;
+export const LINE_BREAKS = /[\r\n\u000B\u000C\u0085\u2028\u2029]+/g;
 
 /** One line per turn, line breaks collapsed so a turn cannot forge a speaker line; keeps the tail. */
 function conversationMessage(turns: readonly DraftTurn[]): string {
