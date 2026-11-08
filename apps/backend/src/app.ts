@@ -2,7 +2,7 @@ import http from "node:http";
 import cors from "cors";
 import express from "express";
 import { createAuthenticator } from "./auth";
-import { createCallsRouter } from "./callsRoutes";
+import { createCallsRouter, type CallsDraftMaker } from "./callsRoutes";
 import { callsEnabled, type Config } from "./config";
 import prisma from "./db";
 import { withDeadline } from "./deadline";
@@ -58,6 +58,31 @@ export function createDraftMaker(
   };
 }
 
+/**
+ * Draft from approved calls. Same guards as createDraftMaker: one draft per owner (taken before
+ * the first await), bounded by limits.reportTimeoutMs, 429 when busy, 502 on any failure. Only
+ * the failure reason is logged, never call text, forbidden strings or the draft.
+ */
+export function createCallsDraftMaker(config: Config, llm: Providers["llm"]): CallsDraftMaker {
+  const drafting = new Set<string>();
+  return async (ownerId, calls) => {
+    if (drafting.has(ownerId)) return { ok: false, status: 429 };
+    drafting.add(ownerId);
+    try {
+      const outcome = await withDeadline(config.limits.reportTimeoutMs, (signal) =>
+        generateDraft({ kind: "calls", calls }, llm, signal),
+      );
+      if (!outcome.ok) {
+        console.error(`[http] draft from calls 502: ${outcome.why}`);
+        return { ok: false, status: 502 };
+      }
+      return { ok: true, draft: outcome.value };
+    } finally {
+      drafting.delete(ownerId);
+    }
+  };
+}
+
 export function createApp(deps: AppDeps): App {
   const { config, providers } = deps;
   const persist = deps.persist ?? persistence;
@@ -92,8 +117,7 @@ export function createApp(deps: AppDeps): App {
     createCallsRouter({
       config,
       ownerOf,
-      // Replaced when POST /draft is added; no route calls it yet.
-      makeCallsDraft: async () => ({ ok: false, status: 502 }),
+      makeCallsDraft: createCallsDraftMaker(config, providers.llm),
     }),
   );
 

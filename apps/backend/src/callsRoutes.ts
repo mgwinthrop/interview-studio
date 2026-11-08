@@ -1,7 +1,8 @@
 import express from "express";
-import type { Config } from "./config";
+import { callsEnabled, type Config } from "./config";
 import { errName } from "./errors";
 import { route } from "./httpUtil";
+import { MAX_CALLS, MAX_CALLS_CHARS } from "./interviewer/designer";
 import type { FieldError, InterviewerInput } from "./interviewer/schema";
 import { CONTROL_CHARS } from "./interviewer/schema";
 import { redactCall } from "./redaction/redact";
@@ -19,11 +20,15 @@ export type CallsDraftMaker = (
 export interface CallsRouterDeps {
   config: Config;
   ownerOf: (res: express.Response) => string;
-  /** Used by POST /draft (added later); the speakers and redact routes never call it. */
+  /** Used by POST /draft only; the speakers and redact routes never call it. */
   makeCallsDraft: CallsDraftMaker;
 }
 
 const BODY_LIMIT = "256kb";
+// Draft route only: up to MAX_CALLS calls of MAX_CALLS_CHARS each, plus their forbidden lists.
+const DRAFT_BODY_LIMIT = "768kb";
+const MAX_FORBIDDEN = 500;
+const MAX_FORBIDDEN_CHARS = 120;
 const MAX_TERMS = 50;
 const MAX_TERM_CHARS = 80;
 
@@ -38,7 +43,24 @@ const BAD_COUNTERPART: FieldError[] = [{ path: "counterpart", message: "Choose o
 const BAD_TERMS: FieldError[] = [
   {
     path: "terms",
-    message: `Must be a list of at most ${MAX_TERMS} terms, each text of at most ${MAX_TERM_CHARS} characters with no control characters.`,
+    message: `Must be a list of at most ${MAX_TERMS} terms, each text of at most ${MAX_TERM_CHARS} characters with no control characters or line breaks.`,
+  },
+];
+const CALLS_OFF = { error: "Drafting from calls is turned off." };
+const NOT_CONFIRMED: FieldError[] = [{ path: "confirmed", message: "Confirm what will be sent before drafting." }];
+const BAD_CALLS: FieldError[] = [
+  { path: "calls", message: `Must be a list of 1 to ${MAX_CALLS} calls, each with text and a list of forbidden strings.` },
+];
+const BAD_CALL_TEXT: FieldError[] = [
+  {
+    path: "calls.text",
+    message: `Each call must be non-empty text of at most ${MAX_CALLS_CHARS} characters, with no control characters other than newlines.`,
+  },
+];
+const BAD_FORBIDDEN: FieldError[] = [
+  {
+    path: "calls.forbidden",
+    message: `Must be a list of at most ${MAX_FORBIDDEN} strings, each at most ${MAX_FORBIDDEN_CHARS} characters.`,
   },
 ];
 
@@ -57,12 +79,76 @@ function validTerms(v: unknown): v is string[] {
   return (
     Array.isArray(v) &&
     v.length <= MAX_TERMS &&
-    v.every((t) => typeof t === "string" && t.length <= MAX_TERM_CHARS && !CONTROL_CHARS.test(t))
+    v.every((t) => typeof t === "string" && t.length <= MAX_TERM_CHARS && !CONTROL_CHARS.test(t) && !/[\r\n]/.test(t))
   );
 }
 
 export function createCallsRouter(deps: CallsRouterDeps): express.Router {
   const router = express.Router();
+
+  // Declared before the 256kb parser below so this path alone gets the larger limit. The switch
+  // is checked before the body is read at all, and nothing reaches the model before `confirmed`.
+  router.post(
+    "/draft",
+    (_req, res, next) => {
+      if (!callsEnabled(deps.config)) {
+        console.warn("[http] draft from calls refused (403)");
+        res.status(403).json(CALLS_OFF);
+        return;
+      }
+      next();
+    },
+    express.json({ limit: DRAFT_BODY_LIMIT }),
+    route("draft-from-calls", async (req, res) => {
+      const body: unknown = req.body;
+      if (!isPlainObject(body)) {
+        res.status(422).json({ errors: NOT_OBJECT });
+        return;
+      }
+      if (body.confirmed !== true) {
+        res.status(422).json({ errors: NOT_CONFIRMED });
+        return;
+      }
+      const raw = body.calls;
+      if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_CALLS || !raw.every(isPlainObject)) {
+        res.status(422).json({ errors: BAD_CALLS });
+        return;
+      }
+      const calls: { text: string; forbidden: string[] }[] = [];
+      for (const c of raw as Record<string, unknown>[]) {
+        const { text, forbidden } = c;
+        if (
+          typeof text !== "string" ||
+          text.trim().length === 0 ||
+          text.length > MAX_CALLS_CHARS ||
+          CONTROL_CHARS.test(text)
+        ) {
+          res.status(422).json({ errors: BAD_CALL_TEXT });
+          return;
+        }
+        if (
+          !Array.isArray(forbidden) ||
+          forbidden.length > MAX_FORBIDDEN ||
+          !forbidden.every((f) => typeof f === "string" && f.length <= MAX_FORBIDDEN_CHARS)
+        ) {
+          res.status(422).json({ errors: BAD_FORBIDDEN });
+          return;
+        }
+        calls.push({ text, forbidden: forbidden as string[] });
+      }
+      const result = await deps.makeCallsDraft(deps.ownerOf(res), calls);
+      if (!result.ok) {
+        console.warn(`[http] draft from calls (${result.status})`);
+        res
+          .status(result.status)
+          .json({ error: result.status === 429 ? "a draft is already being made" : "Draft generation failed" });
+        return;
+      }
+      console.log(`[http] drafted interviewer from ${calls.length} calls (200)`);
+      res.json({ draft: result.draft });
+    }),
+  );
+
   router.use(express.json({ limit: BODY_LIMIT }));
 
   router.post(
