@@ -42,6 +42,7 @@ const INPUT_FIELDS = [
   "purpose",
   "persona",
   "style",
+  "behaviours",
   "opening",
   "closing",
   "phases",
@@ -100,6 +101,7 @@ const FIELDS = `FIELDS:
 - "purpose": at most ${L.purpose} characters; one sentence on what the conversation is for.
 - "persona": at most ${L.persona} characters; who the interviewer is.
 - "style": at most ${L.style} characters; how the interviewer speaks and asks questions.
+- "behaviours": optional, at most ${L.behaviours} characters; patterns of how the person being practised against tends to behave.
 - "opening": at most ${L.opening} characters; how the interviewer starts the conversation.
 - "closing": at most ${L.closing} characters; how the interviewer ends it.
 - "phases": at most ${L.phases} phases in order; each has a "name" of at most ${L.phaseName} characters (names are unique) and an "instruction" of at most ${L.phaseInstruction} characters on what the interviewer does in that phase.
@@ -123,6 +125,7 @@ const JSON_SHAPE = `Respond with a JSON object in exactly this shape:
   "purpose": "string",
   "persona": "string",
   "style": "string",
+  "behaviours": "string (optional)",
   "opening": "string",
   "closing": "string",
   "phases": [

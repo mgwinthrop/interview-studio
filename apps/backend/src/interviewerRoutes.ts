@@ -48,6 +48,7 @@ function toResponse(def: InterviewerDefinition) {
     source: def.source,
     persona: def.persona,
     style: def.style,
+    ...(def.behaviours !== undefined ? { behaviours: def.behaviours } : {}),
     opening: def.opening,
     closing: def.closing,
     phases: def.phases,

@@ -66,6 +66,17 @@ const convo = (...lines: [DraftTurn["role"], string][]): { kind: "conversation";
 const benign = () =>
   convo(["assistant", "What kind of interviewer would you like?"], ["user", SECRET_USER]);
 
+describe("generateDraft behaviours", () => {
+  it("keeps behaviours in the draft and mentions it to the model", async () => {
+    const { llm } = createMockProviders({ structured: { ...VALID_DRAFT, behaviours: "Interrupts early." } });
+    const draft = await generateDraft(benign(), llm, live());
+    expect(draft.behaviours).toBe("Interrupts early.");
+    const rec = recordingLlm();
+    await generateDraft(benign(), rec.llm, live());
+    expect(rec.calls[0].system).toContain('"behaviours"');
+  });
+});
+
 describe("generateDraft", () => {
   it("valid conversation draft is returned and equals the validated input", async () => {
     const { llm } = createMockProviders({ structured: VALID_DRAFT });
