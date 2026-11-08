@@ -14,6 +14,7 @@ import {
   type InterviewerSummary,
 } from "../lib/interviewers";
 import { editPathFor, storeDraft } from "../lib/interviewerForm";
+import { fetchFeatures } from "../lib/calls";
 import { startVoiceSession } from "../lib/voiceSession";
 import { labelStyle, hintStyle, ERROR_COLOR, smallButtonStyle, dangerButtonStyle } from "./edit/FieldRow";
 import { FIELD_BORDER, primaryButtonStyle, secondaryButtonStyle } from "../lib/ui";
@@ -51,6 +52,18 @@ export default function InterviewersPage() {
   const [description, setDescription] = useState("");
   const [drafting, setDrafting] = useState(false);
   const [draftError, setDraftError] = useState<string | null>(null);
+  // "Build from calls" is offered only when the server says it is turned on.
+  const [callsOn, setCallsOn] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchFeatures().then((f) => {
+      if (!cancelled) setCallsOn(f.personaFromCalls);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -255,6 +268,18 @@ export default function InterviewersPage() {
             </p>
           )}
         </form>
+
+        {callsOn && (
+          <div style={{ marginTop: 20 }}>
+            <Link href="/interviewers/calls" aria-describedby="calls-hint" style={{ ...secondaryButtonStyle, display: "inline-block" }}>
+              Build from calls
+            </Link>
+            <p id="calls-hint" style={{ ...hintStyle, marginTop: 10 }}>
+              Draft a persona from transcripts of real calls. You redact and approve each call, and confirm before
+              anything is sent.
+            </p>
+          </div>
+        )}
       </section>
 
       <div role="status" style={{ minHeight: 0 }}>
