@@ -74,6 +74,12 @@ afterEach(() => {
 });
 
 describe("generateDraft calls source", () => {
+  it("drops a blank behaviours from the model output", async () => {
+    const { llm } = recordingLlm({ ...VALID_DRAFT, behaviours: "  " });
+    const draft = await generateDraft(calls(CALL_A), llm, live());
+    expect(draft).not.toHaveProperty("behaviours");
+  });
+
   it("calls source sends CALL blocks and the fixed prompt", async () => {
     const { llm, calls: rec } = recordingLlm();
     const draft = await generateDraft(calls(CALL_A, CALL_B), llm, live());

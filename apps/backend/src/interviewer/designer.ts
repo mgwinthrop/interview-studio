@@ -88,6 +88,10 @@ const draftOutputSchema: ZodType<InterviewerInput, ZodTypeDef, unknown> = z.unkn
     return z.NEVER;
   }
   const picked = pick(raw, INPUT_FIELDS);
+  // The prompt marks behaviours optional, so a blank or null value means "none", not an error.
+  if (picked.behaviours === null || (typeof picked.behaviours === "string" && picked.behaviours.trim() === "")) {
+    delete picked.behaviours;
+  }
   if (Array.isArray(picked.phases)) {
     picked.phases = picked.phases.map((p) => (isPlainObject(p) ? pick(p, PHASE_FIELDS) : p));
   }

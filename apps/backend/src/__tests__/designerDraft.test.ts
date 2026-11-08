@@ -67,6 +67,23 @@ const benign = () =>
   convo(["assistant", "What kind of interviewer would you like?"], ["user", SECRET_USER]);
 
 describe("generateDraft behaviours", () => {
+  it.each([[""], ["   "], [null]])("drops a blank behaviours from the model output (%j)", async (blank) => {
+    const { llm } = recordingLlm({ ...VALID_DRAFT, behaviours: blank });
+    const draft = await generateDraft(benign(), llm, live());
+    expect(draft).not.toHaveProperty("behaviours");
+  });
+
+  it("still rejects a non-string behaviours", async () => {
+    const { llm } = recordingLlm({ ...VALID_DRAFT, behaviours: 5 });
+    await expect(generateDraft(benign(), llm, live())).rejects.toThrow("draft generation failed");
+  });
+
+  it("keeps a valid behaviours", async () => {
+    const { llm } = recordingLlm({ ...VALID_DRAFT, behaviours: "Interrupts early." });
+    const draft = await generateDraft(benign(), llm, live());
+    expect(draft.behaviours).toBe("Interrupts early.");
+  });
+
   it("keeps behaviours in the draft and mentions it to the model", async () => {
     const { llm } = createMockProviders({ structured: { ...VALID_DRAFT, behaviours: "Interrupts early." } });
     const draft = await generateDraft(benign(), llm, live());
