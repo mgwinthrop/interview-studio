@@ -67,11 +67,14 @@ const PER = String.raw`\s?\/\s?(?:hr|hour|h|day|d|wk|week|mo|month|yr|year|annum
 const PER_WORDS = String.raw`\s(?:an?|per)\s(?:hour|day|week|month|year|head|person|seat|user)(?![\p{L}])`;
 const SYMBOL = "[£$€¥₹]";
 const CODES = "USD|EUR|GBP|AUD|CAD|CHF|JPY|INR|NZD|SGD";
-const PRE = String.raw`(?:${SYMBOL}|(?<![\p{L}\p{N}])(?:${CODES}))\s?`;
+// Letter-prefixed symbols (US$, HK$, A$) keep the prefix inside the span.
+const SYMBOL_PREFIX = "US|HK|AU|CA|NZ|SG|NT|A|C|S|R";
+const PRE = String.raw`(?:(?:(?<![\p{L}\p{N}])(?:${SYMBOL_PREFIX}))?${SYMBOL}|(?<![\p{L}\p{N}])(?:${CODES}))\s?`;
 const POST = String.raw`[    ]?(?:${SYMBOL}|(?:${CODES}|pounds?|dollars?|euros?|quid|bucks)(?![\p{L}]))`;
 const PCT = String.raw`\s?(?:%|percent${B_END}|per cent${B_END})`;
 // One end of a range: optional currency before, number, optional suffix, optional currency or percent after.
-const END = String.raw`(?:${PRE})?${NUM}${SUFFIX}?(?:${POST}|${PCT})?`;
+const END_BODY = String.raw`${NUM}${SUFFIX}?(?:${POST}|${PCT})?`;
+const END = String.raw`(?:${PRE})?${END_BODY}`;
 const NUM_START = String.raw`(?<![\p{L}\p{N}.,])`;
 // A range counts as an amount only if it carries a currency, a size suffix or a percent somewhere.
 const AMOUNT_SIGNAL = new RegExp(
@@ -85,7 +88,7 @@ const AMOUNT_RES: { re: RegExp; accept?: (m: string) => number | null }[] = [
   // and "between 10 and 15%" (the word "between" itself stays).
   {
     re: new RegExp(
-      String.raw`(?:(?<=(?<![\p{L}])between\s{1,3})${END}\s{1,3}and\s{1,3}|${NUM_START}${END}\s{0,3}(?:[-–—]|\sto\s)\s{0,3})${END}(?:${PER}|${PER_WORDS})?`,
+      String.raw`(?:(?<=(?<![\p{L}])between\s{1,3})${END}\s{1,3}and\s{1,3}|(?:${PRE}|${NUM_START})${END_BODY}\s{0,3}(?:[-–—]|\sto\s)\s{0,3})${END}(?:${PER}|${PER_WORDS})?`,
       "giu",
     ),
     accept: amountRange,

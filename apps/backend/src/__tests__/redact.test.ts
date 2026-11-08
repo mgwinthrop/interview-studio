@@ -203,6 +203,15 @@ describe("redactCall", () => {
       expect(one("Pages 10-15 and between 3 and 4 people.")).toBe("Pages 10-15 and between 3 and 4 people.");
     });
 
+    it("redacts letter-prefixed currency ranges", () => {
+      expect(one("It is US$50-75/hr.")).toBe("It is [AMOUNT].");
+      expect(one("Say HK$100 to 200 per day.")).toBe("Say [AMOUNT].");
+      expect(one("Say AU$ 50-75 then.")).toBe("Say [AMOUNT] then.");
+      expect(one("Say A$20-30k then.")).toBe("Say [AMOUNT] then.");
+      expect(one("Just US$50 and CA$5.")).toBe("Just [AMOUNT] and [AMOUNT].");
+      expect(one("Pages 10-15 and between 3 and 4 people.")).toBe("Pages 10-15 and between 3 and 4 people.");
+    });
+
     it("matches a currency symbol after the number", () => {
       expect(one("It costs 300€, 300 € or 1 200 € or 1 200 €.")).toBe(
         "It costs [AMOUNT], [AMOUNT] or [AMOUNT] or [AMOUNT].",
@@ -243,8 +252,10 @@ describe("redactCall", () => {
       const text = unit.repeat(Math.floor(24_000 / unit.length));
       const digits = "1-".repeat(12_000);
       const spaced = "1 2".repeat(8_000);
+      const prefixed = "US$1-".repeat(4_800);
       const start = performance.now();
       const r = redactCall(call([{ speaker: SELLER, text }]), BUYER, []);
+      redactCall(call([{ speaker: SELLER, text: prefixed }]), BUYER, []);
       redactCall(call([{ speaker: SELLER, text: digits }]), BUYER, []);
       redactCall(call([{ speaker: SELLER, text: spaced }]), BUYER, []);
       expect(performance.now() - start).toBeLessThan(1000);
