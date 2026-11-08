@@ -26,6 +26,7 @@ const TTS: TtsModel[] = [
 function fakeCatalog(init: { claude?: ClaudeModel[] | "fail" | "throw"; tts?: TtsModel[] | "fail" } = {}) {
   const state = { claude: init.claude ?? BASE_MODELS, tts: init.tts ?? TTS };
   const claude = vi.fn(async (): Promise<Listing<ClaudeModel>> => {
+    await Promise.resolve();
     if (state.claude === "throw") throw new Error("boom");
     if (state.claude === "fail") return { ok: false };
     return { ok: true, models: state.claude.map((m) => ({ ...m })) };
@@ -43,14 +44,19 @@ function fakeStore(initial: { values?: Partial<SettingsValues>; prices?: PriceRo
     prices: [...(initial.prices ?? [])],
     failRead: false,
     failMissingWrite: false,
+    readDelayMs: 0,
+    onSaveValues: null as null | (() => void),
   };
   const store = {
     getStoredValues: vi.fn(async (_o: string) => {
       if (data.failRead) throw new Error("read failed");
-      await Promise.resolve();
-      return { ...data.values };
+      const snapshot = { ...data.values };
+      if (data.readDelayMs > 0) await new Promise((r) => setTimeout(r, data.readDelayMs));
+      else await Promise.resolve();
+      return snapshot;
     }),
     saveValues: vi.fn(async (_o: string, patch: Partial<SettingsValues>) => {
+      data.onSaveValues?.();
       data.values = { ...data.values, ...patch };
     }),
     saveMissingModels: vi.fn(
@@ -168,13 +174,40 @@ describe("get", () => {
     expect(data.values.replyModel).toBe("haiku-new");
   });
 
-  it("two simultaneous gets both return recommendations and leave one consistent set", async () => {
-    const { svc, data } = setup();
+  it("two racing gets return the same persisted set even when their picks differ", async () => {
+    const { svc, data, claude } = setup();
+    let calls = 0;
+    const newer = [...BASE_MODELS, model("haiku-newer", "haiku", "2026-01-01T00:00:00Z")];
+    claude.mockImplementation(async () => {
+      await Promise.resolve();
+      calls += 1;
+      return { ok: true, models: (calls === 1 ? BASE_MODELS : newer).map((m) => ({ ...m })) };
+    });
     const [a, b] = await Promise.all([svc.get(OWNER), svc.get(OWNER)]);
-    const want = { replyModel: "haiku-new", reportModel: "sonnet-new", draftModel: "sonnet-new" };
-    expect(a).toMatchObject(want);
-    expect(b).toMatchObject(want);
-    expect(data.values).toEqual(want);
+    expect(claude).toHaveBeenCalledTimes(2);
+    expect(a).toEqual(b);
+    expect(a).toEqual({ ...BUILT_IN, ...data.values });
+    expect(data.values.replyModel).toBe("haiku-new");
+  });
+
+  it("a get in flight during save does not make save or a later get return old values", async () => {
+    const full = { replyModel: "haiku-old", reportModel: "sonnet-new", draftModel: "sonnet-new" };
+    const { svc, data } = setup({ values: full });
+    data.readDelayMs = 10;
+    let inflight: Promise<SettingsValues> | null = null;
+    data.onSaveValues = () => {
+      data.onSaveValues = null;
+      inflight = svc.get(OWNER);
+    };
+    const r = await svc.save(OWNER, { values: { replyModel: "haiku-new", replyMaxTokens: 400 } });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.page.values.replyModel).toBe("haiku-new");
+    expect(r.page.values.replyMaxTokens).toBe(400);
+    const after = await svc.get(OWNER);
+    expect(after.replyModel).toBe("haiku-new");
+    expect(after.replyMaxTokens).toBe(400);
+    await inflight;
   });
 });
 
@@ -207,6 +240,21 @@ describe("page", () => {
     expect(p.micFormat).toEqual({ sampleRateHz: 16000, channels: 1, bitDepth: 16 });
     expect(p.prices.map((r) => r.model)).toEqual(["opus-1", "sonnet-new"]);
     expect(p.unpriced).toEqual(["haiku-new"]);
+  });
+
+  it("two racing pages show the same persisted values even when their picks differ", async () => {
+    const { svc, data, claude } = setup();
+    let calls = 0;
+    const newer = [...BASE_MODELS, model("haiku-newer", "haiku", "2026-01-01T00:00:00Z")];
+    claude.mockImplementation(async () => {
+      await Promise.resolve();
+      calls += 1;
+      return { ok: true, models: (calls === 1 ? BASE_MODELS : newer).map((m) => ({ ...m })) };
+    });
+    const [a, b] = await Promise.all([svc.page(OWNER), svc.page(OWNER)]);
+    expect(a.values).toEqual(b.values);
+    expect(a.values).toEqual({ ...BUILT_IN, ...data.values });
+    expect(data.values.replyModel).toBe("haiku-new");
   });
 
   it("shows null lists and recommendations when unavailable", async () => {
@@ -338,11 +386,36 @@ describe("reset", () => {
     expect(p.prices).toEqual([price("opus-1")]);
   });
 
-  it("falls back to BUILT_IN when the list is down", async () => {
-    const { svc, data } = setup({ values: { replyModel: "opus-1" }, claude: "fail" });
+  const nonModel = { replyMaxTokens: 900, sttModel: "x", ttsModel: "eleven_multilingual_v2", spokenFormat: "mp3_22050_32" as const };
+  const builtInNonModel = {
+    replyMaxTokens: BUILT_IN.replyMaxTokens,
+    sttModel: BUILT_IN.sttModel,
+    ttsModel: BUILT_IN.ttsModel,
+    spokenFormat: BUILT_IN.spokenFormat,
+  };
+
+  it("with the list down, leaves job models as they are and resets the rest", async () => {
+    const { svc, data } = setup({ values: { replyModel: "opus-1", ...nonModel }, prices: [price("opus-1")], claude: "fail" });
     const p = await svc.reset(OWNER);
-    expect(p.values).toEqual(BUILT_IN);
-    expect(data.values).toEqual(BUILT_IN);
+    expect(data.values).toEqual({ replyModel: "opus-1", ...builtInNonModel });
+    expect(data.values.reportModel).toBeUndefined();
+    expect(data.values.draftModel).toBeUndefined();
+    expect(p.values).toEqual({ ...BUILT_IN, replyModel: "opus-1" });
+    expect(p.recommended).toEqual({ reply: null, report: null, draft: null });
+    expect(p.claudeModels).toBeNull();
+    expect(data.prices).toEqual([price("opus-1")]);
+  });
+
+  it("with the list up but one job lacking a recommendation, resets only the others", async () => {
+    const { svc, data } = setup({
+      values: { replyModel: "opus-1", reportModel: "opus-1", draftModel: "opus-1", ...nonModel },
+      prices: [price("opus-1")],
+      claude: [model("sonnet-only", "sonnet", "2025-01-01T00:00:00Z"), model("opus-1", "opus", "2025-01-01T00:00:00Z")],
+    });
+    const p = await svc.reset(OWNER);
+    expect(data.values).toEqual({ replyModel: "opus-1", reportModel: "sonnet-only", draftModel: "sonnet-only", ...builtInNonModel });
+    expect(p.recommended.reply).toBeNull();
+    expect(data.prices).toEqual([price("opus-1")]);
   });
 });
 

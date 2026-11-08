@@ -93,11 +93,11 @@ function idSet(models: readonly { id: string }[]): Set<string> {
 
 export function createSettingsService(deps: { store: SettingsStoreDeps; catalog: ModelCatalog }): SettingsService {
   const { store, catalog } = deps;
-  const inflight = new Map<string, Promise<SettingsValues>>();
 
   const claudeList = () => safeListing<ClaudeModel>(() => catalog.claude());
   const ttsList = () => safeListing<TtsModel>(() => catalog.tts());
 
+  /** Effective values: stored over BUILT_IN, missing jobs resolved and remembered. Never throws. */
   async function resolveOnce(ownerId: string): Promise<SettingsValues> {
     let stored: Partial<SettingsValues>;
     try {
@@ -124,20 +124,21 @@ export function createSettingsService(deps: { store: SettingsStoreDeps; catalog:
         await store.saveMissingModels(ownerId, toSave);
       } catch {
         // Not remembered this time; a later call resolves and saves again.
+        return values;
+      }
+      // A racing caller may have stored its own pick first (the write only fills absent
+      // fields): return what is actually stored so every caller sees the same set.
+      try {
+        return { ...BUILT_IN, ...(await store.getStoredValues(ownerId)) };
+      } catch {
+        return values;
       }
     }
     return values;
   }
 
-  /** Effective values, coalescing concurrent resolutions per owner. Never throws. */
   function resolve(ownerId: string): Promise<SettingsValues> {
-    const running = inflight.get(ownerId);
-    if (running) return running.then((v) => ({ ...v }));
-    const p = resolveOnce(ownerId)
-      .catch(() => ({ ...BUILT_IN }))
-      .finally(() => inflight.delete(ownerId));
-    inflight.set(ownerId, p);
-    return p.then((v) => ({ ...v }));
+    return resolveOnce(ownerId).catch(() => ({ ...BUILT_IN }));
   }
 
   async function buildPage(ownerId: string, values: SettingsValues): Promise<SettingsPage> {
@@ -197,6 +198,12 @@ export function createSettingsService(deps: { store: SettingsStoreDeps; catalog:
       else errors.push(...parsed.errors);
     }
 
+    // A save already rejected by parsing needs no lookups when no membership checks apply,
+    // so it never triggers a remember-defaults write.
+    const hasMembershipChecks =
+      rows !== null || JOBS.some(({ key }) => patch[key] !== undefined) || patch.ttsModel !== undefined;
+    if (errors.length > 0 && !hasMembershipChecks) return { ok: false, errors };
+
     const effective = await resolve(ownerId);
     const needClaude = JOBS.some(({ key }) => patch[key] !== undefined && patch[key] !== effective[key]) || rows !== null;
     const needTts = patch.ttsModel !== undefined && patch.ttsModel !== effective.ttsModel;
@@ -228,14 +235,23 @@ export function createSettingsService(deps: { store: SettingsStoreDeps; catalog:
 
     if (errors.length > 0) return { ok: false, errors };
 
+    // saveValues and replacePrices are separate transactions: if the second fails after the
+    // first, the values stay saved and this call throws (routes map throws to a fixed 500).
     if (Object.keys(patch).length > 0) await store.saveValues(ownerId, patch);
     if (rows !== null) await store.replacePrices(ownerId, rows);
     return { ok: true, page: await page(ownerId) };
   }
 
   async function reset(ownerId: string): Promise<SettingsPage> {
+    // Job models are only reset to a live recommendation; a job without one keeps its field
+    // as it is (stored or not), so the per-call fallback is never saved as a choice.
     const list = await claudeList();
-    const next: SettingsValues = { ...BUILT_IN };
+    const next: Partial<SettingsValues> = {
+      replyMaxTokens: BUILT_IN.replyMaxTokens,
+      sttModel: BUILT_IN.sttModel,
+      ttsModel: BUILT_IN.ttsModel,
+      spokenFormat: BUILT_IN.spokenFormat,
+    };
     if (list.ok) {
       for (const { job, key } of JOBS) {
         const rec = recommend(job, list.models);
