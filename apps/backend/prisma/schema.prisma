@@ -83,3 +83,23 @@ model LlmUsage {
 
   @@index([ownerId])
 }
+
+// One row per owner: the settings they changed, as JSON (model ids, numbers, format ids only).
+// Absent keys fall back to the built-in defaults in settings.ts.
+model AppSettings {
+  ownerId    String   @id
+  valuesJson String
+  updatedAt  DateTime @updatedAt
+}
+
+// The owner's Claude prices in USD per million tokens, entered by hand; used for cost estimates.
+model ModelPrice {
+  ownerId       String
+  model         String
+  inputPerMtok  Float
+  outputPerMtok Float
+  asOf          String // YYYY-MM-DD
+  updatedAt     DateTime @updatedAt
+
+  @@id([ownerId, model])
+}
