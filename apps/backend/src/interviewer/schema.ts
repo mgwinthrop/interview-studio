@@ -14,6 +14,7 @@ export interface InterviewerInput {
   purpose: string;
   persona: string;
   style: string;
+  behaviours?: string;
   opening: string;
   closing: string;
   phases: PhaseDefinition[];
@@ -56,6 +57,7 @@ export const INTERVIEWER_LIMITS = {
   purpose: 200,
   persona: 1500,
   style: 600,
+  behaviours: 1500,
   opening: 400,
   closing: 400,
   phaseName: 40,
@@ -117,6 +119,7 @@ const inputShape = {
   purpose: text(INTERVIEWER_LIMITS.purpose),
   persona: text(INTERVIEWER_LIMITS.persona),
   style: text(INTERVIEWER_LIMITS.style),
+  behaviours: text(INTERVIEWER_LIMITS.behaviours).optional(),
   opening: text(INTERVIEWER_LIMITS.opening),
   closing: text(INTERVIEWER_LIMITS.closing),
   phases: z

@@ -4,6 +4,13 @@ import { loadConfig, isLoopback, ConfigError } from "../config";
 const keys = { ANTHROPIC_API_KEY: "a", ELEVENLABS_API_KEY: "e" };
 
 describe("loadConfig", () => {
+  it("parses CLOUD_SEND_TRANSCRIPTS", () => {
+    expect(loadConfig({ ...keys }).cloudSend).toBe(false);
+    expect(loadConfig({ ...keys, CLOUD_SEND_TRANSCRIPTS: "true" }).cloudSend).toBe(true);
+    expect(loadConfig({ ...keys, CLOUD_SEND_TRANSCRIPTS: "1" }).cloudSend).toBe(true);
+    expect(loadConfig({ ...keys, CLOUD_SEND_TRANSCRIPTS: "yes" }).cloudSend).toBe(false);
+  });
+
   it("applies defaults", () => {
     const c = loadConfig({ ...keys });
     expect(c.host).toBe("127.0.0.1");

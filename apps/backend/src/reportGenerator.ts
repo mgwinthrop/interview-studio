@@ -4,6 +4,7 @@ import { readingQuotesOnlySuppliedNumbers } from "./delivery/readingCheck";
 import type { InterviewerDefinition } from "./interviewer/schema";
 import type { LlmProvider } from "./providers/types";
 import type { ConversationTurn, ReportV2 } from "./types";
+import type { UsageMeta } from "./usage";
 
 export class ReportError extends Error {
   constructor(message: string) {
@@ -156,7 +157,7 @@ export async function generateReport(
   interviewer: InterviewerDefinition,
   llm: LlmProvider,
   signal: AbortSignal,
-  options: { showFillerCounts: boolean },
+  options: { showFillerCounts: boolean; usage?: UsageMeta },
 ): Promise<ReportV2> {
   // One line per turn: newlines inside a turn are collapsed, so a turn cannot start a fake
   // "Interviewer:" line or a fake DELIVERY SUMMARY block.
@@ -215,6 +216,7 @@ export async function generateReport(
         messages: [{ role: "user", content: userContent }],
         schema,
         maxTokens: REPORT_MAX_TOKENS,
+        ...(options.usage ? { usage: options.usage } : {}),
       },
       signal,
     );

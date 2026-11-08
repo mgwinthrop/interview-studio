@@ -1,8 +1,9 @@
 import type { Config } from "./config";
 
 /**
- * Deletes sessions that ended more than `retentionDays` days ago. Does nothing (and never
- * touches the database) when retention is not configured. Returns the number purged.
+ * Deletes sessions that ended more than `retentionDays` days ago, and LLM usage rows older than
+ * the same cutoff (see purgeOlderThan). Does nothing (and never touches the database) when
+ * retention is not configured. Returns the number of sessions purged.
  * Logs only the count.
  */
 export async function runRetention(

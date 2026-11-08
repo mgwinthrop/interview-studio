@@ -43,6 +43,27 @@ function expectWrapperRules(text: string) {
 
 const all = [...PRESETS, custom()];
 
+describe("buildSystemPrompt behaviours", () => {
+  it("adds a BEHAVIOUR PATTERNS section after STYLE, before the phase, reminder still last", () => {
+    const p = buildSystemPrompt(custom({ behaviours: "Pushes back on rates." }), 0, true);
+    const b = p.indexOf("=== BEHAVIOUR PATTERNS ===\nPushes back on rates.");
+    expect(b).toBeGreaterThan(p.indexOf("=== STYLE ==="));
+    expect(b).toBeLessThan(p.indexOf("=== CURRENT PHASE INSTRUCTION ==="));
+    expect(p.endsWith(VOICE_REMINDER)).toBe(true);
+  });
+
+  it("is byte-identical to the old prompt without behaviours", () => {
+    for (const def of all) {
+      def.phases.forEach((_, i) => {
+        const base = buildSystemPrompt(def, i, i === 0);
+        expect(base).not.toContain("BEHAVIOUR PATTERNS");
+        const withB = buildSystemPrompt({ ...def, behaviours: "B-TEXT" }, i, i === 0);
+        expect(withB.replace("=== BEHAVIOUR PATTERNS ===\nB-TEXT\n\n", "")).toBe(base);
+      });
+    }
+  });
+});
+
 describe("buildSystemPrompt", () => {
   for (const def of all) {
     def.phases.forEach((phase, i) => {

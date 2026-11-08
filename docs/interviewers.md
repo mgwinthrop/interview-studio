@@ -18,9 +18,14 @@ An interviewer defines one kind of conversation: who the interviewer is, how it 
 | `focus` | Up to 6 things the report should pay attention to. |
 | `contentFeedback` | Whether the report covers what you said. |
 | `deliveryFeedback` | Whether the report covers how you said it. |
+| `behaviours` | Optional, up to 1500 characters. How the person you rehearse against tends to behave. Filled by the persona-from-calls draft. |
 | `voice` | Optional. Stored and checked, but the speech providers do not use it yet. |
 
 At least one of the two feedback switches must be on. The server adds `id`, `source` (`preset` or `custom`), `ownerId`, `version` and timestamps. Text is trimmed, control characters are rejected and unknown fields are refused. The field limits are in `apps/backend/src/interviewer/schema.ts`.
+
+## Building a persona from calls
+
+You can draft an interviewer from pasted Teams call transcripts at `/interviewers/calls`. What is sent where, and the limits of redaction, are in [Calls and privacy](calls-and-privacy.md).
 
 ## Presets
 
@@ -49,14 +54,14 @@ flowchart TD
     B["Describe it<br/>one or two sentences"] --> D
     C["Blank form<br/>fill in every field"] --> E
     D["Draft<br/>not saved anywhere"] --> E["Editor"]
-    E -- "Try it" --> T["Practice conversation<br/>nothing is stored"]
+    E -- "Try it" --> T["Practice conversation<br/>no transcript is stored"]
     T --> E
     E -- "Save" --> S[("Saved interviewer")]
 ```
 
 - A **draft** is only a proposal. Nothing saves it until you press **Save**.
 - **Try it** runs a practice conversation with the interviewer as it stands in the form. No session, transcript or report is kept, and nothing appears in your history.
-- The designer conversation also stores nothing.
+- The designer conversation also stores no session, turns or report; it writes only numbers-only usage rows (owner id, no session id).
 - You can keep up to 50 custom interviewers.
 - You can duplicate, edit and delete custom interviewers on the Interviewers page.
 

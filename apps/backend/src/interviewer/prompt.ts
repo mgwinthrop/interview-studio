@@ -36,6 +36,7 @@ export function buildSystemPrompt(
     VOICE_RULES,
     section("PERSONA", interviewer.persona),
     section("STYLE", interviewer.style),
+    ...(interviewer.behaviours ? [section("BEHAVIOUR PATTERNS", interviewer.behaviours)] : []),
     section("CURRENT PHASE INSTRUCTION", phase.instruction),
   ];
   if (isFirstTurn) {

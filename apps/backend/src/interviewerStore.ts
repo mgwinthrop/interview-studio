@@ -85,6 +85,7 @@ function inputFields(input: InterviewerInput): InterviewerInput {
     contentFeedback: input.contentFeedback,
     deliveryFeedback: input.deliveryFeedback,
   };
+  if (input.behaviours !== undefined) out.behaviours = input.behaviours;
   if (input.voice !== undefined) out.voice = input.voice;
   return out;
 }

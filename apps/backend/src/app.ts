@@ -2,7 +2,8 @@ import http from "node:http";
 import cors from "cors";
 import express from "express";
 import { createAuthenticator } from "./auth";
-import type { Config } from "./config";
+import { createCallsRouter, type CallsDraftMaker } from "./callsRoutes";
+import { callsEnabled, type Config } from "./config";
 import prisma from "./db";
 import { withDeadline } from "./deadline";
 import { errName } from "./errors";
@@ -13,6 +14,8 @@ import * as interviewerStore from "./interviewerStore";
 import * as persistence from "./persistence";
 import type { Providers } from "./providers/types";
 import { createSessionRouter } from "./reportRoutes";
+import * as usage from "./usage";
+import { createUsageRouter } from "./usageRoutes";
 import { attachWebSocket } from "./wsServer";
 
 export interface AppDeps {
@@ -44,10 +47,35 @@ export function createDraftMaker(
     drafting.add(ownerId);
     try {
       const outcome = await withDeadline(config.limits.reportTimeoutMs, (signal) =>
-        generateDraft({ kind: "description", text }, llm, signal),
+        generateDraft({ kind: "description", text }, llm, signal, { feature: "designer-draft", ownerId }),
       );
       if (!outcome.ok) {
         console.error(`[http] draft interviewer 502: ${outcome.why}`);
+        return { ok: false, status: 502 };
+      }
+      return { ok: true, draft: outcome.value };
+    } finally {
+      drafting.delete(ownerId);
+    }
+  };
+}
+
+/**
+ * Draft from approved calls. Same guards as createDraftMaker: one draft per owner (taken before
+ * the first await), bounded by limits.reportTimeoutMs, 429 when busy, 502 on any failure. Only
+ * the failure reason is logged, never call text, forbidden strings or the draft.
+ */
+export function createCallsDraftMaker(config: Config, llm: Providers["llm"]): CallsDraftMaker {
+  const drafting = new Set<string>();
+  return async (ownerId, calls) => {
+    if (drafting.has(ownerId)) return { ok: false, status: 429 };
+    drafting.add(ownerId);
+    try {
+      const outcome = await withDeadline(config.limits.reportTimeoutMs, (signal) =>
+        generateDraft({ kind: "calls", calls }, llm, signal, { feature: "persona-draft", ownerId }),
+      );
+      if (!outcome.ok) {
+        console.error(`[http] draft from calls 502: ${outcome.why}`);
         return { ok: false, status: 502 };
       }
       return { ok: true, draft: outcome.value };
@@ -81,6 +109,20 @@ export function createApp(deps: AppDeps): App {
     next();
   });
 
+  app.get("/api/features", (_req, res) => {
+    res.json({ personaFromCalls: callsEnabled(config) });
+  });
+
+  // Before /api/interviewers so the interviewers router never captures /calls/...
+  app.use(
+    "/api/interviewers/calls",
+    createCallsRouter({
+      config,
+      ownerOf,
+      makeCallsDraft: createCallsDraftMaker(config, providers.llm),
+    }),
+  );
+
   app.use(
     "/api/interviewers",
     createInterviewerRouter({ store: interviewers, ownerOf, makeDraft: createDraftMaker(config, providers.llm) }),
@@ -103,6 +145,8 @@ export function createApp(deps: AppDeps): App {
       });
     }),
   );
+
+  app.use("/api/usage", createUsageRouter({ usage }));
 
   // Transcript, report, regenerate, delete and the session list (absolute paths).
   app.use(createSessionRouter({ config, llm: providers.llm, persist }));

@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { Config } from "../config";
+import type { UsageMeta, UsageRecord } from "../usage";
 import type { ChatMessage, LlmProvider, Providers, SttProvider, TtsProvider, Word } from "./types";
 
 const STT_ENDPOINT = "https://api.elevenlabs.io/v1/speech-to-text";
@@ -10,6 +11,8 @@ const LLM_MODEL = "claude-sonnet-4-6"; // locked per AGENTS.md
 export interface CloudDeps {
   fetch?: typeof fetch;
   anthropic?: Pick<Anthropic, "messages">;
+  /** Called once per completed LLM API call with token counts only; a throw is ignored. */
+  onUsage?: (r: UsageRecord) => void;
 }
 
 function abortError(): Error {
@@ -162,9 +165,36 @@ function extractJson(text: string): unknown {
   return JSON.parse(text.slice(start, end + 1));
 }
 
-function createLlm(config: Config, client: Pick<Anthropic, "messages">): LlmProvider {
+/** A token count from the API, or null when it is absent or not a non-negative integer. */
+function tokens(v: unknown): number | null {
+  return typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : null;
+}
+
+function createLlm(
+  config: Config,
+  client: Pick<Anthropic, "messages">,
+  onUsage?: (r: UsageRecord) => void,
+): LlmProvider {
   const toParams = (messages: ChatMessage[]) =>
     messages.map((m) => ({ role: m.role, content: m.content }));
+
+  /** Reports one API call's usage (numbers and ids only). A failing listener never affects the call. */
+  const report = (meta: UsageMeta | undefined, inputTokens: number | null, outputTokens: number | null) => {
+    if (!onUsage) return;
+    try {
+      onUsage({
+        feature: meta?.feature ?? "conversation",
+        ...(meta?.ownerId !== undefined ? { ownerId: meta.ownerId } : {}),
+        ...(meta?.sessionId !== undefined ? { sessionId: meta.sessionId } : {}),
+        provider: "anthropic",
+        model: LLM_MODEL,
+        inputTokens,
+        outputTokens,
+      });
+    } catch {
+      // Accounting must never fail an LLM call.
+    }
+  };
 
   return {
     async *stream(req, signal) {
@@ -179,12 +209,23 @@ function createLlm(config: Config, client: Pick<Anthropic, "messages">): LlmProv
           },
           { signal },
         );
+        // Usage as the final message carries it: input from message_start, output from the last
+        // message_delta (cumulative). Reported only when the stream completes normally; an abort,
+        // an error or a consumer that stops early reports nothing.
+        let inputTokens: number | null = null;
+        let outputTokens: number | null = null;
         for await (const event of stream) {
           throwIfAborted(signal);
           if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
             yield event.delta.text;
+          } else if (event.type === "message_start") {
+            inputTokens = tokens(event.message?.usage?.input_tokens) ?? inputTokens;
+            outputTokens = tokens(event.message?.usage?.output_tokens) ?? outputTokens;
+          } else if (event.type === "message_delta") {
+            outputTokens = tokens(event.usage?.output_tokens) ?? outputTokens;
           }
         }
+        if (!signal.aborted) report(req.usage, inputTokens, outputTokens);
       } catch (err) {
         throw normalizeAbort(err, signal);
       }
@@ -208,6 +249,8 @@ function createLlm(config: Config, client: Pick<Anthropic, "messages">): LlmProv
         } catch (err) {
           throw normalizeAbort(err, signal);
         }
+        // Each attempt is a separate API call, so each is reported.
+        report(req.usage, tokens(response.usage?.input_tokens), tokens(response.usage?.output_tokens));
         const block = response.content[0];
         try {
           if (!block || block.type !== "text") throw new Error("Unexpected model response block");
@@ -227,6 +270,6 @@ export function createCloudProviders(config: Config, deps: CloudDeps = {}): Prov
   return {
     stt: createStt(config, doFetch),
     tts: createTts(config, doFetch),
-    llm: createLlm(config, client),
+    llm: createLlm(config, client, deps.onUsage),
   };
 }

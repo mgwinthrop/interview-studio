@@ -84,6 +84,7 @@ const TEXT_FIELDS: { key: TextKey; label: string; rows?: number; hint: string }[
   { key: "purpose", label: "Purpose", rows: 2, hint: "One or two sentences on what this interviewer is for." },
   { key: "persona", label: "Persona", rows: 6, hint: "Who the interviewer is, written to the interviewer (\"You are…\")." },
   { key: "style", label: "Style", rows: 4, hint: "How the interviewer asks questions and responds." },
+  { key: "behaviours", label: "Behaviour patterns", rows: 4, hint: "How the person you practise against tends to react: objections, priorities, tone." },
   { key: "opening", label: "Opening", rows: 3, hint: "Guidance for how the interviewer starts. Not a script." },
   { key: "closing", label: "Closing", rows: 3, hint: "Guidance for how the interviewer ends. Not a script." },
 ];
@@ -500,7 +501,7 @@ function Editor({ source }: { source: Source }) {
         }}
         noValidate
       >
-        {TEXT_FIELDS.map((f) => (
+        {TEXT_FIELDS.filter((f) => !(readOnly && f.key === "behaviours" && form.behaviours === "")).map((f) => (
           <TextField
             key={f.key}
             path={f.key}

@@ -75,11 +75,12 @@ flowchart LR
 - **Audio is never stored.** Per turn, only the transcript text and the delivery numbers are kept.
 - The database is the SQLite file named by `DATABASE_URL`. Never hard-code or commit it.
 - A session is written when it starts (with its interviewer snapshot), on each completed turn, on phase changes and when it ends.
-- **Deleting a session** (`DELETE /api/session/:sessionId`, or the button on the dashboard) removes it with its turns and report. A live session cannot be deleted (`409`).
+- **Deleting a session** (`DELETE /api/session/:sessionId`, or the button on the dashboard) removes it with its turns, report and usage rows. A live session cannot be deleted (`409`).
 - **Deleting an interviewer** removes only the interviewer. Sessions keep their own copy.
-- **Retention** is off by default. Set `RETENTION_DAYS` to delete ended sessions older than that, once at startup. A failure is logged and does not block startup.
+- **Retention** is off by default. Set `RETENTION_DAYS` to delete ended sessions, and LLM usage rows, older than that, once at startup. A failure is logged and does not block startup.
+- **LLM usage** is recorded as numbers and ids only and is served by `GET /api/usage/summary` and `GET /api/usage/session/:sessionId`. See [Calls and privacy](calls-and-privacy.md#usage-and-cost).
 - **Migrations** run at startup. If one fails, the server prints the end of Prisma's error output with credentials removed and exits.
-- Designer and "Try it" sessions store nothing at all.
+- Designer and "Try it" sessions store no session, turns or report. Only numbers-only usage rows (with the owner id and no session id) are written.
 
 ## Logging
 

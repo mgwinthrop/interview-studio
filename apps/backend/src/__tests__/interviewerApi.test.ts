@@ -161,6 +161,21 @@ async function createAs(base: string, owner: string, name = "Mine") {
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
+describe("behaviours", () => {
+  it("round-trips through POST, GET and PUT", async () => {
+    const base = await start();
+    const created = await call(base, "POST", "", "a", { ...input("B"), behaviours: "Pushes back." });
+    expect(created.status).toBe(201);
+    const c = created.json as Record<string, unknown> & { id: string; version: number };
+    expect(c.behaviours).toBe("Pushes back.");
+    expect(((await call(base, "GET", `/${c.id}`, "a")).json as any).behaviours).toBe("Pushes back.");
+    const put = await call(base, "PUT", `/${c.id}`, "a", { ...input("B"), behaviours: "Goes quiet.", version: c.version });
+    expect(put.status).toBe(200);
+    expect((put.json as any).behaviours).toBe("Goes quiet.");
+    expect(((await call(base, "GET", `/${c.id}`, "a")).json as any).behaviours).toBe("Goes quiet.");
+  });
+});
+
 describe("GET", () => {
   it("lists presets and only the caller's custom interviewers, as summaries", async () => {
     const base = await start();

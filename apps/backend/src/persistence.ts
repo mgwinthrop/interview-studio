@@ -380,10 +380,11 @@ function deleteSessionsTx(ids: string[]) {
     prisma.conversationTurn.deleteMany({ where: { sessionId: { in: ids } } }),
     prisma.report.deleteMany({ where: { sessionId: { in: ids } } }),
     prisma.session.deleteMany({ where: { id: { in: ids } } }),
+    prisma.llmUsage.deleteMany({ where: { sessionId: { in: ids } } }),
   ]);
 }
 
-/** Deletes a session with its turns and report. Returns false if not found for this owner. */
+/** Deletes a session with its turns, report and usage rows. Returns false if not found for this owner. */
 export async function deleteSessionFromDb(
   sessionId: string,
   ownerId: string
@@ -397,12 +398,16 @@ export async function deleteSessionFromDb(
   return true;
 }
 
-/** Deletes sessions that ended more than `days` days ago. Returns the number deleted. */
+/**
+ * Deletes sessions that ended more than `days` days ago, and LLM usage rows recorded before the
+ * same cutoff. Returns the number of sessions deleted.
+ */
 export async function purgeOlderThan(days: number): Promise<number> {
   if (!Number.isFinite(days) || days <= 0) {
     throw new RangeError("days must be a finite number greater than 0");
   }
   const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  await prisma.llmUsage.deleteMany({ where: { at: { lt: cutoff } } });
   const old = await prisma.session.findMany({
     where: { endedAt: { lt: cutoff } },
     select: { id: true },

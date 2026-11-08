@@ -65,3 +65,21 @@ model Interviewer {
 
   @@index([ownerId])
 }
+
+// One row per LLM API call: numbers and ids only, never prompts, transcripts or responses.
+model LlmUsage {
+  id               String   @id @default(uuid())
+  ownerId          String
+  // Null for calls outside a stored session (designer, trial, drafts).
+  sessionId        String?
+  at               DateTime @default(now())
+  feature          String // "conversation" | "report" | "designer-draft" | "persona-draft"
+  provider         String
+  model            String
+  inputTokens      Int?
+  outputTokens     Int?
+  // Estimated at record time from usage.ts PRICES; null when the model has no price entry.
+  estimatedCostUsd Float?
+
+  @@index([ownerId])
+}

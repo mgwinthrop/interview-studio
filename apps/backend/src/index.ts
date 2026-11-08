@@ -67,8 +67,11 @@ async function main(): Promise<void> {
   const { createProviders } = await import("./providers");
   const { createApp } = await import("./app");
   const { default: prisma } = await import("./db");
+  const { recordUsage } = await import("./usage");
 
-  const app = createApp({ config, providers: createProviders(config) });
+  // Fire and forget: recordUsage never rejects and never delays the LLM call.
+  const providers = createProviders(config, { onUsage: (r) => void recordUsage(r) });
+  const app = createApp({ config, providers });
   app.server.listen(config.port, config.host, () => {
     console.log(
       `Server listening on ${config.host}:${config.port} (profile ${config.profile}, auth ${config.auth.mode})`,

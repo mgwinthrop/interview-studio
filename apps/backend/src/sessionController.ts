@@ -10,6 +10,7 @@ import { advancePhase, buildTurnRequest, type TurnSession } from "./orchestrator
 import { generateReport } from "./reportGenerator";
 import { SentenceChunker } from "./sentenceChunker";
 import type { ConversationTurn, ServerToClientMessage } from "./types";
+import type { UsageFeature, UsageMeta } from "./usage";
 
 export type ControllerState = "idle" | "listening" | "thinking" | "speaking";
 export type EndedStatus = "complete" | "failed" | "abandoned";
@@ -365,7 +366,10 @@ export class SessionController {
     });
 
     try {
-      const stream = this.deps.providers.llm.stream({ system, messages, maxTokens: MAX_TOKENS }, signal);
+      const stream = this.deps.providers.llm.stream(
+        { system, messages, maxTokens: MAX_TOKENS, usage: this.usageMeta("conversation") },
+        signal,
+      );
       for await (const piece of stream) {
         if (signal.aborted) break;
         chunker.push(piece);
@@ -480,7 +484,7 @@ export class SessionController {
           this.deps.interviewer,
           this.deps.providers.llm,
           reportAbort.signal,
-          { showFillerCounts: this.deps.config.reportFillerCounts },
+          { showFillerCounts: this.deps.config.reportFillerCounts, usage: this.usageMeta("report") },
         );
         reportAbort.signal.throwIfAborted();
         await persist.persistReport(this.sessionId, report);
@@ -489,6 +493,7 @@ export class SessionController {
           { kind: "conversation", turns: this._turns },
           this.deps.providers.llm,
           reportAbort.signal,
+          this.usageMeta("designer-draft"),
         );
         reportAbort.signal.throwIfAborted();
         // Held for finish(), which sends it only if the session really ends complete.
@@ -612,6 +617,17 @@ export class SessionController {
   private trackDone(w: Promise<void>): void {
     this.writes.add(w);
     void w.then(() => this.writes.delete(w));
+  }
+
+  /**
+   * Usage meta for this session's LLM calls. Designer and trial sessions are ephemeral (no
+   * stored session), so their calls carry the owner and no session id.
+   */
+  private usageMeta(feature: UsageFeature): UsageMeta {
+    const kind = this.deps.kind ?? "interview";
+    return kind === "interview"
+      ? { feature, ownerId: this.ownerId, sessionId: this.sessionId }
+      : { feature, ownerId: this.ownerId };
   }
 
   /** IDs, event names and error classes only; never conversation text. */

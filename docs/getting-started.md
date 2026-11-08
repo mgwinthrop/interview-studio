@@ -129,6 +129,7 @@ Each conversation makes calls to both providers, and every report is another cal
 | `PORT` | `3001` | The backend port. |
 | `AUTH_TOKEN` | none | Turns on shared-token mode. See [Operations](operations.md). |
 | `RETENTION_DAYS` | off | Deletes sessions older than this many days, once at startup. |
+| `CLOUD_SEND_TRANSCRIPTS` | off | `1` or `true` allows redacted call text to be sent to the cloud LLM for "Build from calls". See [Calls and privacy](calls-and-privacy.md). |
 | `REPORT_FILLER_COUNTS` | off | `1` or `true` shows "um" and "uh" counts in reports. See [Reports](reports.md#filler-words). |
 | `DEBUG_LOG_TEXT` | off | Also logs conversation text. For local debugging only. |
 
@@ -184,6 +185,8 @@ flowchart TD
 ```
 
 Stop all backends first. A second server migrating the database under a running one breaks the running server and loses its session. Only one backend process may use a database file at a time.
+
+This update adds the `20261108120000_llm_usage` migration (the `LlmUsage` table, which holds LLM usage as numbers and ids only).
 
 If a migration fails or stops part-way, stop the backend, restore your copy of the SQLite file and start again.
 

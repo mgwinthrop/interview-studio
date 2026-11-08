@@ -37,6 +37,17 @@ function paths(raw: unknown): string[] {
 }
 
 describe("parseInterviewerInput", () => {
+  it("accepts behaviours up to the cap, rejects one more, and leaves the key absent when not given", () => {
+    const ok = parseInterviewerInput({ ...valid(), behaviours: "x".repeat(1500) });
+    expect(ok.ok).toBe(true);
+    if (ok.ok) expect(ok.value.behaviours).toHaveLength(1500);
+    const errs = errorsOf({ ...valid(), behaviours: "x".repeat(1501) });
+    expect(errs).toContainEqual({ path: "behaviours", message: "Must be at most 1500 characters." });
+    const none = parseInterviewerInput(valid());
+    expect(none.ok).toBe(true);
+    if (none.ok) expect("behaviours" in none.value).toBe(false);
+  });
+
   it("accepts a valid input and applies feedback defaults", () => {
     const r = parseInterviewerInput(valid());
     expect(r.ok).toBe(true);
@@ -410,6 +421,7 @@ describe("exported limits and input schema", () => {
       purpose: 200,
       persona: 1500,
       style: 600,
+      behaviours: 1500,
       opening: 400,
       closing: 400,
       phaseName: 40,

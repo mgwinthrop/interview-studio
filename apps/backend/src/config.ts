@@ -32,6 +32,8 @@ export interface Config {
   debugLogText: boolean;
   /** Show filler-word counts in reports. Off until speech-to-text is known to keep fillers. */
   reportFillerCounts: boolean;
+  /** Operator switch: allow transcript text to be sent to the cloud LLM (persona from calls). */
+  cloudSend: boolean;
   retentionDays?: number;
 }
 
@@ -61,6 +63,7 @@ const schema = z.object({
   DEBUG_LOG_TEXT: z.enum(["true", "false", "1", "0"]).optional(),
   RETENTION_DAYS: z.coerce.number().int().positive().optional(),
   REPORT_FILLER_COUNTS: z.string().optional(),
+  CLOUD_SEND_TRANSCRIPTS: z.string().optional(),
 });
 
 export function loadConfig(env: NodeJS.ProcessEnv): Config {
@@ -123,6 +126,12 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     },
     debugLogText: e.DEBUG_LOG_TEXT === "true" || e.DEBUG_LOG_TEXT === "1",
     reportFillerCounts: ["1", "true"].includes((e.REPORT_FILLER_COUNTS ?? "").toLowerCase()),
+    cloudSend: ["1", "true"].includes((e.CLOUD_SEND_TRANSCRIPTS ?? "").toLowerCase()),
     retentionDays: e.RETENTION_DAYS,
   };
+}
+
+/** Persona-from-calls is on when the operator allows cloud sends, or the mock profile (nothing leaves the machine). */
+export function callsEnabled(config: Pick<Config, "cloudSend" | "profile">): boolean {
+  return config.cloudSend || config.profile === "mock";
 }
