@@ -26,10 +26,10 @@ const PARTICLES = new Set("de da di del della der den van von la le el al bin bi
 const MIN_PART = 3;
 
 // Word boundaries that work for any script (plain \b only knows ASCII).
-const B_START = String.raw`(?<![\p{L}\p{N}])`;
-const B_END = String.raw`(?![\p{L}\p{N}])`;
+export const B_START = String.raw`(?<![\p{L}\p{N}])`;
+export const B_END = String.raw`(?![\p{L}\p{N}])`;
 
-const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+export const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 // A pass turns regex matches into spans. `accept` returns the span length (to trim the match) or null to reject it.
 interface Pass {
@@ -126,8 +126,8 @@ const AMOUNT_PASSES: Pass[] = AMOUNT_RES.map(({ re, accept }) => ({
 }));
 
 // Straight, curly and modifier-letter apostrophes are treated as the same character in names.
-const APOSTROPHES = /['’ʼ]/g;
-const ANY_APOSTROPHE = "['’ʼ]";
+export const APOSTROPHES = /['’ʼ]/g;
+export const ANY_APOSTROPHE = "['’ʼ]";
 
 // One case-insensitive alternation, longest first so a full name wins over its parts.
 function wordListRe(words: string[], possessive: boolean): RegExp | null {
