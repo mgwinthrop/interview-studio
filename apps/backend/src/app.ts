@@ -2,6 +2,7 @@ import http from "node:http";
 import cors from "cors";
 import express from "express";
 import { createAuthenticator } from "./auth";
+import { createCallsRouter } from "./callsRoutes";
 import { callsEnabled, type Config } from "./config";
 import prisma from "./db";
 import { withDeadline } from "./deadline";
@@ -84,6 +85,17 @@ export function createApp(deps: AppDeps): App {
   app.get("/api/features", (_req, res) => {
     res.json({ personaFromCalls: callsEnabled(config) });
   });
+
+  // Before /api/interviewers so the interviewers router never captures /calls/...
+  app.use(
+    "/api/interviewers/calls",
+    createCallsRouter({
+      config,
+      ownerOf,
+      // Replaced when POST /draft is added; no route calls it yet.
+      makeCallsDraft: async () => ({ ok: false, status: 502 }),
+    }),
+  );
 
   app.use(
     "/api/interviewers",
