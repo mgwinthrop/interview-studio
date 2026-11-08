@@ -1,6 +1,7 @@
 import { z, type ZodType, type ZodTypeDef } from "zod";
 import type { ChatMessage, LlmProvider } from "../providers/types";
 import { findLeaks } from "../redaction/leakCheck";
+import type { UsageMeta } from "../usage";
 import { INTERVIEWER_LIMITS, parseInterviewerInput, type InterviewerInput } from "./schema";
 
 export class DraftError extends Error {
@@ -281,12 +282,14 @@ function cleanDescription(text: string): string {
  * Generate an interviewer draft with one structured LLM call. The result has passed the same
  * validation as saving and holds only the input fields (never a voice). It is not saved.
  * Rejects with DraftError when there is too little to go on or the output is invalid, or with
- * the provider's error (an AbortError on abort) when the call is aborted.
+ * the provider's error (an AbortError on abort) when the call is aborted. `usage` (numbers-only
+ * accounting meta) is passed to every model call, the leak retry included.
  */
 export async function generateDraft(
   source: DraftSource,
   llm: LlmProvider,
   signal: AbortSignal,
+  usage?: UsageMeta,
 ): Promise<InterviewerInput> {
   let userContent: string;
   let system = SYSTEM_PROMPT;
@@ -321,6 +324,7 @@ export async function generateDraft(
     messages: [{ role: "user", content: userContent }] satisfies ChatMessage[],
     schema: draftOutputSchema as ZodType<InterviewerInput>,
     maxTokens: DRAFT_MAX_TOKENS,
+    ...(usage ? { usage } : {}),
   };
   const draft = await requestDraft(request, llm, signal);
   // A composite draft must not carry any call's names or terms. One identical retry on a leak,
@@ -333,7 +337,13 @@ export async function generateDraft(
 
 /** One structured call, re-validated. Aborts propagate; any other failure is a fixed DraftError. */
 async function requestDraft(
-  request: { system: string; messages: ChatMessage[]; schema: ZodType<InterviewerInput>; maxTokens: number },
+  request: {
+    system: string;
+    messages: ChatMessage[];
+    schema: ZodType<InterviewerInput>;
+    maxTokens: number;
+    usage?: UsageMeta;
+  },
   llm: LlmProvider,
   signal: AbortSignal,
 ): Promise<InterviewerInput> {

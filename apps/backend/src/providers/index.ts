@@ -2,6 +2,7 @@ import type { Config } from "../config";
 import { createCloudProviders } from "./cloud";
 import { createMockProviders } from "./mock";
 import type { Providers } from "./types";
+import type { UsageRecord } from "../usage";
 
 /**
  * Canned report output for PROFILE=mock; it must satisfy reportOutputSchema with every part
@@ -41,6 +42,9 @@ const MOCK_DRAFT = {
  */
 const MOCK_STRUCTURED = { ...MOCK_REPORT, ...MOCK_DRAFT };
 
-export function createProviders(config: Config): Providers {
-  return config.profile === "mock" ? createMockProviders({ structured: MOCK_STRUCTURED }) : createCloudProviders(config);
+/** `onUsage` receives each cloud LLM call's token counts; the mock profile never records usage. */
+export function createProviders(config: Config, deps: { onUsage?: (r: UsageRecord) => void } = {}): Providers {
+  return config.profile === "mock"
+    ? createMockProviders({ structured: MOCK_STRUCTURED })
+    : createCloudProviders(config, { onUsage: deps.onUsage });
 }

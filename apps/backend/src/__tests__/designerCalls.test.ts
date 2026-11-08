@@ -252,6 +252,20 @@ describe("generateDraft calls source", () => {
       expect(rec).toHaveLength(2);
     });
 
+    it("passes the usage meta to both model calls on a leak retry", async () => {
+      const metas: unknown[] = [];
+      const llm: LlmProvider = {
+        stream: async function* () {},
+        async structured(req) {
+          metas.push(req.usage);
+          return req.schema.parse(metas.length === 1 ? LEAKY : VALID_DRAFT);
+        },
+      };
+      const meta = { feature: "persona-draft" as const, ownerId: "owner-1" };
+      await expect(generateDraft(source(), llm, live(), meta)).resolves.toEqual(VALID_DRAFT);
+      expect(metas).toEqual([meta, meta]);
+    });
+
     it("retry is not attempted when the first draft is clean", async () => {
       const { llm, calls: rec } = sequenceLlm(VALID_DRAFT, LEAKY);
       await expect(generateDraft(source(), llm, live())).resolves.toEqual(VALID_DRAFT);

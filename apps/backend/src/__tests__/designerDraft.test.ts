@@ -221,8 +221,8 @@ describe("generateDraft", () => {
     expect(b.calls[0].system).not.toContain("admin");
     expect(draftB).toEqual(draftA);
     expect(draftB).not.toHaveProperty("id");
-    // Only (source, llm, signal): no store, no save callback, no tools.
-    expect(generateDraft.length).toBe(3);
+    // Only (source, llm, signal, usage meta): no store, no save callback, no tools.
+    expect(generateDraft.length).toBe(4);
   });
 
   it("conversation with no user turn rejects", async () => {

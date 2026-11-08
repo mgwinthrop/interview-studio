@@ -14,6 +14,8 @@ import * as interviewerStore from "./interviewerStore";
 import * as persistence from "./persistence";
 import type { Providers } from "./providers/types";
 import { createSessionRouter } from "./reportRoutes";
+import * as usage from "./usage";
+import { createUsageRouter } from "./usageRoutes";
 import { attachWebSocket } from "./wsServer";
 
 export interface AppDeps {
@@ -45,7 +47,7 @@ export function createDraftMaker(
     drafting.add(ownerId);
     try {
       const outcome = await withDeadline(config.limits.reportTimeoutMs, (signal) =>
-        generateDraft({ kind: "description", text }, llm, signal),
+        generateDraft({ kind: "description", text }, llm, signal, { feature: "designer-draft", ownerId }),
       );
       if (!outcome.ok) {
         console.error(`[http] draft interviewer 502: ${outcome.why}`);
@@ -70,7 +72,7 @@ export function createCallsDraftMaker(config: Config, llm: Providers["llm"]): Ca
     drafting.add(ownerId);
     try {
       const outcome = await withDeadline(config.limits.reportTimeoutMs, (signal) =>
-        generateDraft({ kind: "calls", calls }, llm, signal),
+        generateDraft({ kind: "calls", calls }, llm, signal, { feature: "persona-draft", ownerId }),
       );
       if (!outcome.ok) {
         console.error(`[http] draft from calls 502: ${outcome.why}`);
@@ -143,6 +145,8 @@ export function createApp(deps: AppDeps): App {
       });
     }),
   );
+
+  app.use("/api/usage", createUsageRouter({ usage }));
 
   // Transcript, report, regenerate, delete and the session list (absolute paths).
   app.use(createSessionRouter({ config, llm: providers.llm, persist }));

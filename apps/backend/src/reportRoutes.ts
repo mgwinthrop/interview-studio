@@ -8,6 +8,7 @@ import type { Providers } from "./providers/types";
 import { generateReport } from "./reportGenerator";
 import * as registry from "./sessionRegistry";
 import type { AnyReport, ConversationTurn, ReportV2 } from "./types";
+import type { UsageMeta } from "./usage";
 
 export interface SessionRoutesDeps {
   config: Pick<Config, "limits" | "reportFillerCounts">;
@@ -134,7 +135,11 @@ export function createSessionRouter(deps: SessionRoutesDeps): express.Router {
           return;
         }
 
-        const outcome = await generateWithDeadline(inputs.turns, inputs.interviewer);
+        const outcome = await generateWithDeadline(inputs.turns, inputs.interviewer, {
+          feature: "report",
+          ownerId,
+          sessionId,
+        });
         if (!outcome.ok) {
           console.error(`[http] regenerate ${sessionId} 502: ${outcome.why}`);
           res.status(502).json({ status: "failed", error: GENERATION_FAILED });
@@ -160,10 +165,12 @@ export function createSessionRouter(deps: SessionRoutesDeps): express.Router {
   async function generateWithDeadline(
     turns: ConversationTurn[],
     interviewer: InterviewerDefinition,
+    usage: UsageMeta,
   ): Promise<{ ok: true; report: ReportV2 } | { ok: false; why: string }> {
     const outcome = await withDeadline(config.limits.reportTimeoutMs, (signal) =>
       generateReport(turns, interviewer, llm, signal, {
         showFillerCounts: config.reportFillerCounts,
+        usage,
       }),
     );
     return outcome.ok ? { ok: true, report: outcome.value } : outcome;

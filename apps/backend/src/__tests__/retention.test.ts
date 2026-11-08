@@ -56,6 +56,32 @@ describe("runRetention", () => {
     expect(logSpy.mock.calls.flat().join(" ")).not.toContain("old-1");
   });
 
+  it("purges usage rows older than the cutoff with the sessions, keeping recent ones", async () => {
+    const old = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    const row = (over: Record<string, unknown>) => ({
+      ownerId: "local",
+      feature: "report",
+      provider: "anthropic",
+      model: "m",
+      inputTokens: 1,
+      outputTokens: 1,
+      ...over,
+    });
+    await prisma.llmUsage.createMany({
+      data: [
+        row({ sessionId: "gone-u", at: old }),
+        row({ ownerId: "someone-else", at: old }),
+        row({ sessionId: "recent-u" }),
+      ],
+    });
+    // No session is old enough here: usage rows are still purged by their own age.
+    const purged = await retention.runRetention({ retentionDays: 1 }, p.purgeOlderThan);
+    expect(purged).toBe(0);
+    expect(await prisma.llmUsage.count()).toBe(1);
+    expect(await prisma.llmUsage.count({ where: { sessionId: "recent-u" } })).toBe(1);
+    expect(logSpy.mock.calls.flat().join(" ")).toBe("[retention] purged 0 session(s) older than 1 day(s)");
+  });
+
   it("returns 0 without calling purge when retentionDays is undefined", async () => {
     const purge = vi.fn(async () => 5);
     expect(await retention.runRetention({ retentionDays: undefined }, purge)).toBe(0);
