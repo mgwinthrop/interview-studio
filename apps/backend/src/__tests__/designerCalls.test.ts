@@ -210,6 +210,55 @@ describe("generateDraft calls source", () => {
     ]);
   });
 
+  describe("leak retry", () => {
+    const LEAKY = { ...VALID_DRAFT, behaviours: "You sound like Priya Shah when price comes up." };
+    const source = () => ({
+      kind: "calls" as const,
+      calls: [{ text: CALL_A, forbidden: ["Priya Shah", "Priya", "Shah"] }],
+    });
+
+    /** Returns `outputs` in order (the last one repeats) and records each request. */
+    function sequenceLlm(...outputs: unknown[]) {
+      const calls: Recorded[] = [];
+      const llm: LlmProvider = {
+        stream: async function* () {},
+        async structured(req) {
+          calls.push({ system: req.system, messages: req.messages, maxTokens: req.maxTokens });
+          return req.schema.parse(outputs[Math.min(calls.length - 1, outputs.length - 1)]);
+        },
+      };
+      return { llm, calls };
+    }
+
+    it("retries once on a leak and succeeds if the second draft is clean", async () => {
+      const log = vi.spyOn(console, "log");
+      const warn = vi.spyOn(console, "warn");
+      const error = vi.spyOn(console, "error");
+      const { llm, calls: rec } = sequenceLlm(LEAKY, VALID_DRAFT);
+      await expect(generateDraft(source(), llm, live())).resolves.toEqual(VALID_DRAFT);
+      expect(rec).toHaveLength(2);
+      expect(rec[1].system).toBe(rec[0].system);
+      expect(rec[1].messages).toEqual(rec[0].messages);
+      expect(rec[1].maxTokens).toBe(rec[0].maxTokens);
+      for (const spy of [log, warn, error]) expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("throws the fixed error when the retry also leaks", async () => {
+      const { llm, calls: rec } = sequenceLlm(LEAKY, LEAKY);
+      const err = await generateDraft(source(), llm, live()).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(DraftError);
+      expect((err as Error).message).toBe("draft generation failed");
+      for (const s of ["Priya", "Shah", "price comes up"]) expect((err as Error).message).not.toContain(s);
+      expect(rec).toHaveLength(2);
+    });
+
+    it("retry is not attempted when the first draft is clean", async () => {
+      const { llm, calls: rec } = sequenceLlm(VALID_DRAFT, LEAKY);
+      await expect(generateDraft(source(), llm, live())).resolves.toEqual(VALID_DRAFT);
+      expect(rec).toHaveLength(1);
+    });
+  });
+
   it("abort propagates", async () => {
     const controller = new AbortController();
     controller.abort();

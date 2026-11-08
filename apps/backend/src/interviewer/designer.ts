@@ -1,5 +1,5 @@
 import { z, type ZodType, type ZodTypeDef } from "zod";
-import type { LlmProvider } from "../providers/types";
+import type { ChatMessage, LlmProvider } from "../providers/types";
 import { findLeaks } from "../redaction/leakCheck";
 import { INTERVIEWER_LIMITS, parseInterviewerInput, type InterviewerInput } from "./schema";
 
@@ -316,17 +316,30 @@ export async function generateDraft(
     userContent = `DESCRIPTION:\n${text}`;
   }
 
+  const request = {
+    system,
+    messages: [{ role: "user", content: userContent }] satisfies ChatMessage[],
+    schema: draftOutputSchema as ZodType<InterviewerInput>,
+    maxTokens: DRAFT_MAX_TOKENS,
+  };
+  const draft = await requestDraft(request, llm, signal);
+  // A composite draft must not carry any call's names or terms. One identical retry on a leak,
+  // then a fixed error; nothing is logged and the message never says which string leaked.
+  if (findLeaks(draft, forbidden).length === 0) return draft;
+  const retried = await requestDraft(request, llm, signal);
+  if (findLeaks(retried, forbidden).length > 0) throw new DraftError("draft generation failed");
+  return retried;
+}
+
+/** One structured call, re-validated. Aborts propagate; any other failure is a fixed DraftError. */
+async function requestDraft(
+  request: { system: string; messages: ChatMessage[]; schema: ZodType<InterviewerInput>; maxTokens: number },
+  llm: LlmProvider,
+  signal: AbortSignal,
+): Promise<InterviewerInput> {
   let raw: unknown;
   try {
-    raw = await llm.structured(
-      {
-        system,
-        messages: [{ role: "user", content: userContent }],
-        schema: draftOutputSchema as ZodType<InterviewerInput>,
-        maxTokens: DRAFT_MAX_TOKENS,
-      },
-      signal,
-    );
+    raw = await llm.structured(request, signal);
   } catch (err) {
     // Aborts propagate as aborts; anything else becomes a fixed DraftError (never model output,
     // user text or the cause's message).
@@ -337,7 +350,5 @@ export async function generateDraft(
   // Re-checked here so a provider that skips the schema still cannot pass anything unvalidated.
   const checked = draftOutputSchema.safeParse(raw);
   if (!checked.success) throw new DraftError("draft generation failed");
-  // A composite draft must not carry any call's names or terms; the message never says which.
-  if (findLeaks(checked.data, forbidden).length > 0) throw new DraftError("draft generation failed");
   return checked.data;
 }
