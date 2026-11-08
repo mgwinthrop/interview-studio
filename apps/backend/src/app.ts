@@ -14,6 +14,10 @@ import * as interviewerStore from "./interviewerStore";
 import * as persistence from "./persistence";
 import type { Providers } from "./providers/types";
 import { createSessionRouter } from "./reportRoutes";
+import { createMockCatalog, createModelCatalog } from "./modelCatalog";
+import { createSettingsRouter } from "./settingsRoutes";
+import { createSettingsService, type SettingsService } from "./settingsService";
+import * as settingsStore from "./settingsStore";
 import * as usage from "./usage";
 import { createUsageRouter } from "./usageRoutes";
 import { attachWebSocket } from "./wsServer";
@@ -23,6 +27,8 @@ export interface AppDeps {
   providers: Providers;
   persist?: typeof persistence;
   interviewers?: typeof interviewerStore;
+  /** Override for the settings service (tests). */
+  settings?: SettingsService;
 }
 
 export interface App {
@@ -90,6 +96,13 @@ export function createApp(deps: AppDeps): App {
   const persist = deps.persist ?? persistence;
   const interviewers = deps.interviewers ?? interviewerStore;
   const authenticate = createAuthenticator(config);
+  // The one settings service for this app; later wiring hands it to sessions and reports.
+  const settings =
+    deps.settings ??
+    createSettingsService({
+      store: settingsStore,
+      catalog: config.profile === "mock" ? createMockCatalog() : createModelCatalog(config),
+    });
 
   // ── HTTP ───────────────────────────────────────────────────────────────────
 
@@ -147,6 +160,8 @@ export function createApp(deps: AppDeps): App {
   );
 
   app.use("/api/usage", createUsageRouter({ usage }));
+
+  app.use("/api/settings", createSettingsRouter({ service: settings, ownerOf }));
 
   // Transcript, report, regenerate, delete and the session list (absolute paths).
   app.use(createSessionRouter({ config, llm: providers.llm, persist }));
