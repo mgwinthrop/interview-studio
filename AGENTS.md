@@ -7,4 +7,5 @@ A tool for finding your voice through guided conversation and helpful feedback. 
 - Never store audio. Delivery numbers in a report come from code, never from model output.
 - Avatar states must reflect connection, pause, interrupt and actual audio playback state. Respect prefers-reduced-motion.
 - Public source is not a public hosted service: local mode accepts loopback connections only, with Host and Origin checks, and an optional shared `AUTH_TOKEN` mode exists. It is still a single-user prototype with no per-user accounts.
+- Cloud sending of call text is off unless `CLOUD_SEND_TRANSCRIPTS` is set (the mock profile also allows it); LLM usage rows hold numbers and ids only, never text. See `docs/calls-and-privacy.md`.
 - Verify frontend lint/build and backend tests/build before publishing changes.
