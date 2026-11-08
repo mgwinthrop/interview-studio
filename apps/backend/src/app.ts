@@ -2,7 +2,7 @@ import http from "node:http";
 import cors from "cors";
 import express from "express";
 import { createAuthenticator } from "./auth";
-import type { Config } from "./config";
+import { callsEnabled, type Config } from "./config";
 import prisma from "./db";
 import { withDeadline } from "./deadline";
 import { errName } from "./errors";
@@ -79,6 +79,10 @@ export function createApp(deps: AppDeps): App {
     }
     res.locals.ownerId = result.ownerId;
     next();
+  });
+
+  app.get("/api/features", (_req, res) => {
+    res.json({ personaFromCalls: callsEnabled(config) });
   });
 
   app.use(
