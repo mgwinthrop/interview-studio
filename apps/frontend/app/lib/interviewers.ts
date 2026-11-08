@@ -24,6 +24,8 @@ export interface InterviewerInput {
   purpose: string;
   persona: string;
   style: string;
+  /** Optional: how the person being practised against tends to react. */
+  behaviours?: string;
   opening: string;
   closing: string;
   phases: InterviewerPhase[];

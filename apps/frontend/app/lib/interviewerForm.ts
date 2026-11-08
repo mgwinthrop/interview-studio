@@ -9,6 +9,7 @@ export const INTERVIEWER_LIMITS = {
   purpose: 200,
   persona: 1500,
   style: 600,
+  behaviours: 1500,
   opening: 400,
   closing: 400,
   phaseName: 40,
@@ -45,6 +46,7 @@ export function inputFromDetail(d: InterviewerDetail): InterviewerInput {
     purpose: d.purpose,
     persona: d.persona,
     style: d.style,
+    ...(d.behaviours !== undefined ? { behaviours: d.behaviours } : {}),
     opening: d.opening,
     closing: d.closing,
     phases: d.phases.map((p) => ({
@@ -106,11 +108,12 @@ function parseShape(raw: unknown): InterviewerInput | null {
   const purpose = str(raw.purpose, INTERVIEWER_LIMITS.purpose);
   const persona = str(raw.persona, INTERVIEWER_LIMITS.persona);
   const style = str(raw.style, INTERVIEWER_LIMITS.style);
+  const behaviours = raw.behaviours === undefined ? undefined : str(raw.behaviours, INTERVIEWER_LIMITS.behaviours);
   const opening = str(raw.opening, INTERVIEWER_LIMITS.opening);
   const closing = str(raw.closing, INTERVIEWER_LIMITS.closing);
   if (
     name === null || purpose === null || persona === null ||
-    style === null || opening === null || closing === null
+    style === null || behaviours === null || opening === null || closing === null
   ) {
     return null;
   }
@@ -156,7 +159,9 @@ function parseShape(raw: unknown): InterviewerInput | null {
   }
 
   return {
-    name, purpose, persona, style, opening, closing,
+    name, purpose, persona, style,
+    ...(behaviours !== undefined ? { behaviours } : {}),
+    opening, closing,
     phases, focus,
     contentFeedback: raw.contentFeedback,
     deliveryFeedback: raw.deliveryFeedback,
