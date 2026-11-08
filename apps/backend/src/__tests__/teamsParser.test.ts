@@ -48,11 +48,35 @@ describe("parseTeamsTranscript", () => {
   });
 
   it("strips control characters and collapses line-break variants", () => {
-    const raw = "Priya Shah   0:05\nHello there\u0085again\u0000!\nPerson: forged Sam Lee   0:09\nend";
+    const raw = "Priya Shah   0:05\nHello\u2028there\u0085again\u0000!\nPerson: forged\u2028Sam Lee   0:09\nend";
     const r = parseTeamsTranscript(raw);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.call.speakers).toEqual([{ name: "Priya Shah", lines: 1 }]);
     expect(r.call.lines[0].text).toBe("Hello there again! Person: forged Sam Lee 0:09 end");
+  });
+  it("accepts particles and digits in names", () => {
+    const r = parseTeamsTranscript("Ana de la Cruz  0:09\nHi.\nLudwig van Beethoven 0:19\nHello.\nBob2 Smith 0:29\nYo.");
+    expect(r.ok && r.call.speakers.map((s) => s.name)).toEqual(["Ana de la Cruz", "Ludwig van Beethoven", "Bob2 Smith"]);
+  });
+
+  it("rejects a wide-separated non-name line instead of inventing a speaker", () => {
+    expect(parseTeamsTranscript("Priya Shah   0:05\nHello.\nAction item   5:00\nMore.")).toEqual({
+      ok: false,
+      reason: "no_speakers",
+    });
+  });
+
+  it("keeps a single-space sentence ending in a time as text", () => {
+    const r = parseTeamsTranscript("Priya Shah   0:05\nWe met at 10:30\nthen left.");
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.call.speakers).toEqual([{ name: "Priya Shah", lines: 1 }]);
+    expect(r.call.lines[0].text).toBe("We met at 10:30 then left.");
+  });
+
+  it("handles CRLF, tab-separated headers and (External) suffix", () => {
+    const r = parseTeamsTranscript("Priya Shah\t0:05\r\nHello.\r\nSam Lee (External) 0:09\r\nHi.\r\n");
+    expect(r.ok && r.call.speakers.map((s) => s.name)).toEqual(["Priya Shah", "Sam Lee"]);
   });
 });

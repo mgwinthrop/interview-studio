@@ -18,27 +18,38 @@ export const MAX_CALL_CHARS = 24_000;
 const CONTROL = /[\u0000-\u0008\u000E-\u001F\u007F]/g;
 const REAL_NEWLINE = /\r\n|\r|\n/;
 const TIME = String.raw`(?:\d{1,2}:)?\d{1,2}:\d{2}`;
-// Name, then a tab or two or more spaces, then the timestamp.
-const HEADER_WIDE = new RegExp(String.raw`^(\S.{0,80}?)(?:\t|\s{2,})(${TIME})$`);
-// Single space only when the name is a few capitalised words, so prose like "We met at 10:30" is not a header.
-const HEADER_SINGLE = new RegExp(
-  String.raw`^((?:\p{Lu}[\p{L}'.-]*)(?: \p{Lu}[\p{L}'.-]*){0,4}(?: \((?:Guest|External)\))?) (${TIME})$`,
-  "u",
-);
+// Name, then a tab or two or more spaces, then a standalone timestamp.
+const HEADER_WIDE = new RegExp(String.raw`^(\S.{0,120}?)(?:\t|\s{2,})(${TIME})$`);
+const HEADER_SINGLE = new RegExp(String.raw`^(\S.{0,120}?) (${TIME})$`);
+
+// Name shape: 1 to 6 words, each capitalised (letters, digits, ' - . after the first) or a known particle.
+// Accepted limit: single-space headers for names outside this shape (for example non-cased scripts)
+// are treated as text.
+const PARTICLES = new Set("de da di del della der den van von la le el al bin bint ten ter du dos das".split(" "));
+const NAME_WORD = /^\p{Lu}[\p{L}\p{N}'.-]*$/u;
+
+function isNameShape(name: string): boolean {
+  const words = name.split(" ");
+  return words.length >= 1 && words.length <= 6 && words.every((w) => NAME_WORD.test(w) || PARTICLES.has(w));
+}
 
 function cleanName(name: string): string {
   return name
     .replace(/\s*\([^)]*\)\s*$/, "")
-    .replace(/\s*[|–—-]\s+.*$/, "")
+    .replace(/\s*[|\u2013\u2014-]\s+.*$/, "")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-function headerName(line: string): string | null {
-  const m = HEADER_WIDE.exec(line) ?? HEADER_SINGLE.exec(line);
-  if (!m) return null;
+type Header = { kind: "header"; name: string } | { kind: "reject" } | { kind: "text" };
+
+function classify(line: string): Header {
+  const wide = HEADER_WIDE.exec(line);
+  const m = wide ?? HEADER_SINGLE.exec(line);
+  if (!m) return { kind: "text" };
   const name = cleanName(m[1]);
-  return name.length > 0 && name.length <= 80 && !/\d{1,2}:\d{2}/.test(name) ? name : null;
+  if (name.length > 0 && isNameShape(name)) return { kind: "header", name };
+  return wide ? { kind: "reject" } : { kind: "text" };
 }
 
 export function parseTeamsTranscript(raw: string): ParseResult {
@@ -57,9 +68,10 @@ export function parseTeamsTranscript(raw: string): ParseResult {
   const out: { speaker: string; parts: string[] }[] = [];
   for (const { text, forged } of lines) {
     const trimmed = text.trim();
-    const name = forged ? null : headerName(trimmed);
-    if (name) {
-      out.push({ speaker: name, parts: [] });
+    const c: Header = forged ? { kind: "text" } : classify(trimmed);
+    if (c.kind === "reject") return { ok: false, reason: "no_speakers" };
+    if (c.kind === "header") {
+      out.push({ speaker: c.name, parts: [] });
     } else if (out.length > 0 && trimmed) {
       out[out.length - 1].parts.push(trimmed.replace(/\s+/g, " "));
     }
