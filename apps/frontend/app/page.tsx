@@ -62,7 +62,7 @@ export default function HomePage() {
       <Nav />
       <FlowStepper currentStep={2} />
 
-      <main>
+      <main id="main-content" tabIndex={-1}>
       {/* Hero */}
       <div
         className="hero-section"

@@ -237,6 +237,8 @@ export default function DashboardPage() {
       {/* Body: empty state or two-column layout */}
       {isEmptyDashboard ? (
         <main
+          id="main-content"
+          tabIndex={-1}
           style={{
             flex: 1,
             display: "flex",
@@ -287,7 +289,7 @@ export default function DashboardPage() {
           </div>
         </main>
       ) : (
-        <main style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+        <main id="main-content" tabIndex={-1} style={{ display: "flex", flex: 1, overflow: "hidden" }}>
           {/* Left: session list (260px fixed) */}
           <div
             style={{

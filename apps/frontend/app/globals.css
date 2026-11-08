@@ -338,3 +338,17 @@ body {
 @media (prefers-reduced-motion:reduce) {
   .interviewer-avatar * { animation:none !important; transition:none !important; }
 }
+
+/* Manual pause (WCAG 2.2.2). The toggle sets <html data-motion="paused">, which stops every animation. */
+html[data-motion="paused"] *, html[data-motion="paused"] *::before, html[data-motion="paused"] *::after { animation:none !important; transition:none !important; }
+.motion-toggle { background:transparent; color:#D8F0EC; border:1px solid #93C9C4; border-radius:6px; padding:4px 12px; min-height:28px; font:inherit; font-size:12px; font-weight:600; cursor:pointer; }
+.motion-toggle:hover { background:rgba(255,255,255,.1); }
+@media (max-width:767px) {
+  .interviewer-panel .motion-toggle { grid-column:2; justify-self:start; }
+}
+
+/* Skip link (WCAG 2.4.1): off-screen until it receives keyboard focus. */
+.skip-link { position:absolute; left:16px; top:-100px; z-index:100; padding:10px 16px; background:#FFFFFF; color:#102B33; font-size:14px; font-weight:700; text-decoration:none; border:2px solid #087E8B; border-radius:6px; }
+.skip-link:focus { top:8px; left:50%; transform:translateX(-50%); }
+@media (max-width:767px) { .skip-link:focus { top:56px; left:16px; transform:none; } }
+main:focus { outline:none; }

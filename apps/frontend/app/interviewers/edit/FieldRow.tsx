@@ -1,6 +1,6 @@
 // Small labelled fields for the interviewer editor: a visible label tied to the input, a live
 // character count, and the field's error as text (never colour alone).
-import { secondaryButtonStyle } from "../../lib/ui";
+import { FIELD_BORDER, secondaryButtonStyle } from "../../lib/ui";
 import { fieldId } from "./formState";
 
 export const ERROR_COLOR = "#B42318";
@@ -26,7 +26,7 @@ function inputStyle(invalid: boolean, readOnly: boolean): React.CSSProperties {
     boxSizing: "border-box",
     padding: "10px 12px",
     borderRadius: 8,
-    border: invalid ? `2px solid ${ERROR_COLOR}` : "1px solid #C9D0D6",
+    border: invalid ? `2px solid ${ERROR_COLOR}` : `1px solid ${FIELD_BORDER}`,
     background: readOnly ? "#F4F5F1" : "#FFFFFF",
     color: "#102B33",
     fontSize: 15,

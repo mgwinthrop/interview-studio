@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Nav } from "../components/Nav";
 import { FlowStepper } from "../components/FlowStepper";
 import { safeSessionNext } from "../lib/voiceSession";
+import { FIELD_BORDER } from "../lib/ui";
 
 type PermissionState = "pending" | "granted" | "denied";
 type RecordState = "idle" | "recording" | "playing";
@@ -184,7 +185,7 @@ export default function MicCheckPage() {
       <FlowStepper currentStep={1} />
 
       {/* Main content */}
-      <main className="mic-check-content" style={{ flex: 1, padding: "48px 32px 48px", maxWidth: 800, margin: "0 auto", width: "100%" }}>
+      <main id="main-content" tabIndex={-1} className="mic-check-content" style={{ flex: 1, padding: "48px 32px 48px", maxWidth: 800, margin: "0 auto", width: "100%" }}>
         {/* Heading */}
         <div style={{ textAlign: "center", marginBottom: 32 }}>
           <h1
@@ -316,7 +317,7 @@ export default function MicCheckPage() {
                     width: "100%",
                     padding: "9px 12px",
                     borderRadius: 8,
-                    border: "1px solid #E2E6EA",
+                    border: `1px solid ${FIELD_BORDER}`,
                     background: "#FFFFFF",
                     color: "#000000",
                     fontSize: 14,

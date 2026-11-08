@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
+import { SkipLink } from "./components/SkipLink";
 
 const manrope = localFont({
   src: "./fonts/GeistVF.woff",
@@ -21,6 +22,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={manrope.variable}>
       <body className="antialiased">
+        <SkipLink />
         {children}
       </body>
     </html>

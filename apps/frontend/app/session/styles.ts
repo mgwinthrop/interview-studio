@@ -1,6 +1,6 @@
 // Inline styles for the session page and its parts. Values only; nothing here reads state.
 import type { CSSProperties } from "react";
-import { primaryButtonStyle } from "../lib/ui";
+import { FIELD_BORDER, primaryButtonStyle } from "../lib/ui";
 
 // Full-screen error state shared by "connection lost", "session failed" and the other overlays.
 export const overlayStyle: CSSProperties = {
@@ -162,7 +162,7 @@ export const textInputFieldStyle: CSSProperties = {
   flex: 1,
   padding: "10px 16px",
   borderRadius: 8,
-  border: "1px solid #E2E6EA",
+  border: `1px solid ${FIELD_BORDER}`,
   background: "#F4F5F1",
   color: "#000000",
   fontSize: 16,

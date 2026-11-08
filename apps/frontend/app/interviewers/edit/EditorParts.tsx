@@ -153,7 +153,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
   return (
     <div style={{ minHeight: "100vh", background: "#F4F5F1", fontFamily: "var(--font-manrope), sans-serif" }}>
       <Nav />
-      <main style={{ maxWidth: 760, margin: "0 auto", padding: "32px 24px 64px" }}>{children}</main>
+      <main id="main-content" tabIndex={-1} style={{ maxWidth: 760, margin: "0 auto", padding: "32px 24px 64px" }}>{children}</main>
     </div>
   );
 }

@@ -3,6 +3,7 @@
 import type { ConnectionState } from "../hooks/useWebSocket";
 import type { OrbState } from "../types";
 import { InterviewerAvatar, AVATAR_LABELS, type AvatarState } from "./InterviewerAvatar";
+import { MotionToggle } from "./MotionToggle";
 
 interface AgentPanelProps {
   orbState: OrbState;
@@ -20,6 +21,7 @@ export function AgentPanel({ orbState, connectionState, lastLatencyMs, sessionId
       <InterviewerAvatar state={state} />
       <div className="interviewer-status" role="status" aria-live="polite"><span className="interviewer-status-dot" data-state={state} />{AVATAR_LABELS[state]}</div>
       <p className="interviewer-caption">{state === "listening" ? "Take your time. I’m all ears." : state === "thinking" ? "Considering your experience…" : state === "speaking" ? "You can interrupt at any time." : state === "interrupted" ? "Go ahead — I’m listening." : state === "paused" ? "Resume whenever you’re ready." : "Waiting for the interview connection."}</p>
+      <MotionToggle />
       {lastLatencyMs !== null && <p className="interviewer-latency">Last response: {lastLatencyMs}ms</p>}
       {sessionId && <span className="interviewer-session">interview_{sessionId.slice(0, 11)}</span>}
     </div>

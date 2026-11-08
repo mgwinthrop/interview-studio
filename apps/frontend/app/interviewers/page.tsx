@@ -16,7 +16,7 @@ import {
 import { editPathFor, storeDraft } from "../lib/interviewerForm";
 import { startVoiceSession } from "../lib/voiceSession";
 import { labelStyle, hintStyle, ERROR_COLOR, smallButtonStyle, dangerButtonStyle } from "./edit/FieldRow";
-import { primaryButtonStyle, secondaryButtonStyle } from "../lib/ui";
+import { FIELD_BORDER, primaryButtonStyle, secondaryButtonStyle } from "../lib/ui";
 import { disabledStyle, sectionHeadingStyle } from "./edit/PhaseFields";
 import { Shell, bodyStyle, panelStyle } from "./edit/EditorParts";
 
@@ -220,7 +220,7 @@ export default function InterviewersPage() {
               boxSizing: "border-box",
               padding: "10px 12px",
               borderRadius: 8,
-              border: draftError ? `2px solid ${ERROR_COLOR}` : "1px solid #C9D0D6",
+              border: draftError ? `2px solid ${ERROR_COLOR}` : `1px solid ${FIELD_BORDER}`,
               background: "#FFFFFF",
               color: "#102B33",
               fontSize: 15,

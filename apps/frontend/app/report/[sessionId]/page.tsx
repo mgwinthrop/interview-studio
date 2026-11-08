@@ -261,7 +261,7 @@ function ReportPageInner() {
     >
       <Nav />
       <FlowStepper currentStep={4} />
-      <main>
+      <main id="main-content" tabIndex={-1}>
         <ReportView
           report={report!}
           interviewerName={report!.interviewerName}

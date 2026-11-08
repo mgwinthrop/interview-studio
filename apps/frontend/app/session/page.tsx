@@ -450,6 +450,8 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
 
       {/* Main content — Agent Panel + Transcript */}
       <main
+        id="main-content"
+        tabIndex={-1}
         className="session-main"
         style={{
           display: "flex",
