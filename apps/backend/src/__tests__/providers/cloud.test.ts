@@ -115,6 +115,17 @@ describe("cloud stt", () => {
     ]);
   });
 
+  it("sends a given model_id", async () => {
+    const { fn, calls } = fakeFetch(sttOk);
+    await createCloudProviders(baseConfig, { fetch: fn }).stt.transcribe(Buffer.alloc(10), live, {
+      modelId: "scribe_v9",
+    });
+    const form = calls[0].init.body as FormData;
+    expect(form.get("model_id")).toBe("scribe_v9");
+    expect(form.get("file_format")).toBe("pcm_s16le_16");
+    expect(form.get("language_code")).toBe("en");
+  });
+
   it("returns empty words when the response has none", async () => {
     const { fn } = fakeFetch(() => new Response(JSON.stringify({ text: "hi" }), { status: 200 }));
     const result = await createCloudProviders(baseConfig, { fetch: fn }).stt.transcribe(
@@ -145,6 +156,59 @@ describe("cloud tts", () => {
     const body = JSON.parse(calls[0].init.body as string);
     expect(body).toEqual({ text: "Hi there.", model_id: "eleven_flash_v2_5" });
     expect(chunks.map((c) => Array.from(c))).toEqual([[1, 2], [3]]);
+  });
+
+  it("sends a given model_id and output_format query parameter", async () => {
+    const { fn, calls } = fakeFetch(() => new Response(streamOf([1]), { status: 200 }));
+    await collect(
+      createCloudProviders(baseConfig, { fetch: fn }).tts.synthesize("Hi.", live, {
+        modelId: "eleven_x",
+        outputFormat: "mp3_44100_64",
+      }),
+    );
+    expect(calls[0].url).toBe(
+      "https://api.elevenlabs.io/v1/text-to-speech/voice123/stream?output_format=mp3_44100_64",
+    );
+    expect(JSON.parse(calls[0].init.body as string)).toEqual({ text: "Hi.", model_id: "eleven_x" });
+  });
+
+  it("encodes the output_format value and adds no query without it", async () => {
+    const { fn, calls } = fakeFetch(() => new Response(streamOf([1]), { status: 200 }));
+    const { tts } = createCloudProviders(baseConfig, { fetch: fn });
+    await collect(tts.synthesize("Hi.", live, { outputFormat: "a/b&c=d" }));
+    await collect(tts.synthesize("Hi.", live, { modelId: "m" }));
+    expect(calls[0].url).toBe(
+      "https://api.elevenlabs.io/v1/text-to-speech/voice123/stream?output_format=a%2Fb%26c%3Dd",
+    );
+    expect(calls[1].url).toBe("https://api.elevenlabs.io/v1/text-to-speech/voice123/stream");
+  });
+
+  it("keeps the Cartesia fallback request unchanged when options are given", async () => {
+    const { fn, calls } = fakeFetch((url) =>
+      url.includes("elevenlabs")
+        ? new Response("boom", { status: 500 })
+        : new Response(streamOf([9]), { status: 200 }),
+    );
+    await collect(
+      createCloudProviders(cartesiaConfig, { fetch: fn }).tts.synthesize("Hi.", live, {
+        modelId: "eleven_x",
+        outputFormat: "mp3_44100_64",
+      }),
+    );
+    expect(calls[1].url).toBe("https://api.cartesia.ai/tts/bytes");
+    expect(calls[1].init.headers).toEqual({
+      "Cartesia-Version": "2024-06-10",
+      "X-API-Key": "c-key",
+      "Content-Type": "application/json",
+    });
+    expect(calls[1].init.body).toBe(
+      JSON.stringify({
+        model_id: "sonic-english",
+        transcript: "Hi.",
+        voice: { mode: "id", id: "c-voice" },
+        output_format: { container: "mp3", encoding: "mp3", sample_rate: 44100 },
+      }),
+    );
   });
 
   it("falls back to Cartesia when ElevenLabs returns 500", async () => {
@@ -237,6 +301,24 @@ describe("cloud llm", () => {
       ),
     ).rejects.toBeDefined();
     expect(create).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("cloud llm model", () => {
+  const req = { system: "s", messages: [{ role: "user" as const, content: "hi" }], maxTokens: 10 };
+
+  it("stream and structured send a given model and the fallback otherwise", async () => {
+    const { client, stream, create } = fakeAnthropic('{"ok":true}');
+    const { llm } = createCloudProviders(baseConfig, { anthropic: client });
+    await collect(llm.stream({ ...req, model: "m-1" }, live));
+    await collect(llm.stream(req, live));
+    const schema = z.object({ ok: z.boolean() });
+    await llm.structured({ ...req, schema, model: "m-2" }, live);
+    await llm.structured({ ...req, schema }, live);
+    expect((stream.mock.calls[0][0] as { model: string }).model).toBe("m-1");
+    expect((stream.mock.calls[1][0] as { model: string }).model).toBe("claude-sonnet-4-6");
+    expect((create.mock.calls[0][0] as { model: string }).model).toBe("m-2");
+    expect((create.mock.calls[1][0] as { model: string }).model).toBe("claude-sonnet-4-6");
   });
 });
 

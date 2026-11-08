@@ -14,21 +14,29 @@ export interface Word {
 }
 
 export interface SttProvider {
-  transcribe(pcm16: Buffer, signal: AbortSignal): Promise<{ text: string; words: Word[] }>;
+  transcribe(
+    pcm16: Buffer,
+    signal: AbortSignal,
+    opts?: { modelId?: string },
+  ): Promise<{ text: string; words: Word[] }>;
 }
 
 export interface TtsProvider {
-  synthesize(sentence: string, signal: AbortSignal): AsyncIterable<Uint8Array>;
+  synthesize(
+    sentence: string,
+    signal: AbortSignal,
+    opts?: { modelId?: string; outputFormat?: string },
+  ): AsyncIterable<Uint8Array>;
 }
 
-/** `usage` (numbers-only accounting meta) is optional; the mock provider ignores it. */
+/** `usage` (numbers-only accounting meta) and `model` are optional; the mock provider ignores them. */
 export interface LlmProvider {
   stream(
-    req: { system: string; messages: ChatMessage[]; maxTokens: number; usage?: UsageMeta },
+    req: { system: string; messages: ChatMessage[]; maxTokens: number; usage?: UsageMeta; model?: string },
     signal: AbortSignal,
   ): AsyncIterable<string>;
   structured<T>(
-    req: { system: string; messages: ChatMessage[]; schema: ZodType<T>; maxTokens: number; usage?: UsageMeta },
+    req: { system: string; messages: ChatMessage[]; schema: ZodType<T>; maxTokens: number; usage?: UsageMeta; model?: string },
     signal: AbortSignal,
   ): Promise<T>;
 }

@@ -86,6 +86,19 @@ describe("cloud llm usage reporting", () => {
     for (const [r] of onUsage.mock.calls) expect(r).toMatchObject({ ...META, inputTokens: 120, outputTokens: 40 });
   });
 
+  it("reports the model actually used, for structured attempts and stream", async () => {
+    const onUsage = vi.fn<(r: UsageRecord) => void>();
+    const anthropic = client({
+      create: (n) => ({ content: [{ type: "text", text: n === 1 ? "no json" : '{"ok":true}' }], usage: USAGE }),
+      events: [{ type: "message_start", message: { usage: { input_tokens: 1, output_tokens: 1 } } }],
+    });
+    const { llm } = createCloudProviders(config, { anthropic, onUsage });
+    await llm.structured({ ...structuredReq, model: "m-x" }, live);
+    await drain(llm.stream({ system: "s", messages: [], maxTokens: 5, usage: META, model: "m-y" }, live));
+    await drain(llm.stream({ system: "s", messages: [], maxTokens: 5, usage: META }, live));
+    expect(onUsage.mock.calls.map(([r]) => r.model)).toEqual(["m-x", "m-x", "m-y", "claude-sonnet-4-6"]);
+  });
+
   it("missing usage gives null tokens", async () => {
     const onUsage = vi.fn<(r: UsageRecord) => void>();
     const anthropic = client({ create: () => ({ content: [{ type: "text", text: '{"ok":true}' }] }) });
