@@ -186,7 +186,7 @@ flowchart TD
 
 Stop all backends first. A second server migrating the database under a running one breaks the running server and loses its session. Only one backend process may use a database file at a time.
 
-This update adds the `llm_usage` migration (a table of LLM usage as numbers and ids only).
+This update adds the `20261108120000_llm_usage` migration (the `LlmUsage` table, which holds LLM usage as numbers and ids only).
 
 If a migration fails or stops part-way, stop the backend, restore your copy of the SQLite file and start again.
 

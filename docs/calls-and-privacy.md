@@ -10,7 +10,7 @@ You paste one or more Microsoft Teams call transcripts. The tool builds a draft 
 
 The flow, at `/interviewers/calls`:
 
-1. **Paste** a transcript (up to 24,000 characters per call).
+1. **Paste** a transcript (up to 24,000 characters per call for the parser). The edit box and the draft route allow up to 30,000 characters per call, because role labels can make the redacted text slightly longer; this is also why a long paste in the edit box can be cut. Request bodies are limited to 256kb for speakers and redact, and 768kb for draft.
 2. **Speakers.** The server finds the speakers. You pick the buyer. Check this list: a line such as "Total 10:00" inside someone's speech can look like a speaker header.
 3. **Redaction.** The server replaces names, your names-to-hide list, emails, phone numbers, URLs and money amounts with placeholders.
 4. **Review.** You read the highlighted result, tick suggestions, edit the text and fix anything redaction missed. This is the real control.
@@ -57,6 +57,7 @@ It is deterministic code on your backend. No model is involved.
 
 **It does not catch, or it over-catches:**
 
+- Names and organisations that are not in the speaker list or your names-to-hide list. Client company names, other people who are mentioned but do not speak, products and places are not redacted unless you type them into the names list or tick them from the suggestions. The suggestions are only suggestions. This is the main way to over-trust redaction.
 - Spelled-out numbers ("fifty thousand").
 - Nicknames and abbreviations of a name or company, unless you add them to your list.
 - Names and terms glued to other text with no word boundary ("PriyaShah").
@@ -67,7 +68,7 @@ It is deterministic code on your backend. No model is involved.
 - Unusual ranges, such as "10-20-30%" and "$50/75": an end can stay visible.
 - Over-redaction: years ("2026") become an amount placeholder, "5mm" and long digit runs too, and "2023-2024" can become a contact placeholder.
 - Context that identifies a client without naming them: an industry, a product, a story only that client could tell.
-- A speaker with a name in a non-cased script (for example Chinese) whose header is separated from the time by a tab or two or more spaces makes the whole parse fail, with a message that no speakers were found.
+- A speaker with a name in a non-cased script (for example Chinese) whose header is separated from the time by a tab or two or more spaces makes the whole parse fail, with a message that no speakers were found. With a single space, the same kind of header is treated as plain text, with no message: that speaker is not in the speaker list, their name stays visible in the text, and their lines merge into the previous speaker. Read the speaker list and the redacted text in full.
 
 The review step is the real control. Read the text before you approve it. Do not describe the result as anonymised, or as safe, secure or compliant.
 
@@ -75,6 +76,7 @@ The review step is the real control. Read the text before you approve it. Do not
 
 After the model replies, the server checks the draft for the strings the redaction step reported (names, name parts and your terms). The client supplies that list with the draft request, so the check guards against the model repeating what you were shown, not against a hand-made request.
 
+- Matching is whole-word only, and forbidden strings shorter than 3 characters are ignored.
 - Full names and terms typed in lower case are matched case-insensitively.
 - A single capitalised word (a first name, for example) is matched in its own case or in UPPERCASE only. Matching "Will" case-insensitively would reject any draft containing "will".
 - Trade-off: a lower-case rendering of a bare capitalised first name or term is not caught.
@@ -82,7 +84,7 @@ After the model replies, the server checks the draft for the strings the redacti
 
 ## Usage and cost
 
-Each cloud LLM call writes a row to the `LlmUsage` table: feature, model, token counts, owner and session ids, and a time. No prompts, transcripts, replies or drafts.
+Each cloud LLM call writes a row to the `LlmUsage` table (migration `20261108120000_llm_usage`): feature, model, token counts, owner and session ids, and a time. No prompts, transcripts, replies or drafts.
 
 See it on the dashboard ("Usage" panel, last 30 days by feature), on a report page (one line with that session's total), or through `GET /api/usage/summary?days=1..365` and `GET /api/usage/session/:sessionId`.
 
@@ -93,14 +95,14 @@ Caveats:
 - Costs are estimates, computed when each call was recorded, from the `PRICES` table in `apps/backend/src/usage.ts`. That table ships empty: no prices are invented. Cost shows "not available" until the operator fills it from the provider's published prices and sets `asOf`. Changing the table later does not change rows already recorded.
 - A row's cost can be a partial sum of the priced calls, and a token count that is unknown counts as 0.
 - `PROFILE=mock` records nothing.
-- Usage rows are deleted with their session and by `RETENTION_DAYS`.
+- Usage rows are deleted with their session and by `RETENTION_DAYS`. Designer and "Try it" sessions store no session, but their usage rows are written with the owner id and no session id, so only `RETENTION_DAYS` removes them.
 
 ## UK GDPR and client NDAs
 
 This is guidance, not legal advice. Check your own position.
 
 - Speaker names in a transcript are personal data.
-- Redacting locally, before any third-party call, supports data minimisation. It is not a guarantee: see the limits above.
+- Redacting locally, before any third-party call, may help with data minimisation. It is not a guarantee: see the limits above.
 - Each provider that sees data is a processor: Anthropic for conversation, reports and persona drafts; ElevenLabs for speech; and any evaluator you add later. The owner must obtain each provider's data processing agreement, processing region, sub-processors and retention terms. The tool cannot verify these.
 - A client NDA may bar sending even redacted material to a third party. `CLOUD_SEND_TRANSCRIPTS` lets an operator keep the feature off.
 - The session delete route and `RETENTION_DAYS` support storage limitation for stored sessions. They do not reach copies held by providers.
