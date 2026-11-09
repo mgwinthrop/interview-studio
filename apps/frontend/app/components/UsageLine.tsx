@@ -9,7 +9,8 @@ import { formatTokens } from "../lib/usageChart";
 
 export function usageLineText(totals: UsageTotals): string {
   if (totals.calls === 0) return "";
-  if (totals.estimatedCostUsd !== null) return `${formatUsd(totals.estimatedCostUsd)} estimated`;
+  // The cost counts only calls that had a price, so say so rather than present it as the whole spend.
+  if (totals.estimatedCostUsd !== null) return `${formatUsd(totals.estimatedCostUsd)} estimated, priced calls only`;
   return `${formatTokens(totals.inputTokens + totals.outputTokens)} tokens`;
 }
 

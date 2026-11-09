@@ -58,8 +58,9 @@ export default function UsagePage() {
       if (!trend) {
         // The Retry button stays (it keeps its focus); the alert remounts so it is announced again.
         retryingRef.current = false;
+        // The chosen measure stays: shownMeasure already shows tokens while cost is unavailable.
         setLoaded(null);
-        setMeasure("tokens");
+        setStatus("");
         setFailure((n) => (n ?? 0) + 1);
         return;
       }
@@ -167,10 +168,7 @@ export default function UsagePage() {
                 {asTable ? (
                   <TrendTable data={data} measure={shownMeasure} captionId={TABLE_CAPTION_ID} />
                 ) : (
-                  // Room under the chart: on narrow screens its tooltip sits below the columns.
-                  <div style={{ paddingBottom: 48 }}>
-                    <TrendChart data={data} measure={shownMeasure} titleId={CHART_TITLE_ID} />
-                  </div>
+                  <TrendChart data={data} measure={shownMeasure} titleId={CHART_TITLE_ID} />
                 )}
                 <p style={noteStyle}>Days with no activity show as empty.</p>
                 {shownMeasure === "cost" && <p style={noteStyle}>A day&rsquo;s cost counts only the calls that had a price.</p>}

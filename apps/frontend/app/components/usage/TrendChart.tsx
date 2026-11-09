@@ -12,6 +12,7 @@ import {
   roundedTopPath,
   placeTooltip,
   tooltipContent,
+  tooltipHeight,
   type Layout,
 } from "./chartLayout";
 
@@ -60,6 +61,8 @@ export function TrendChart({ data, measure, titleId }: { data: ChartData; measur
   useEffect(() => {
     setActive(n - 1);
     setHovered(null);
+    setFocused(null);
+    setDismissed(false);
   }, [n]);
 
   // A tapped day's tooltip goes away when the person taps or clicks anywhere outside the chart.
@@ -80,6 +83,7 @@ export function TrendChart({ data, measure, titleId }: { data: ChartData; measur
   const activeIndex = active >= 0 && active < n ? active : n - 1;
   const shown = hovered ?? (dismissed ? null : focused);
   const shownDay = shown !== null && shown < n ? data.days[shown] : null;
+  const tip = shownDay && shown !== null ? planTooltip(shownDay, measure, layout, shown, measured) : null;
 
   function onKeyDown(e: React.KeyboardEvent<SVGGElement>, i: number) {
     const next = nextActiveIndex(e.key, i, n);
@@ -216,6 +220,10 @@ export function TrendChart({ data, measure, titleId }: { data: ChartData; measur
           )}
         </svg>
       </div>
+      {/* A tooltip below the chart (narrow screens) is out of the flow, so make room for it. */}
+      {tip && tip.place.side === "below" && (
+        <div aria-hidden="true" style={{ height: tooltipHeight(tip.content.rows.length) + 8 }} />
+      )}
       <p style={secondaryText}>Use the arrow keys to move between days.</p>
       <ul
         aria-label="Legend"
@@ -234,27 +242,13 @@ export function TrendChart({ data, measure, titleId }: { data: ChartData; measur
           </li>
         )}
       </ul>
-      {shownDay && shown !== null && (
-        <Tooltip day={shownDay} measure={measure} layout={layout} index={shown} wrapperWidth={measured} />
-      )}
+      {tip && <Tooltip content={tip.content} place={tip.place} />}
     </div>
   );
 }
 
-function Tooltip({
-  day,
-  measure,
-  layout,
-  index,
-  wrapperWidth,
-}: {
-  day: ChartData["days"][number];
-  measure: Measure;
-  layout: Layout;
-  index: number;
-  wrapperWidth: number;
-}) {
-  const c = tooltipContent(day, measure);
+function planTooltip(day: ChartData["days"][number], measure: Measure, layout: Layout, index: number, wrapperWidth: number) {
+  const content = tooltipContent(day, measure);
   const geom = layout.days[index];
   const ring = ringExtent(geom);
   const place = placeTooltip({
@@ -265,8 +259,12 @@ function Tooltip({
     plotBottom: layout.plot.bottom,
     chartHeight: layout.height,
     wrapperWidth: wrapperWidth > 0 ? wrapperWidth : layout.width,
-    rows: c.rows.length,
+    rows: content.rows.length,
   });
+  return { content, place };
+}
+
+function Tooltip({ content: c, place }: { content: ReturnType<typeof tooltipContent>; place: ReturnType<typeof placeTooltip> }) {
   return (
     <div
       aria-hidden="true"
