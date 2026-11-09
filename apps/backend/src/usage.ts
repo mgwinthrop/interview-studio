@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import prisma from "./db";
 import { errName } from "./errors";
 import type { PriceRow } from "./settings";
@@ -123,6 +124,119 @@ export async function summarizeUsage(
       outputTokens: g._sum.outputTokens ?? 0,
       estimatedCostUsd: g._sum.estimatedCostUsd ?? null,
     })),
+    priceTableAsOf: priceAsOf,
+  };
+}
+
+export interface UsageTotals {
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCostUsd: number | null;
+}
+
+export interface UsageTrend {
+  /** Every UTC day in the range, oldest first; a day without calls has an empty `byFeature`. */
+  days: { date: string; byFeature: Record<string, UsageTotals> }[];
+  byFeature: (UsageTotals & { feature: string })[];
+  byModel: (UsageTotals & { model: string })[];
+  totals: UsageTotals;
+  priceTableAsOf: string | null;
+}
+
+interface RawGroup {
+  day?: string;
+  feature?: string;
+  model?: string;
+  calls: bigint | number;
+  inputTokens: bigint | number | null;
+  outputTokens: bigint | number | null;
+  cost: number | null;
+}
+
+function totalsOf(g: RawGroup): UsageTotals {
+  return {
+    calls: Number(g.calls),
+    inputTokens: Number(g.inputTokens ?? 0),
+    outputTokens: Number(g.outputTokens ?? 0),
+    estimatedCostUsd: g.cost === null || g.cost === undefined ? null : Number(g.cost),
+  };
+}
+
+function addTotals(a: UsageTotals, b: UsageTotals): UsageTotals {
+  return {
+    calls: a.calls + b.calls,
+    inputTokens: a.inputTokens + b.inputTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+    estimatedCostUsd:
+      a.estimatedCostUsd === null && b.estimatedCostUsd === null
+        ? null
+        : (a.estimatedCostUsd ?? 0) + (b.estimatedCostUsd ?? 0),
+  };
+}
+
+const EMPTY_TOTALS: UsageTotals = { calls: 0, inputTokens: 0, outputTokens: 0, estimatedCostUsd: null };
+
+/**
+ * Day-by-day usage of one owner over the last `days` UTC days (today included), per feature, plus
+ * per-feature, per-model and overall totals. Cost semantics are those of `summarizeUsage`. Days
+ * without calls are filled in here, not by the database.
+ */
+export async function usageTrend(ownerId: string, days: number, prices?: PriceTable): Promise<UsageTrend> {
+  let priceAsOf: string | null = null;
+  try {
+    priceAsOf = priceTableAsOf(prices ?? priceTableFrom(await listPrices(ownerId)));
+  } catch (err) {
+    console.error(`[usage] price lookup failed: ${errName(err)}`);
+  }
+
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const now = new Date();
+  const todayStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const startMs = todayStart - (days - 1) * DAY_MS;
+
+  const byDayFeature = await prisma.$queryRaw<RawGroup[]>(Prisma.sql`
+    SELECT strftime('%Y-%m-%d', "at" / 1000, 'unixepoch') AS day, "feature" AS feature,
+           COUNT(*) AS calls, SUM("inputTokens") AS inputTokens, SUM("outputTokens") AS outputTokens,
+           SUM("estimatedCostUsd") AS cost
+    FROM "LlmUsage"
+    WHERE "ownerId" = ${ownerId} AND "at" >= ${startMs}
+    GROUP BY day, "feature"`);
+  const byModelRows = await prisma.$queryRaw<RawGroup[]>(Prisma.sql`
+    SELECT "model" AS model,
+           COUNT(*) AS calls, SUM("inputTokens") AS inputTokens, SUM("outputTokens") AS outputTokens,
+           SUM("estimatedCostUsd") AS cost
+    FROM "LlmUsage"
+    WHERE "ownerId" = ${ownerId} AND "at" >= ${startMs}
+    GROUP BY "model"`);
+
+  const dayMap = new Map<string, Record<string, UsageTotals>>();
+  const featureMap = new Map<string, UsageTotals>();
+  let totals = EMPTY_TOTALS;
+  for (const g of byDayFeature) {
+    const t = totalsOf(g);
+    const day = g.day!;
+    const feature = g.feature!;
+    dayMap.set(day, { ...(dayMap.get(day) ?? {}), [feature]: t });
+    featureMap.set(feature, addTotals(featureMap.get(feature) ?? EMPTY_TOTALS, t));
+    totals = addTotals(totals, t);
+  }
+
+  const out: UsageTrend["days"] = [];
+  for (let i = 0; i < days; i++) {
+    const date = new Date(startMs + i * DAY_MS).toISOString().slice(0, 10);
+    out.push({ date, byFeature: dayMap.get(date) ?? {} });
+  }
+  const byCode = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+  return {
+    days: out,
+    byFeature: [...featureMap.entries()]
+      .sort(([a], [b]) => byCode(a, b))
+      .map(([feature, t]) => ({ feature, ...t })),
+    byModel: byModelRows
+      .map((g) => ({ model: g.model!, ...totalsOf(g) }))
+      .sort((a, b) => byCode(a.model, b.model)),
+    totals,
     priceTableAsOf: priceAsOf,
   };
 }

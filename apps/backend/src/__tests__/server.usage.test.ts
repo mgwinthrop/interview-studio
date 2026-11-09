@@ -88,6 +88,46 @@ describe("GET /api/usage/summary", () => {
   });
 });
 
+describe("GET /api/usage/trend", () => {
+  it("defaults to 30 days and is owner-scoped", async () => {
+    const r = await start();
+    await seed({ feature: "conversation", estimatedCostUsd: 0.5, at: new Date() });
+    await seed({ feature: "report", ownerId: "someone-else", estimatedCostUsd: 3, at: new Date() });
+    const res = await fetch(`${r.base}/api/usage/trend`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      days: { date: string; byFeature: Record<string, unknown> }[];
+      totals: { calls: number; estimatedCostUsd: number | null };
+      byFeature: { feature: string }[];
+    };
+    expect(body.days).toHaveLength(30);
+    expect(body.totals).toEqual({ calls: 1, inputTokens: 100, outputTokens: 10, estimatedCostUsd: 0.5 });
+    expect(body.byFeature.map((f) => f.feature)).toEqual(["conversation"]);
+  });
+
+  it("honours days", async () => {
+    const r = await start();
+    const body = (await (await fetch(`${r.base}/api/usage/trend?days=365`)).json()) as { days: unknown[] };
+    expect(body.days).toHaveLength(365);
+  });
+
+  it.each(["0", "366", "abc", "1.5", "-1", ""])("days=%j is the fixed 422", async (days) => {
+    const r = await start();
+    const res = await fetch(`${r.base}/api/usage/trend?days=${encodeURIComponent(days)}`);
+    expect(res.status).toBe(422);
+    expect(await res.json()).toEqual({
+      errors: [{ path: "days", message: "days must be a whole number from 1 to 365" }],
+    });
+  });
+
+  it("is rejected without the token in token mode", async () => {
+    const t = await start({ config: makeConfig({ AUTH_TOKEN: "another-token" }) });
+    expect((await fetch(`${t.base}/api/usage/trend`)).status).toBe(401);
+    const ok = await fetch(`${t.base}/api/usage/trend`, { headers: { Authorization: "Bearer another-token" } });
+    expect(ok.status).toBe(200);
+  });
+});
+
 describe("GET /api/usage/session/:sessionId", () => {
   it("totals one session for the caller's owner only", async () => {
     const r = await start();
