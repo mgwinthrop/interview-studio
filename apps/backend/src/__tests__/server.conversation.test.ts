@@ -23,6 +23,9 @@ import {
   setupServerTestEnv,
 } from "./helpers/server";
 
+import { BUILT_IN } from "../settings";
+import type { SettingsService } from "../settingsService";
+
 const env = setupServerTestEnv();
 
 describe("full conversation", () => {
@@ -392,5 +395,38 @@ describe("turn_timing", () => {
     expect(logs.length).toBeGreaterThan(0);
     expect(logs).not.toContain(String(GAP));
     expect(logs).not.toContain(String(GAP + 1));
+  });
+});
+
+describe("settings", () => {
+  it("a WebSocket session uses the app's settings for its replies and its report", async () => {
+    const streamCalls: string[] = [];
+    const reportModels: (string | undefined)[] = [];
+    const settings = {
+      get: async () => ({ ...BUILT_IN, replyModel: "m-ws", replyMaxTokens: 77, reportModel: "r-ws" }),
+    } as unknown as SettingsService;
+    const r = await start({
+      settings,
+      customize: (p) => {
+        const stream = p.llm.stream.bind(p.llm);
+        p.llm.stream = (req, signal) => {
+          streamCalls.push(`${req.model}/${req.maxTokens}`);
+          return stream(req, signal);
+        };
+        const structured = p.llm.structured.bind(p.llm);
+        p.llm.structured = ((req, signal) => {
+          reportModels.push(req.model);
+          return structured(req, signal);
+        }) as Providers["llm"]["structured"];
+      },
+    });
+    const c = connect(r);
+    await c.startSession();
+    await c.assistantFinal();
+    await textTurn(c);
+    c.send({ type: "session_end" });
+    await c.next((m) => m.type === "session_complete");
+    expect(streamCalls).toEqual(["m-ws/77", "m-ws/77"]);
+    expect(reportModels).toEqual(["r-ws"]);
   });
 });

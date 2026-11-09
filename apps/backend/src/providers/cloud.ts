@@ -6,7 +6,10 @@ import type { ChatMessage, LlmProvider, Providers, SttProvider, TtsProvider, Wor
 const STT_ENDPOINT = "https://api.elevenlabs.io/v1/speech-to-text";
 const TTS_ENDPOINT = "https://api.elevenlabs.io/v1/text-to-speech";
 const CARTESIA_ENDPOINT = "https://api.cartesia.ai/tts/bytes";
-const LLM_MODEL = "claude-sonnet-4-6"; // locked per AGENTS.md
+// Fallbacks, used when settings supply nothing.
+export const FALLBACK_LLM_MODEL = "claude-sonnet-4-6";
+export const FALLBACK_STT_MODEL = "scribe_v2";
+export const FALLBACK_TTS_MODEL = "eleven_flash_v2_5";
 
 export interface CloudDeps {
   fetch?: typeof fetch;
@@ -41,13 +44,13 @@ function normalizeAbort(err: unknown, signal: AbortSignal): unknown {
 
 function createStt(config: Config, doFetch: typeof fetch): SttProvider {
   return {
-    async transcribe(pcm16, signal) {
+    async transcribe(pcm16, signal, opts) {
       throwIfAborted(signal);
       // Plain fetch rather than the SDK: the SDK's multipart upload sends filename "blob",
       // which the API rejects. A named Blob gives ElevenLabs a proper filename.
       const formData = new FormData();
       formData.append("file", new Blob([pcm16], { type: "audio/pcm" }), "audio.pcm");
-      formData.append("model_id", "scribe_v2"); // locked per AGENTS.md
+      formData.append("model_id", opts?.modelId ?? FALLBACK_STT_MODEL);
       formData.append("file_format", "pcm_s16le_16");
       formData.append("language_code", "en");
 
@@ -109,8 +112,15 @@ function createTts(config: Config, doFetch: typeof fetch): TtsProvider {
     yield* fromResponse(resp, signal);
   }
 
-  async function* elevenlabs(text: string, signal: AbortSignal): AsyncGenerator<Uint8Array> {
-    const resp = await doFetch(`${TTS_ENDPOINT}/${config.elevenlabsVoiceId}/stream`, {
+  async function* elevenlabs(
+    text: string,
+    signal: AbortSignal,
+    opts?: { modelId?: string; outputFormat?: string },
+  ): AsyncGenerator<Uint8Array> {
+    const query = opts?.outputFormat
+      ? `?${new URLSearchParams({ output_format: opts.outputFormat }).toString()}`
+      : "";
+    const resp = await doFetch(`${TTS_ENDPOINT}/${config.elevenlabsVoiceId}/stream${query}`, {
       method: "POST",
       signal,
       headers: {
@@ -120,7 +130,7 @@ function createTts(config: Config, doFetch: typeof fetch): TtsProvider {
       },
       body: JSON.stringify({
         text,
-        model_id: "eleven_flash_v2_5", // locked per AGENTS.md
+        model_id: opts?.modelId ?? FALLBACK_TTS_MODEL,
       }),
     });
     if (!resp.ok) {
@@ -131,12 +141,12 @@ function createTts(config: Config, doFetch: typeof fetch): TtsProvider {
   }
 
   return {
-    async *synthesize(sentence, signal) {
+    async *synthesize(sentence, signal, opts) {
       throwIfAborted(signal);
       let yielded = false;
       let primaryError: unknown;
       try {
-        for await (const chunk of elevenlabs(sentence, signal)) {
+        for await (const chunk of elevenlabs(sentence, signal, opts)) {
           yielded = true;
           yield chunk;
         }
@@ -179,7 +189,7 @@ function createLlm(
     messages.map((m) => ({ role: m.role, content: m.content }));
 
   /** Reports one API call's usage (numbers and ids only). A failing listener never affects the call. */
-  const report = (meta: UsageMeta | undefined, inputTokens: number | null, outputTokens: number | null) => {
+  const report = (meta: UsageMeta | undefined, model: string, inputTokens: number | null, outputTokens: number | null) => {
     if (!onUsage) return;
     try {
       onUsage({
@@ -187,7 +197,7 @@ function createLlm(
         ...(meta?.ownerId !== undefined ? { ownerId: meta.ownerId } : {}),
         ...(meta?.sessionId !== undefined ? { sessionId: meta.sessionId } : {}),
         provider: "anthropic",
-        model: LLM_MODEL,
+        model,
         inputTokens,
         outputTokens,
       });
@@ -202,7 +212,7 @@ function createLlm(
       try {
         const stream = client.messages.stream(
           {
-            model: LLM_MODEL,
+            model: req.model ?? FALLBACK_LLM_MODEL,
             max_tokens: req.maxTokens,
             system: req.system,
             messages: toParams(req.messages),
@@ -225,7 +235,7 @@ function createLlm(
             outputTokens = tokens(event.usage?.output_tokens) ?? outputTokens;
           }
         }
-        if (!signal.aborted) report(req.usage, inputTokens, outputTokens);
+        if (!signal.aborted) report(req.usage, req.model ?? FALLBACK_LLM_MODEL, inputTokens, outputTokens);
       } catch (err) {
         throw normalizeAbort(err, signal);
       }
@@ -239,7 +249,7 @@ function createLlm(
         try {
           response = await client.messages.create(
             {
-              model: LLM_MODEL,
+              model: req.model ?? FALLBACK_LLM_MODEL,
               max_tokens: req.maxTokens,
               system: req.system,
               messages: toParams(req.messages),
@@ -250,7 +260,7 @@ function createLlm(
           throw normalizeAbort(err, signal);
         }
         // Each attempt is a separate API call, so each is reported.
-        report(req.usage, tokens(response.usage?.input_tokens), tokens(response.usage?.output_tokens));
+        report(req.usage, req.model ?? FALLBACK_LLM_MODEL, tokens(response.usage?.input_tokens), tokens(response.usage?.output_tokens));
         const block = response.content[0];
         try {
           if (!block || block.type !== "text") throw new Error("Unexpected model response block");

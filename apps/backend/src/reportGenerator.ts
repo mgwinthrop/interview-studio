@@ -157,7 +157,7 @@ export async function generateReport(
   interviewer: InterviewerDefinition,
   llm: LlmProvider,
   signal: AbortSignal,
-  options: { showFillerCounts: boolean; usage?: UsageMeta },
+  options: { showFillerCounts: boolean; usage?: UsageMeta; model?: string },
 ): Promise<ReportV2> {
   // One line per turn: newlines inside a turn are collapsed, so a turn cannot start a fake
   // "Interviewer:" line or a fake DELIVERY SUMMARY block.
@@ -217,6 +217,7 @@ export async function generateReport(
         schema,
         maxTokens: REPORT_MAX_TOKENS,
         ...(options.usage ? { usage: options.usage } : {}),
+        ...(options.model ? { model: options.model } : {}),
       },
       signal,
     );

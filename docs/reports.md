@@ -86,7 +86,7 @@ If a report cannot be made (a provider error, an invalid reply or the 90-second 
 ## For contributors
 
 - **Prompt order.** The report system prompt is a fixed introduction, then the interviewer's `name`, `purpose`, `persona` and `focus`, then the fixed report instructions. The instructions come last so interviewer text never follows them. The user message holds only the numbers and the transcript, and the model is told it is material, not instructions.
-- **Token budget.** The report call uses `max_tokens: 3072` (`REPORT_MAX_TOKENS`), an exception to the 300-token conversational limit. The largest valid report is about 2,300 tokens. A reply cut off by the budget would fail validation and lose the report, so a test fails if a field limit is raised past the budget.
+- **Token budget.** The report call uses `max_tokens: 3072` (`REPORT_MAX_TOKENS`), an exception to the conversational reply limit (300 tokens by default). The largest valid report is about 2,300 tokens. A reply cut off by the budget would fail validation and lose the report, so a test fails if a field limit is raised past the budget.
 - **Validation.** The output is checked against a schema built for the request. Requested parts are required and anything else is dropped. A report that fails validation after one retry fails the session.
 - **Storage and old reports.** `Report.reportJson` holds a `ReportV2` (`format: 2`). The older report columns are still filled from it, and a row without `reportJson` is served as `format: 1` and renders as before. Old reports must keep loading.
 - **Reading is optional.** `ReportV2.delivery.reading` may be absent. Reports stored before the check always have one.

@@ -7,6 +7,7 @@ import type * as persistence from "./persistence";
 import type { Providers } from "./providers/types";
 import { generateReport } from "./reportGenerator";
 import * as registry from "./sessionRegistry";
+import { staticSettings, type SettingsSource } from "./settingsService";
 import type { AnyReport, ConversationTurn, ReportV2 } from "./types";
 import type { UsageMeta } from "./usage";
 
@@ -14,6 +15,8 @@ export interface SessionRoutesDeps {
   config: Pick<Config, "limits" | "reportFillerCounts">;
   llm: Providers["llm"];
   persist: typeof persistence;
+  /** Where regenerate reads the report model, when it runs. Defaults to staticSettings(). */
+  settings?: SettingsSource;
 }
 
 /** One body for unknown, foreign and malformed sessions, so none can be told apart. */
@@ -37,6 +40,7 @@ function refuseRegenerate(res: express.Response, sessionId: string, why: string)
  */
 export function createSessionRouter(deps: SessionRoutesDeps): express.Router {
   const { config, llm, persist } = deps;
+  const settings = deps.settings ?? staticSettings();
   const router = express.Router();
 
   router.get(
@@ -165,14 +169,17 @@ export function createSessionRouter(deps: SessionRoutesDeps): express.Router {
   async function generateWithDeadline(
     turns: ConversationTurn[],
     interviewer: InterviewerDefinition,
-    usage: UsageMeta,
+    usage: UsageMeta & { ownerId: string },
   ): Promise<{ ok: true; report: ReportV2 } | { ok: false; why: string }> {
-    const outcome = await withDeadline(config.limits.reportTimeoutMs, (signal) =>
-      generateReport(turns, interviewer, llm, signal, {
+    const outcome = await withDeadline(config.limits.reportTimeoutMs, async (signal) => {
+      // Read when the regenerate runs, so the report uses the model chosen now.
+      const { reportModel } = await settings.get(usage.ownerId);
+      return generateReport(turns, interviewer, llm, signal, {
         showFillerCounts: config.reportFillerCounts,
         usage,
-      }),
-    );
+        model: reportModel,
+      });
+    });
     return outcome.ok ? { ok: true, report: outcome.value } : outcome;
   }
 

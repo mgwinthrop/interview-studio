@@ -515,6 +515,14 @@ describe("generateReport", () => {
     expect(err.message).not.toContain("zebra-quokka");
     expect(err.message).not.toContain(INTERVIEWER.name);
   });
+
+  it("passes options.model on the structured request only when given", async () => {
+    const withModel = await run(INTERVIEWER, turns(), { ...HIDE, model: "r-model" } as typeof HIDE);
+    expect(withModel.req.model).toBe("r-model");
+    expect(withModel.req.maxTokens).toBe(REPORT_MAX_TOKENS);
+    const without = await run();
+    expect("model" in without.req).toBe(false);
+  });
 });
 
 describe("generateReport: the reading check", () => {

@@ -55,6 +55,9 @@ export function Nav({ demo }: NavProps) {
         <Link href="/dashboard" style={navLinkStyle}>
           Dashboard
         </Link>
+        <Link href="/settings" style={navLinkStyle}>
+          Settings
+        </Link>
         <button
           aria-label="More options"
           style={{

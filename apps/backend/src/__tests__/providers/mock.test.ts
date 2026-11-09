@@ -49,4 +49,13 @@ describe("mock providers scripting", () => {
     const out = await llm.structured({ ...req, schema: z.object({ a: z.number() }) }, live);
     expect(out).toEqual({ a: 1 });
   });
+
+  it("accepts and ignores the per-call model options", async () => {
+    const { llm, stt, tts } = createMockProviders({ llmReplies: ["abc"], sttTexts: ["hi"] });
+    expect(await collect(llm.stream({ ...req, model: "m" }, live))).toEqual(["abc"]);
+    expect((await stt.transcribe(Buffer.alloc(2), live, { modelId: "x" })).text).toBe("hi");
+    const out: Uint8Array[] = [];
+    for await (const c of tts.synthesize("Hi.", live, { modelId: "x", outputFormat: "y" })) out.push(c);
+    expect(out).toHaveLength(2);
+  });
 });

@@ -154,6 +154,9 @@ export async function start(
     customize?: (p: Providers) => void;
     persist?: typeof import("../../persistence");
     interviewers?: typeof import("../../interviewerStore");
+    /** Settings service override; or give only `catalog` to use the real store with it. */
+    settings?: import("../../settingsService").SettingsService;
+    catalog?: import("../../modelCatalog").ModelCatalog;
   } = {},
 ): Promise<Running> {
   const config = opts.config ?? makeConfig();
@@ -164,7 +167,21 @@ export async function start(
     ...opts.script,
   });
   opts.customize?.(providers);
-  const app = ready().appMod.createApp({ config, providers, persist: opts.persist, interviewers: opts.interviewers });
+  let settings = opts.settings;
+  if (!settings && opts.catalog) {
+    const [{ createSettingsService }, settingsStore] = await Promise.all([
+      import("../../settingsService"),
+      import("../../settingsStore"),
+    ]);
+    settings = createSettingsService({ store: settingsStore, catalog: opts.catalog });
+  }
+  const app = ready().appMod.createApp({
+    config,
+    providers,
+    persist: opts.persist,
+    interviewers: opts.interviewers,
+    settings,
+  });
   await new Promise<void>((resolve) => app.server.listen(0, "127.0.0.1", resolve));
   const { port } = app.server.address() as AddressInfo;
   const r: Running = {

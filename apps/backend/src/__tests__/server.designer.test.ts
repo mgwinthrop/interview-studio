@@ -19,6 +19,9 @@ import {
   setupServerTestEnv,
 } from "./helpers/server";
 
+import { BUILT_IN } from "../settings";
+import type { SettingsService } from "../settingsService";
+
 const env = setupServerTestEnv();
 
 describe("POST /api/interviewers/draft", () => {
@@ -271,6 +274,57 @@ describe("designer and trial sessions over the WebSocket", () => {
     expectNoWrites(spies);
     expect(env.registry.countForOwner("local")).toBe(0);
     expect(allLogText()).toContain(`[session ${id}] started designer`);
+  });
+
+  it("settings: designer and trial sessions reply with replyModel; only the designer drafts, with draftModel; so does the HTTP draft", async () => {
+    const streamModels: (string | undefined)[] = [];
+    const structuredModels: (string | undefined)[] = [];
+    const settings = {
+      get: async () => ({ ...BUILT_IN, replyModel: "m-design", draftModel: "d-design", reportModel: "r-design" }),
+    } as unknown as SettingsService;
+    const r = await start({
+      settings,
+      script: { structured: DESIGNED },
+      customize: (p) => {
+        const stream = p.llm.stream.bind(p.llm);
+        p.llm.stream = (req, signal) => {
+          streamModels.push(req.model);
+          return stream(req, signal);
+        };
+        const structured = p.llm.structured.bind(p.llm);
+        p.llm.structured = ((req, signal) => {
+          structuredModels.push(req.model);
+          return structured(req, signal);
+        }) as Providers["llm"]["structured"];
+      },
+    });
+    const d = connect(r);
+    await startWith(d, { interviewerId: DESIGNER_ID });
+    await d.assistantFinal();
+    await textTurn(d);
+    d.send({ type: "session_end" });
+    await d.next((m) => m.type === "draft");
+    await d.closed;
+    expect(structuredModels).toEqual(["d-design"]);
+
+    const t = connect(r);
+    await startWith(t, { draft: trialDraft() });
+    await t.assistantFinal();
+    await textTurn(t);
+    t.send({ type: "session_end" });
+    await t.next((m) => m.type === "session_complete");
+    await t.closed;
+    expect(structuredModels).toEqual(["d-design"]);
+    expect(streamModels.length).toBe(4);
+    for (const m of streamModels) expect(m).toBe("m-design");
+
+    const res = await fetch(`${r.base}/api/interviewers/draft`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ description: "An interviewer that helps me rehearse a pitch to investors." }),
+    });
+    expect(res.status).toBe(200);
+    expect(structuredModels).toEqual(["d-design", "d-design"]);
   });
 
   it("a trial session uses the draft's persona and thresholds, ends complete with no draft and stores nothing", async () => {

@@ -6,7 +6,7 @@ export interface UsageTotals {
   calls: number;
   inputTokens: number;
   outputTokens: number;
-  /** null when the backend has no price for the calls (the price table ships empty). */
+  /** null when the backend has no price for the calls (no price is set for the model). */
   estimatedCostUsd: number | null;
 }
 

@@ -287,13 +287,15 @@ function cleanDescription(text: string): string {
  * validation as saving and holds only the input fields (never a voice). It is not saved.
  * Rejects with DraftError when there is too little to go on or the output is invalid, or with
  * the provider's error (an AbortError on abort) when the call is aborted. `usage` (numbers-only
- * accounting meta) is passed to every model call, the leak retry included.
+ * accounting meta) and `model` (the settings' draft model) are passed to every model call, the
+ * leak retry included.
  */
 export async function generateDraft(
   source: DraftSource,
   llm: LlmProvider,
   signal: AbortSignal,
   usage?: UsageMeta,
+  model?: string,
 ): Promise<InterviewerInput> {
   let userContent: string;
   let system = SYSTEM_PROMPT;
@@ -329,6 +331,7 @@ export async function generateDraft(
     schema: draftOutputSchema as ZodType<InterviewerInput>,
     maxTokens: DRAFT_MAX_TOKENS,
     ...(usage ? { usage } : {}),
+    ...(model ? { model } : {}),
   };
   const draft = await requestDraft(request, llm, signal);
   // A composite draft must not carry any call's names or terms. One identical retry on a leak,
@@ -347,6 +350,7 @@ async function requestDraft(
     schema: ZodType<InterviewerInput>;
     maxTokens: number;
     usage?: UsageMeta;
+    model?: string;
   },
   llm: LlmProvider,
   signal: AbortSignal,

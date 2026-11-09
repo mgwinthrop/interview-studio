@@ -9,6 +9,8 @@ import { generateDraft } from "./interviewer/designer";
 import { advancePhase, buildTurnRequest, type TurnSession } from "./orchestrator";
 import { generateReport } from "./reportGenerator";
 import { SentenceChunker } from "./sentenceChunker";
+import { BUILT_IN, type SettingsValues } from "./settings";
+import { staticSettings, type SettingsSource } from "./settingsService";
 import type { ConversationTurn, ServerToClientMessage } from "./types";
 import type { UsageFeature, UsageMeta } from "./usage";
 
@@ -42,7 +44,16 @@ export interface ControllerDeps {
    * with the status actually reached. Errors it throws are logged, never rethrown.
    */
   onEnded?(status: EndedStatus): void;
+  /**
+   * Where the session's models and limits come from. Defaults to staticSettings() (BUILT_IN).
+   * The conversation uses one snapshot taken before its first model call; the report or draft
+   * at the end reads settings again when it runs.
+   */
+  settings?: SettingsSource;
 }
+
+/** The session's settings snapshot: frozen, fixed for the life of the session. */
+type Snapshot = Readonly<SettingsValues>;
 
 /**
  * A user utterance waiting for its turn. receivedAt is the latency_metric origin. An audio
@@ -60,8 +71,6 @@ interface TurnCtx {
 }
 
 const QUEUE_CAP = 5;
-/** Locked decision: conversational replies use max_tokens 300. */
-const MAX_TOKENS = 300;
 
 /**
  * One controller per live session. It owns the turn history and runs one item (greeting
@@ -100,9 +109,16 @@ export class SessionController {
   private finished = false;
   private endedReported = false;
 
+  private readonly settings: SettingsSource;
+  /** The one settings read for the conversation, made on first need; never rejects. */
+  private snapshotP: Promise<Snapshot> | null = null;
+  /** snapshotP's value once it has resolved, so later items read it without awaiting. */
+  private snapshotValue: Snapshot | null = null;
+
   constructor(private readonly deps: ControllerDeps) {
     this.sessionId = deps.sessionId;
     this.ownerId = deps.ownerId;
+    this.settings = deps.settings ?? staticSettings();
   }
 
   get state(): ControllerState {
@@ -123,6 +139,7 @@ export class SessionController {
     if (this.started || this.closed) return Promise.resolve();
     this.started = true;
     this.touch();
+    void this.snapshot();
     return this.run({ kind: "greeting" });
   }
 
@@ -273,10 +290,15 @@ export class SessionController {
     this.turn = ctx;
     this.setState("thinking");
     try {
+      // Once the snapshot has resolved it is used synchronously, so the item starts exactly as
+      // it would without settings. Before that the item waits for it; ctx is already the
+      // current turn, so an interrupt during the wait ends it at once and nothing runs.
+      const snapshot = this.snapshotValue ?? (await this.untilSnapshot(ctx.abort.signal));
+      if (snapshot === null) return;
       let userText: string | null = null;
       let metrics: TurnMetrics | null = null;
       if (item.kind === "audio") {
-        const heard = await this.transcribe(item.pcm, ctx.abort.signal);
+        const heard = await this.transcribe(item.pcm, ctx.abort.signal, snapshot);
         if (heard === null) return;
         userText = heard.text;
         metrics = computeTurnMetrics({ text: heard.text, words: heard.words, responseGapMs: item.responseGapMs });
@@ -289,7 +311,7 @@ export class SessionController {
         this.addTurn("user", userText, metrics);
         this.deps.sendJson({ type: "transcript", text: userText, role: "user" });
       }
-      await this.respond(ctx, item.kind === "greeting" ? undefined : item.receivedAt);
+      await this.respond(ctx, item.kind === "greeting" ? undefined : item.receivedAt, snapshot);
 
       if (userText !== null && !this.abandoned) this.maybeAdvancePhase();
     } finally {
@@ -298,9 +320,13 @@ export class SessionController {
   }
 
   /** Returns the trimmed transcript and its words, or null when the utterance yields no turn. */
-  private async transcribe(pcm: Buffer, signal: AbortSignal): Promise<{ text: string; words: Word[] } | null> {
+  private async transcribe(
+    pcm: Buffer,
+    signal: AbortSignal,
+    snapshot: Snapshot,
+  ): Promise<{ text: string; words: Word[] } | null> {
     try {
-      const { text, words } = await this.deps.providers.stt.transcribe(pcm, signal);
+      const { text, words } = await this.deps.providers.stt.transcribe(pcm, signal, { modelId: snapshot.sttModel });
       if (signal.aborted) return null;
       if (!text.trim()) {
         this.deps.sendJson({ type: "stt_error", reason: "low_confidence" });
@@ -324,7 +350,7 @@ export class SessionController {
    *   stored turn (nothing if none were sent);
    * - interrupted/abandoned: no final, no tts_end, nothing stored.
    */
-  private async respond(ctx: TurnCtx, receivedAt: number | undefined): Promise<void> {
+  private async respond(ctx: TurnCtx, receivedAt: number | undefined, snapshot: Snapshot): Promise<void> {
     const { abort } = ctx;
     const { signal } = abort;
     const { system, messages } = buildTurnRequest(this.view());
@@ -359,7 +385,7 @@ export class SessionController {
       spoken = spoken ? `${spoken} ${sentence}` : sentence;
       this.deps.sendJson({ type: "transcript", text: spoken, role: "assistant", partial: true });
       ttsChain = ttsChain
-        .then(() => this.speak(sentence, signal, onChunk))
+        .then(() => this.speak(sentence, signal, onChunk, snapshot))
         .catch((err) => {
           if (!signal.aborted) fail(err);
         });
@@ -367,7 +393,13 @@ export class SessionController {
 
     try {
       const stream = this.deps.providers.llm.stream(
-        { system, messages, maxTokens: MAX_TOKENS, usage: this.usageMeta("conversation") },
+        {
+          system,
+          messages,
+          model: snapshot.replyModel,
+          maxTokens: snapshot.replyMaxTokens,
+          usage: this.usageMeta("conversation"),
+        },
         signal,
       );
       for await (const piece of stream) {
@@ -396,9 +428,11 @@ export class SessionController {
     sentence: string,
     signal: AbortSignal,
     onChunk: (chunk: Uint8Array) => void,
+    snapshot: Snapshot,
   ): Promise<void> {
     if (signal.aborted) return;
-    for await (const chunk of this.deps.providers.tts.synthesize(sentence, signal)) {
+    const opts = { modelId: snapshot.ttsModel, outputFormat: snapshot.spokenFormat };
+    for await (const chunk of this.deps.providers.tts.synthesize(sentence, signal, opts)) {
       if (signal.aborted) return;
       onChunk(chunk);
     }
@@ -479,21 +513,28 @@ export class SessionController {
       await Promise.all(this.writes);
       reportAbort.signal.throwIfAborted();
       if (kind === "interview") {
+        const current = await this.currentSettings();
         const report = await generateReport(
           this._turns,
           this.deps.interviewer,
           this.deps.providers.llm,
           reportAbort.signal,
-          { showFillerCounts: this.deps.config.reportFillerCounts, usage: this.usageMeta("report") },
+          {
+            showFillerCounts: this.deps.config.reportFillerCounts,
+            usage: this.usageMeta("report"),
+            model: current.reportModel,
+          },
         );
         reportAbort.signal.throwIfAborted();
         await persist.persistReport(this.sessionId, report);
       } else if (kind === "designer") {
+        const current = await this.currentSettings();
         const draft = await generateDraft(
           { kind: "conversation", turns: this._turns },
           this.deps.providers.llm,
           reportAbort.signal,
           this.usageMeta("designer-draft"),
+          current.draftModel,
         );
         reportAbort.signal.throwIfAborted();
         // Held for finish(), which sends it only if the session really ends complete.
@@ -521,6 +562,50 @@ export class SessionController {
       this.deps.onEnded?.(status);
     } catch (err) {
       this.log("onEnded error", err);
+    }
+  }
+
+  // ── Settings ───────────────────────────────────────────────────────────────
+
+  /**
+   * The conversation's settings: one read, made on first need (start() or the first item,
+   * whichever comes first), frozen and never refreshed. A failed read falls back to BUILT_IN;
+   * only the error class is logged, never a value.
+   */
+  private snapshot(): Promise<Snapshot> {
+    if (!this.snapshotP) {
+      // new Promise turns a synchronous throw from get() into a rejection too.
+      this.snapshotP = new Promise<SettingsValues>((resolve) => resolve(this.settings.get(this.ownerId))).then(
+        (values) => (this.snapshotValue = Object.freeze({ ...values })),
+        (err) => {
+          this.log("settings read failed: using built-in values", err);
+          return (this.snapshotValue = Object.freeze({ ...BUILT_IN }));
+        },
+      );
+    }
+    return this.snapshotP;
+  }
+
+  /** The snapshot, or null as soon as `signal` aborts (an interrupt never waits on settings). */
+  private untilSnapshot(signal: AbortSignal): Promise<Snapshot | null> {
+    if (signal.aborted) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      const onAbort = () => resolve(null);
+      signal.addEventListener("abort", onAbort, { once: true });
+      void this.snapshot().then((s) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(signal.aborted ? null : s);
+      });
+    });
+  }
+
+  /** Settings as they are now, for the report or draft at the end; the snapshot if the read fails. */
+  private async currentSettings(): Promise<Snapshot> {
+    try {
+      return await this.settings.get(this.ownerId);
+    } catch (err) {
+      this.log("settings read failed: using the session's snapshot", err);
+      return this.snapshot();
     }
   }
 
