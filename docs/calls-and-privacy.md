@@ -41,6 +41,7 @@ Nothing is stored from the pasted calls: not the original, not the redacted text
 | Operator (env) | `PROFILE` | `cloud` | `PROFILE=mock` also enables the feature, because nothing leaves the machine. |
 | Operator (env) | `AUTH_TOKEN` | none | Shared-token mode. Required for a non-loopback `HOST`. See [Operations](operations.md). |
 | Operator (env) | `RETENTION_DAYS` | off | Purges ended sessions and usage rows older than that, once at startup. |
+| User (in app) | Model prices (Settings page) | none set | Cost shows "not available" until a price is entered. Stored in `ModelPrice`; see [Settings](settings.md#prices). |
 | User (in app) | Review and approve step | required | Approve is disabled until the text still has a "Buyer:" line and the names list matches the redaction shown. |
 | User (in app) | Confirmation step | required | The draft request is sent only from the confirm dialog. |
 | Fixed in code | `confirmed: true` | required | The draft route answers 422 unless the body has `confirmed: true`. |
@@ -93,7 +94,7 @@ Caveats:
 
 - Interrupted replies are not counted, although their input tokens were billed. Conversation totals can run low.
 - Designer chat is counted under "conversation".
-- Costs are estimates, computed when each call was recorded, from the `PRICES` table in `apps/backend/src/usage.ts`. That table ships empty: no prices are invented. Cost shows "not available" until the operator fills it from the provider's published prices and sets `asOf`. Changing the table later does not change rows already recorded.
+- Costs are estimates, computed when each call was recorded, from the prices you enter on the Settings page (see [Settings](settings.md#prices)), stored in the database. No prices are built in or invented. Cost shows "not available" until a price is set for the model, from the provider's published prices, with an `asOf` date. Changing a price later does not change rows already recorded.
 - A row's cost can be a partial sum of the priced calls, and a token count that is unknown counts as 0.
 - `PROFILE=mock` records nothing.
 - Usage rows are deleted with their session and by `RETENTION_DAYS`. Designer and "Try it" sessions store no session, but their usage rows are written with the owner id and no session id, so only `RETENTION_DAYS` removes them.
@@ -140,7 +141,7 @@ Do this on synthetic transcripts only (for example `apps/backend/src/__tests__/f
 10. Check where focus lands after Find speakers and after ticking a suggestion, and the forbidden count for a large call.
 11. Editor: type in `behaviours`, check the count, save, reopen; save it empty; duplicate; view a preset (field hidden); Try it then back keeps the value; a server error on `behaviours` shows on the field.
 12. Run the backend with `PROFILE=cloud`, dummy keys and `CLOUD_SEND_TRANSCRIPTS` unset: the entry point is absent and `/interviewers/calls` shows only the "turned off" message with a link back.
-13. Dashboard "Usage" panel: collapsed at first, with no request before it is opened; keyboard toggle; the table scrolls at 320px; a short viewport leaves the report area usable; with the empty price table it shows "not available"; with the backend stopped it shows "Usage could not be loaded."
+13. Dashboard "Usage" panel: collapsed at first, with no request before it is opened; keyboard toggle; the table scrolls at 320px; a short viewport leaves the report area usable; with no prices set it shows "not available"; with the backend stopped it shows "Usage could not be loaded."
 14. A report page of a session with usage shows one muted line; a mock session shows none. Check the text contrast of that line.
 
 ## Known accessibility follow-ups

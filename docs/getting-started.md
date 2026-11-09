@@ -188,6 +188,8 @@ Stop all backends first. A second server migrating the database under a running 
 
 This update adds the `20261108120000_llm_usage` migration (the `LlmUsage` table, which holds LLM usage as numbers and ids only).
 
+It also adds the `20261108130000_app_settings` migration (the `AppSettings` and `ModelPrice` tables). Models, reply length, speech models, the spoken-reply format and Claude prices are now set on the Settings page (`/settings`; see [Settings](settings.md)). The first time a model is needed, conversation replies switch from `claude-sonnet-4-6` to the recommended Fast-tier model from Anthropic's live list, which changes speed, cost and voice. The first conversation may wait up to 8 seconds for that list; opening the Settings page first avoids the wait. Choose your own models there to override it.
+
 If a migration fails or stops part-way, stop the backend, restore your copy of the SQLite file and start again.
 
 ## Next steps

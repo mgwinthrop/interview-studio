@@ -162,8 +162,8 @@ The backend talks to speech and language services through three interfaces in `a
 | Interface | Cloud implementation |
 |---|---|
 | Speech to text | ElevenLabs Scribe v2 (one REST request per utterance) |
-| Language model | Claude, for replies and for the report |
-| Text to speech | ElevenLabs `eleven_flash_v2_5`, with Cartesia `sonic-english` as a fallback if ElevenLabs fails before any audio plays |
+| Language model | Claude, for replies, reports and drafts (models chosen on the [Settings page](settings.md)) |
+| Text to speech | ElevenLabs (default `eleven_flash_v2_5`), with Cartesia `sonic-english` as a fallback if ElevenLabs fails before any audio plays |
 
 `PROFILE` chooses the set:
 
@@ -172,17 +172,18 @@ The backend talks to speech and language services through three interfaces in `a
 
 ## Technology choices
 
-These choices are fixed unless a change is explicitly requested.
+These are the built-in defaults. Except for the microphone format, they can be changed on the Settings page; see [Settings](settings.md). Defaults for the Claude models are picked from Anthropic's live model list and remembered.
 
-| Choice | Value | Why |
+| Choice | Built-in default | Why |
 |---|---|---|
-| Conversation model | `claude-sonnet-4-6` | Good balance of latency and quality in testing |
-| Reply length limit | `max_tokens: 300` | Keeps replies short enough to speak. The report call is separate and uses 3072. |
-| Speech to text | ElevenLabs Scribe v2 | Accurate for voice |
+| Conversation model | `claude-sonnet-4-6` (used when no model is saved and the list cannot be loaded; otherwise the recommended Fast-tier model is picked and saved) | Balance of latency and quality |
+| Reply length limit | `max_tokens: 300` (settable from 50 to 1000) | Keeps replies short enough to speak. The report call is separate and uses 3072. |
+| Speech to text | ElevenLabs `scribe_v2` | Accurate for voice |
 | Text to speech | `eleven_flash_v2_5` | Lowest-latency ElevenLabs model |
+| Spoken-reply format | `mp3_44100_128` (MP3 variants only) | The browser player and protocol assume MP3 |
 | Fallback voice | Cartesia `sonic-english` | An independent provider covers ElevenLabs outages |
 | Voice activity detection | `@ricky0123/vad-web` (Silero) | Runs in the browser, so no round trip to find the end of a turn |
-| Audio format | 16 kHz mono PCM16 | The best input format for Scribe v2 |
+| Microphone format (fixed) | 16 kHz mono PCM16 | The best input format for Scribe v2 |
 
 ## Where to go next
 
