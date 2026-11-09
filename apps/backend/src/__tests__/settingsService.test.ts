@@ -350,6 +350,38 @@ describe("save", () => {
     const { svc } = setup({ claude: "fail" });
     const r = await svc.save(OWNER, { values: { replyModel: "claude-sonnet-4-6" } });
     expect(r.ok).toBe(true);
+    if (r.ok) expect(r.page.values.replyModel).toBe("claude-sonnet-4-6");
+  });
+
+  it("does not store the built-in fallback as a choice when the list is down", async () => {
+    const { svc, data, store } = setup({ claude: "fail" });
+    const r = await svc.save(OWNER, { values: { replyModel: "claude-sonnet-4-6" } });
+    expect(r.ok).toBe(true);
+    expect(data.values.replyModel).toBeUndefined();
+    expect(store.saveValues).not.toHaveBeenCalled();
+  });
+
+  it("does not rewrite a stored model submitted unchanged when the list is down", async () => {
+    const { svc, store } = setup({ values: stored, claude: "fail" });
+    const r = await svc.save(OWNER, { values: { replyModel: "haiku-new" } });
+    expect(r.ok).toBe(true);
+    expect(store.saveValues).not.toHaveBeenCalled();
+  });
+
+  it("saves the built-in fallback when it is an explicit choice from an available list", async () => {
+    const fallback = BUILT_IN.replyModel;
+    const { svc, data } = setup({ values: stored, claude: [...BASE_MODELS, model(fallback, "sonnet", "2025-01-01T00:00:00Z")] });
+    const r = await svc.save(OWNER, { values: { replyModel: fallback } });
+    expect(r.ok).toBe(true);
+    expect(data.values.replyModel).toBe(fallback);
+  });
+
+  it("still saves other keys in the same PUT when a no-op model key is dropped", async () => {
+    const { svc, store, data } = setup({ claude: "fail" });
+    const r = await svc.save(OWNER, { values: { replyModel: "claude-sonnet-4-6", replyMaxTokens: 350 } });
+    expect(r.ok).toBe(true);
+    expect(store.saveValues).toHaveBeenCalledWith(OWNER, { replyMaxTokens: 350 });
+    expect(data.values.replyModel).toBeUndefined();
   });
 
   it("allows pricing a selected but unlisted model when the list is down", async () => {

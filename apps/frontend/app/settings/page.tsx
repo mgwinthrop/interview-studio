@@ -41,6 +41,7 @@ const RESET_FAILED = "The settings could not be reset. Please try again.";
 const SAVED = "Settings saved.";
 const RESET_DONE = "Settings reset to recommended.";
 const RESET_PARTIAL = "Some model choices could not be reset because the model list could not be loaded.";
+const RESET_PARTIAL_NO_MODEL = "Some model choices were not reset because no recommended model was found in the list.";
 
 type Load = { kind: "loading" } | { kind: "failed"; message: string; attempt: number } | { kind: "ready" };
 type Busy = "save" | "reset" | "reload-claude" | "reload-tts" | "retry-load" | null;
@@ -246,7 +247,7 @@ export default function SettingsPageView() {
     setErrors(NO_ERRORS);
     const rec = r.value.recommended;
     const partial = rec.reply === null || rec.report === null || rec.draft === null;
-    setStatus(partial ? `${RESET_DONE} ${RESET_PARTIAL}` : RESET_DONE);
+    setStatus(partial ? `${RESET_DONE} ${r.value.claudeModels === null ? RESET_PARTIAL : RESET_PARTIAL_NO_MODEL}` : RESET_DONE);
     focus("status");
   }
 
@@ -397,7 +398,7 @@ export default function SettingsPageView() {
               <div role="group" aria-labelledby="reset-confirm-text" onKeyDown={onConfirmKeyDown} style={{ ...panelStyle, marginTop: 16 }}>
                 <p id="reset-confirm-text" tabIndex={-1} style={{ ...bodyStyle, fontWeight: 700, outline: "none" }}>
                   This replaces your model, reply length, speech and format choices with the recommended ones. Prices
-                  are kept.
+                  are kept. Unsaved changes to these fields are discarded.
                 </p>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 12 }}>
                   <button

@@ -235,6 +235,21 @@ export function createSettingsService(deps: { store: SettingsStoreDeps; catalog:
 
     if (errors.length > 0) return { ok: false, errors };
 
+    // A model key that changes nothing is not written: one equal to its stored value is a
+    // no-op, and one with nothing stored that equals the effective value (the per-call
+    // fallback, list down) must not become an explicit choice.
+    let storedNow: Partial<SettingsValues> = {};
+    try {
+      storedNow = await store.getStoredValues(ownerId);
+    } catch {
+      // Unreadable: treat as nothing stored; the write below decides.
+    }
+    for (const key of [...JOBS.map((j) => j.key), "ttsModel" as const]) {
+      if (patch[key] !== undefined && patch[key] === effective[key] && (storedNow[key] === undefined || storedNow[key] === patch[key])) {
+        delete patch[key];
+      }
+    }
+
     // saveValues and replacePrices are separate transactions: if the second fails after the
     // first, the values stay saved and this call throws (routes map throws to a fixed 500).
     if (Object.keys(patch).length > 0) await store.saveValues(ownerId, patch);
