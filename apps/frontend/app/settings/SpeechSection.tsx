@@ -8,6 +8,7 @@ import {
   RECOMMENDED_STT,
   RECOMMENDED_TTS,
   formatLabel,
+  listDownMessage,
   type SettingsPage,
 } from "../lib/settings";
 import { disabledStyle, sectionHeadingStyle } from "../interviewers/edit/PhaseFields";
@@ -53,6 +54,7 @@ export function SpeechSection({ page, values, errors, locked, onChange, onRetryL
   const ttsId = valueId("ttsModel");
   const formatId = valueId("spokenFormat");
   const ttsDown = page.ttsModels === null;
+  const downMsg = listDownMessage("tts", page.ttsListIssue);
 
   return (
     <>
@@ -87,7 +89,7 @@ export function SpeechSection({ page, values, errors, locked, onChange, onRetryL
         {ttsDown && (
           <div style={{ marginBottom: 12 }}>
             <p id={TTS_DOWN_ID} style={{ ...hintStyle, color: "#102B33", fontWeight: 700, fontSize: 14 }}>
-              The text-to-speech model list could not be loaded.
+              {downMsg.text}
             </p>
             <button
               type="button"
@@ -99,6 +101,7 @@ export function SpeechSection({ page, values, errors, locked, onChange, onRetryL
             >
               {retrying ? "Loading the list…" : "Try loading the list again"}
             </button>
+            {downMsg.keyNote && <p style={{ ...hintStyle, marginTop: 8 }}>{downMsg.keyNote}</p>}
           </div>
         )}
         <SelectField

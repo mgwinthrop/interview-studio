@@ -52,12 +52,58 @@ export interface Recommendation {
 
 export type Job = "reply" | "report" | "draft";
 
+/** Why a live list could not be loaded. Fixed set; the server never sends provider text. */
+export type ListIssue = "key-rejected" | "no-key" | "unavailable";
+
+const LIST_ISSUES: readonly string[] = ["key-rejected", "no-key", "unavailable"];
+
+/** A missing or unrecognised value is "unavailable" when the list is down and null when it loaded. */
+function readIssue(raw: unknown, listIsNull: boolean): ListIssue | null {
+  if (!listIsNull) return null;
+  return typeof raw === "string" && LIST_ISSUES.includes(raw) ? (raw as ListIssue) : "unavailable";
+}
+
+const KEY_NOTE = "Retrying only helps after the backend has been restarted with a working key.";
+
+/** Fixed sentence (and whether to show the restart note) for a list that is down. */
+export function listDownMessage(which: "claude" | "tts", issue: ListIssue | null): { text: string; keyNote: string | null } {
+  const claude = which === "claude";
+  const provider = claude ? "Anthropic" : "ElevenLabs";
+  const envVar = claude ? "ANTHROPIC_API_KEY" : "ELEVENLABS_API_KEY";
+  const what = claude ? "the model list" : "the list of text-to-speech models";
+  if (issue === "key-rejected" && !claude) {
+    return {
+      text: "ElevenLabs rejected the API key, so the list of text-to-speech models could not be loaded. Check ELEVENLABS_API_KEY in the backend's .env file: it must be the key itself (it starts with sk_, not the key ID) and have the Models: Read permission. Restart the backend, then try again.",
+      keyNote: KEY_NOTE,
+    };
+  }
+  if (issue === "key-rejected") {
+    return {
+      text: `${provider} rejected the API key, so ${what} could not be loaded. Check ${envVar} in the backend's .env file, restart the backend, then try again.`,
+      keyNote: KEY_NOTE,
+    };
+  }
+  if (issue === "no-key") {
+    return {
+      text: `No ${provider} API key is set, so ${what} could not be loaded. Add ${envVar} to the backend's .env file and restart the backend.`,
+      keyNote: KEY_NOTE,
+    };
+  }
+  return {
+    text: claude ? "The model list could not be loaded." : "The text-to-speech model list could not be loaded.",
+    keyNote: null,
+  };
+}
+
 export interface SettingsPage {
   values: SettingsValues;
   recommended: Record<Job, Recommendation | null>;
   /** null = the live list could not be loaded. */
   claudeModels: ClaudeModelOption[] | null;
   ttsModels: { id: string; name: string }[] | null;
+  /** Why each list is null; null when that list loaded. */
+  claudeListIssue: ListIssue | null;
+  ttsListIssue: ListIssue | null;
   /** Only the formats this client knows, in the server's order. */
   spokenFormats: SpokenFormat[];
   prices: PriceRow[];
@@ -201,7 +247,17 @@ export function parseSettingsPage(body: unknown): SettingsPage | null {
   const unpriced = readList(body.unpriced, (m) => (isText(m) ? m : null));
   if (!formats || !prices || !unpriced) return null;
   const spokenFormats = formats.filter((f): f is SpokenFormat => (SPOKEN_FORMATS as readonly string[]).includes(f));
-  return { values, recommended: { reply, report, draft }, claudeModels, ttsModels, spokenFormats, prices, unpriced };
+  return {
+    values,
+    recommended: { reply, report, draft },
+    claudeModels,
+    ttsModels,
+    claudeListIssue: readIssue(body.claudeListIssue, claudeModels === null),
+    ttsListIssue: readIssue(body.ttsListIssue, ttsModels === null),
+    spokenFormats,
+    prices,
+    unpriced,
+  };
 }
 
 /** The 422 errors with every message replaced by a known fixed message or the fallback. */

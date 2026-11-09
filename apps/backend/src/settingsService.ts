@@ -1,5 +1,5 @@
 import type { FieldError } from "./interviewer/schema.js";
-import { recommend, type ClaudeModel, type Job, type Listing, type ModelCatalog, type Tier, type TtsModel } from "./modelCatalog.js";
+import { recommend, type ClaudeModel, type Job, type ListFailure, type Listing, type ModelCatalog, type Tier, type TtsModel } from "./modelCatalog.js";
 import {
   BUILT_IN,
   SPOKEN_FORMATS,
@@ -32,6 +32,8 @@ export interface SettingsPage {
   recommended: { reply: Recommendation | null; report: Recommendation | null; draft: Recommendation | null };
   claudeModels: ClaudeModelOption[] | null; // null = list unavailable
   ttsModels: { id: string; name: string }[] | null;
+  claudeListIssue: ListFailure | null; // why claudeModels is null; null when it loaded
+  ttsListIssue: ListFailure | null;
   spokenFormats: { id: SpokenFormat; label: string; note: string | null }[];
   micFormat: { sampleRateHz: 16000; channels: 1; bitDepth: 16 };
   prices: PriceRow[];
@@ -81,9 +83,9 @@ const SPOKEN_FORMAT_OPTIONS = SPOKEN_FORMATS.map((id) => ({
 async function safeListing<T>(load: () => Promise<Listing<T>>): Promise<Listing<T>> {
   try {
     const l = await load();
-    return l && l.ok ? l : { ok: false };
+    return l && l.ok ? l : { ok: false, reason: l && l.reason ? l.reason : "unavailable" };
   } catch {
-    return { ok: false };
+    return { ok: false, reason: "unavailable" };
   }
 }
 
@@ -163,6 +165,8 @@ export function createSettingsService(deps: { store: SettingsStoreDeps; catalog:
           }))
         : null,
       ttsModels: tts.ok ? tts.models.map((m) => ({ id: m.id, name: m.name })) : null,
+      claudeListIssue: claude.ok ? null : claude.reason,
+      ttsListIssue: tts.ok ? null : tts.reason,
       spokenFormats: SPOKEN_FORMAT_OPTIONS.map((f) => ({ ...f })),
       micFormat: { sampleRateHz: 16000, channels: 1, bitDepth: 16 },
       prices: sortedPrices,
@@ -208,8 +212,8 @@ export function createSettingsService(deps: { store: SettingsStoreDeps; catalog:
     const needClaude = JOBS.some(({ key }) => patch[key] !== undefined && patch[key] !== effective[key]) || rows !== null;
     const needTts = patch.ttsModel !== undefined && patch.ttsModel !== effective.ttsModel;
     const [claude, tts] = await Promise.all([
-      needClaude ? claudeList() : Promise.resolve<Listing<ClaudeModel>>({ ok: false }),
-      needTts ? ttsList() : Promise.resolve<Listing<TtsModel>>({ ok: false }),
+      needClaude ? claudeList() : Promise.resolve<Listing<ClaudeModel>>({ ok: false, reason: "unavailable" }),
+      needTts ? ttsList() : Promise.resolve<Listing<TtsModel>>({ ok: false, reason: "unavailable" }),
     ]);
     const claudeIds = claude.ok ? idSet(claude.models) : null;
     const ttsIds = tts.ok ? idSet(tts.models) : null;
