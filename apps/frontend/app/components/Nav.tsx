@@ -40,7 +40,7 @@ export function Nav({ demo }: NavProps) {
         </span>
       </div>
 
-      {/* Right: nav links + demo badge + more */}
+      {/* Right: nav links + demo badge */}
       <div className="nav-links-group" style={{ display: "flex", alignItems: "center", gap: 4 }}>
         {demo && (
           <DemoBadge style={{ marginRight: 8 }}>Demo Mode</DemoBadge>
@@ -55,24 +55,12 @@ export function Nav({ demo }: NavProps) {
         <Link href="/dashboard" style={navLinkStyle}>
           Dashboard
         </Link>
+        <Link href="/usage" style={navLinkStyle}>
+          Usage
+        </Link>
         <Link href="/settings" style={navLinkStyle}>
           Settings
         </Link>
-        <button
-          aria-label="More options"
-          style={{
-            background: "transparent",
-            border: "none",
-            color: "#8896A8",
-            fontSize: 18,
-            cursor: "pointer",
-            padding: "4px 8px",
-            lineHeight: 1,
-            letterSpacing: "0.05em",
-          }}
-        >
-          ···
-        </button>
       </div>
     </nav>
   );

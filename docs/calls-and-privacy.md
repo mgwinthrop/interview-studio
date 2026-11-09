@@ -89,7 +89,7 @@ After the model replies, the server checks the draft for the strings the redacti
 
 Each cloud LLM call writes a row to the `LlmUsage` table (migration `20261108120000_llm_usage`): feature, model, token counts, owner and session ids, and a time. No prompts, transcripts, replies or drafts.
 
-See it on the dashboard ("Usage" panel, last 30 days by feature), on a report page (one line with that session's total), or through `GET /api/usage/summary?days=1..365` and `GET /api/usage/session/:sessionId`.
+See it on the Usage page (`/usage`, day by day; see [Usage](usage.md)), as a one-line summary on the dashboard, on a report page (one line with that session's total), or through `GET /api/usage/trend?days=1..365`, `GET /api/usage/summary?days=1..365` and `GET /api/usage/session/:sessionId`.
 
 Caveats:
 
@@ -142,7 +142,7 @@ Do this on synthetic transcripts only (for example `apps/backend/src/__tests__/f
 10. Check where focus lands after Find speakers and after ticking a suggestion, and the forbidden count for a large call.
 11. Editor: type in `behaviours`, check the count, save, reopen; save it empty; duplicate; view a preset (field hidden); Try it then back keeps the value; a server error on `behaviours` shows on the field.
 12. Run the backend with `PROFILE=cloud`, dummy keys and `CLOUD_SEND_TRANSCRIPTS` unset: the entry point is absent and `/interviewers/calls` shows only the "turned off" message with a link back.
-13. Dashboard "Usage" panel: collapsed at first, with no request before it is opened; keyboard toggle; the table scrolls at 320px; a short viewport leaves the report area usable; with no prices set it shows "not available"; with the backend stopped it shows "Usage could not be loaded."
+13. Usage page and Dashboard line: see the checklist in [Usage](usage.md#owner-acceptance-checklist). With no prices set cost shows "not available"; with the backend stopped the page shows "Usage could not be loaded."
 14. A report page of a session with usage shows one muted line; a mock session shows none. Check the text contrast of that line.
 
 ## Known accessibility follow-ups

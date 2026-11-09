@@ -14,8 +14,18 @@ export interface FeatureUsage extends UsageTotals {
   feature: string;
 }
 
-export interface UsageSummary {
+export interface TrendDay {
+  /** UTC calendar day, "YYYY-MM-DD". */
+  date: string;
+  /** Per feature id; empty for a day with no calls. */
+  byFeature: Record<string, UsageTotals>;
+}
+
+export interface UsageTrend {
+  days: TrendDay[];
   byFeature: FeatureUsage[];
+  byModel: (UsageTotals & { model: string })[];
+  totals: UsageTotals;
   priceTableAsOf: string | null;
 }
 
@@ -36,18 +46,47 @@ function parseTotals(o: Record<string, unknown>): UsageTotals | null {
   return { calls, inputTokens, outputTokens, estimatedCostUsd };
 }
 
-function parseSummary(body: unknown): UsageSummary | null {
-  if (!isRecord(body) || !Array.isArray(body.byFeature)) return null;
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+function parseTrend(body: unknown): UsageTrend | null {
+  if (!isRecord(body) || !Array.isArray(body.days) || body.days.length === 0) return null;
+  if (!Array.isArray(body.byFeature) || !Array.isArray(body.byModel) || !isRecord(body.totals)) {
+    return null;
+  }
   const asOf = body.priceTableAsOf;
   if (asOf !== null && typeof asOf !== "string") return null;
+  const totals = parseTotals(body.totals);
+  if (!totals) return null;
+
+  const days: TrendDay[] = [];
+  for (const d of body.days) {
+    if (!isRecord(d) || typeof d.date !== "string" || !DATE_PATTERN.test(d.date)) return null;
+    if (!isRecord(d.byFeature)) return null;
+    const byFeature: Record<string, UsageTotals> = {};
+    for (const [feature, value] of Object.entries(d.byFeature)) {
+      if (!isRecord(value)) return null;
+      const t = parseTotals(value);
+      if (!t) return null;
+      byFeature[feature] = t;
+    }
+    days.push({ date: d.date, byFeature });
+  }
+
   const byFeature: FeatureUsage[] = [];
   for (const row of body.byFeature) {
     if (!isRecord(row) || typeof row.feature !== "string") return null;
-    const totals = parseTotals(row);
-    if (!totals) return null;
-    byFeature.push({ feature: row.feature, ...totals });
+    const t = parseTotals(row);
+    if (!t) return null;
+    byFeature.push({ feature: row.feature, ...t });
   }
-  return { byFeature, priceTableAsOf: asOf };
+  const byModel: (UsageTotals & { model: string })[] = [];
+  for (const row of body.byModel) {
+    if (!isRecord(row) || typeof row.model !== "string") return null;
+    const t = parseTotals(row);
+    if (!t) return null;
+    byModel.push({ model: row.model, ...t });
+  }
+  return { days, byFeature, byModel, totals, priceTableAsOf: asOf };
 }
 
 async function get<T>(path: string, parse: (body: unknown) => T | null): Promise<UsageResult<T>> {
@@ -68,8 +107,8 @@ async function get<T>(path: string, parse: (body: unknown) => T | null): Promise
   return value ? { kind: "ok", value } : { kind: "error" };
 }
 
-export function fetchUsageSummary(days: number): Promise<UsageResult<UsageSummary>> {
-  return get(`/api/usage/summary?days=${encodeURIComponent(String(days))}`, parseSummary);
+export function fetchUsageTrend(days: number): Promise<UsageResult<UsageTrend>> {
+  return get(`/api/usage/trend?days=${encodeURIComponent(String(days))}`, parseTrend);
 }
 
 export function fetchSessionUsage(sessionId: string): Promise<UsageResult<UsageTotals>> {

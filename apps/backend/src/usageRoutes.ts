@@ -4,7 +4,7 @@ import { ID_SHAPE } from "./interviewer/schema";
 import type * as usage from "./usage";
 
 export interface UsageRoutesDeps {
-  usage: Pick<typeof usage, "summarizeUsage" | "usageForSession">;
+  usage: Pick<typeof usage, "summarizeUsage" | "usageForSession" | "usageTrend">;
 }
 
 const DAYS_ERROR = [{ path: "days", message: "days must be a whole number from 1 to 365" }];
@@ -32,6 +32,18 @@ export function createUsageRouter(deps: UsageRoutesDeps): express.Router {
         return;
       }
       res.json(await deps.usage.summarizeUsage(ownerOf(res), days));
+    }),
+  );
+
+  router.get(
+    "/trend",
+    route("usage-trend", async (req, res) => {
+      const days = parseDays(req.query.days);
+      if (days === null) {
+        res.status(422).json({ errors: DAYS_ERROR });
+        return;
+      }
+      res.json(await deps.usage.usageTrend(ownerOf(res), days));
     }),
   );
 
