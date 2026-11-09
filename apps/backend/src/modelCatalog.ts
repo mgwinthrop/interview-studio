@@ -108,7 +108,10 @@ export function createModelCatalog(
     }
     if (res.status !== 200) {
       console.warn(`[catalog] ${who} list unavailable (${res.status})`);
-      throw new Failure(res.status === 401 || res.status === 403 ? "key-rejected" : "unavailable");
+      // Only the numeric status decides this; the body is never read. ElevenLabs also answers 400
+      // for a pasted key ID (invalid_api_key); an Anthropic 400 is not a key problem.
+      const rejected = who === "elevenlabs" ? [400, 401, 403] : [401, 403];
+      throw new Failure(rejected.includes(res.status) ? "key-rejected" : "unavailable");
     }
     try {
       return await res.json();

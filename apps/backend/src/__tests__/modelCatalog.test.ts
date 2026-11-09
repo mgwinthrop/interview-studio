@@ -158,9 +158,16 @@ describe("claude listing", () => {
     expect(await c.claude()).toEqual({ ok: false, reason: "unavailable" });
   });
 
-  it("maps an ElevenLabs 401 to key-rejected", async () => {
-    const c = createModelCatalog(cfg(), { fetch: (async () => json({}, 401)) as unknown as F });
+  it.each([400, 401, 403])("maps an ElevenLabs %i to key-rejected", async (status) => {
+    const c = createModelCatalog(cfg(), { fetch: (async () => json({}, status)) as unknown as F });
     expect(await c.tts()).toEqual({ ok: false, reason: "key-rejected" });
+  });
+
+  it("maps an ElevenLabs 500 to unavailable and an Anthropic 400 to unavailable", async () => {
+    const c = createModelCatalog(cfg(), { fetch: (async () => json({}, 500)) as unknown as F });
+    expect(await c.tts()).toEqual({ ok: false, reason: "unavailable" });
+    const d = createModelCatalog(cfg(), { fetch: (async () => json({}, 400)) as unknown as F });
+    expect(await d.claude()).toEqual({ ok: false, reason: "unavailable" });
   });
 
   it("returns a cached failure with the same reason and no new fetch", async () => {

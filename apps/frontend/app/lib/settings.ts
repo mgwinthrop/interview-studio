@@ -71,6 +71,12 @@ export function listDownMessage(which: "claude" | "tts", issue: ListIssue | null
   const provider = claude ? "Anthropic" : "ElevenLabs";
   const envVar = claude ? "ANTHROPIC_API_KEY" : "ELEVENLABS_API_KEY";
   const what = claude ? "the model list" : "the list of text-to-speech models";
+  if (issue === "key-rejected" && !claude) {
+    return {
+      text: "ElevenLabs rejected the API key, so the list of text-to-speech models could not be loaded. Check ELEVENLABS_API_KEY in the backend's .env file: it must be the key itself (it starts with sk_, not the key ID) and have the Models: Read permission. Restart the backend, then try again.",
+      keyNote: KEY_NOTE,
+    };
+  }
   if (issue === "key-rejected") {
     return {
       text: `${provider} rejected the API key, so ${what} could not be loaded. Check ${envVar} in the backend's .env file, restart the backend, then try again.`,
