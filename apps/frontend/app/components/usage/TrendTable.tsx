@@ -17,7 +17,7 @@ export function TrendTable({ data, measure, captionId }: { data: ChartData; meas
     <div role="region" aria-labelledby={captionId} tabIndex={0} style={{ overflowX: "auto", maxWidth: "100%" }}>
       <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 13, color: "#000000" }}>
         <caption id={captionId} style={{ textAlign: "left", color: "#566475", paddingBottom: 6 }}>
-          Usage per day (UTC)
+          {measure === "cost" ? "Estimated cost" : "Tokens"} per day (UTC)
         </caption>
         <thead>
           <tr>

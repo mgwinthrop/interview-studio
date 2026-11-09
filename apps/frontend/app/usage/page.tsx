@@ -6,6 +6,8 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Shell, panelStyle } from "../interviewers/edit/EditorParts";
+import { disabledStyle } from "../interviewers/edit/PhaseFields";
+import { secondaryButtonStyle } from "../lib/ui";
 import { fetchUsageTrend, type UsageTrend } from "../lib/usage";
 import { buildChartData, hasCost, type Measure } from "../lib/usageChart";
 import { TrendChart } from "../components/usage/TrendChart";
@@ -57,6 +59,7 @@ export default function UsagePage() {
         // The Retry button stays (it keeps its focus); the alert remounts so it is announced again.
         retryingRef.current = false;
         setLoaded(null);
+        setMeasure("tokens");
         setFailure((n) => (n ?? 0) + 1);
         return;
       }
@@ -76,6 +79,11 @@ export default function UsagePage() {
       (r) => done(r.kind === "ok" ? r.value : null),
       () => done(null)
     );
+    // A counter, not a DOM node: bump it so a response for this run is ignored once it is replaced.
+    const counter = requestRef;
+    return () => {
+      counter.current++;
+    };
   }, [days, attempt]);
 
   const trend = loaded?.trend ?? null;
@@ -84,11 +92,13 @@ export default function UsagePage() {
   const data = useMemo(() => (trend ? buildChartData(trend, shownMeasure) : null), [trend, shownMeasure]);
 
   function onDays(next: Range) {
+    retryingRef.current = false;
     setStatus("");
     setDays(next);
   }
 
   function onMeasure(next: Measure) {
+    retryingRef.current = false;
     setStatus("");
     setMeasure(next);
   }
@@ -128,7 +138,7 @@ export default function UsagePage() {
             type="button"
             aria-disabled={loading ? true : undefined}
             onClick={retry}
-            style={toggleStyle(false, loading)}
+            style={disabledStyle(secondaryButtonStyle, loading)}
           >
             {loading ? "Loading…" : "Retry"}
           </button>

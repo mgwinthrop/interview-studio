@@ -105,7 +105,7 @@ export function axisTicks(measure: Measure, max: number): number[] {
 export function formatTicks(measure: Measure, ticks: number[]): string[] {
   if (measure === "tokens") return ticks.map((v) => formatTokens(v));
   const step = ticks.length > 1 ? ticks[1] - ticks[0] : 1;
-  const digits = step >= 1 ? 0 : Math.min(10, Math.ceil(-Math.log10(step) - 1e-9));
+  const digits = step >= 1 ? 0 : Math.max(2, Math.ceil(-Math.log10(step) - 1e-9));
   const fmt = new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",

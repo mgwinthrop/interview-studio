@@ -2,7 +2,7 @@
 
 // Stacked day-by-day usage columns. One Tab stop (roving tabindex); arrow keys, Home and End move
 // between days; hover, focus and tap show the same tooltip. No animation or transitions.
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { FEATURE_LABELS, SERIES_COLORS, type ChartData, type Measure } from "../../lib/usageChart";
 import {
   DEFAULT_WIDTH,
@@ -14,6 +14,9 @@ import {
   tooltipContent,
   type Layout,
 } from "./chartLayout";
+
+// useLayoutEffect warns during server rendering, so fall back to useEffect there.
+const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 const secondaryText: React.CSSProperties = { margin: "8px 0 0", fontSize: 13, color: "#566475", lineHeight: 1.5 };
 const swatch = (color: string): React.CSSProperties => ({
@@ -43,7 +46,7 @@ export function TrendChart({ data, measure, titleId }: { data: ChartData; measur
   const [hovered, setHovered] = useState<number | null>(null);
   const [dismissed, setDismissed] = useState(false);
 
-  useEffect(() => {
+  useIsoLayoutEffect(() => {
     const el = wrapRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
     const update = () => setMeasured(el.clientWidth);

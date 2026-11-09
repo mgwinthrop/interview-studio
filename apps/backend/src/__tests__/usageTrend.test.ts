@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -29,9 +29,15 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-06-15T12:00:00.000Z"));
   vi.restoreAllMocks();
   await prisma.llmUsage.deleteMany();
   await prisma.modelPrice.deleteMany();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 function todayStartMs(): number {
@@ -93,6 +99,20 @@ describe("usageTrend", () => {
     expect(t.byModel.map((m) => m.model)).toEqual(["at-start"]);
     expect(t.totals.calls).toBe(1);
     expect(t.days[0].byFeature.report.calls).toBe(1);
+  });
+
+  it("excludes rows dated after today from totals, byFeature, byModel and days", async () => {
+    const today = todayStartMs();
+    await seed({ model: "now" });
+    await seed({ at: new Date(today + DAY), model: "tomorrow", feature: "conversation", estimatedCostUsd: 5 });
+    await seed({ at: new Date(today + 3 * DAY), model: "later", feature: "conversation" });
+    const t = await usage.usageTrend("local", 3);
+    expect(t.totals.calls).toBe(1);
+    expect(t.totals.estimatedCostUsd).toBeNull();
+    expect(t.byFeature.map((f) => f.feature)).toEqual(["report"]);
+    expect(t.byModel.map((m) => m.model)).toEqual(["now"]);
+    expect(t.days).toHaveLength(3);
+    expect(t.days.every((d) => !("conversation" in d.byFeature))).toBe(true);
   });
 
   it("sums calls and tokens per day per feature; null token columns count as 0", async () => {

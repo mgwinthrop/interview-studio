@@ -200,14 +200,14 @@ export async function usageTrend(ownerId: string, days: number, prices?: PriceTa
            COUNT(*) AS calls, SUM("inputTokens") AS inputTokens, SUM("outputTokens") AS outputTokens,
            SUM("estimatedCostUsd") AS cost
     FROM "LlmUsage"
-    WHERE "ownerId" = ${ownerId} AND "at" >= ${startMs}
+    WHERE "ownerId" = ${ownerId} AND "at" >= ${startMs} AND "at" < ${todayStart + DAY_MS}
     GROUP BY day, "feature"`);
   const byModelRows = await prisma.$queryRaw<RawGroup[]>(Prisma.sql`
     SELECT "model" AS model,
            COUNT(*) AS calls, SUM("inputTokens") AS inputTokens, SUM("outputTokens") AS outputTokens,
            SUM("estimatedCostUsd") AS cost
     FROM "LlmUsage"
-    WHERE "ownerId" = ${ownerId} AND "at" >= ${startMs}
+    WHERE "ownerId" = ${ownerId} AND "at" >= ${startMs} AND "at" < ${todayStart + DAY_MS}
     GROUP BY "model"`);
 
   const dayMap = new Map<string, Record<string, UsageTotals>>();
