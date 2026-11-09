@@ -85,6 +85,7 @@ If something goes wrong, see [Troubleshooting](docs/getting-started.md#troublesh
 | See how the report is built | [Reports](docs/reports.md) |
 | Run it safely, configure it, or host it | [Operations](docs/operations.md) |
 | Choose models, reply length, spoken-reply format and prices | [Settings](docs/settings.md) |
+| See what the app spends, day by day | [Usage](docs/usage.md) |
 | Build a persona from calls, and see what is sent where | [Calls and privacy](docs/calls-and-privacy.md) |
 | Build a client or change the protocol | [WebSocket protocol](docs/websocket-protocol.md) |
 | Contribute | [Contributing](docs/contributing.md) |
