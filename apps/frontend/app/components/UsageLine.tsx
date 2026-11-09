@@ -4,7 +4,7 @@
 // While loading, or if the numbers cannot be had, only the link shows.
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { fetchUsageTrend, formatUsd, type UsageTotals } from "../lib/usage";
+import { fetchUsageTotals, formatUsd, type UsageTotals } from "../lib/usage";
 import { formatTokens } from "../lib/usageChart";
 
 export function usageLineText(totals: UsageTotals): string {
@@ -18,9 +18,9 @@ export function UsageLine() {
   const [totals, setTotals] = useState<UsageTotals | null>(null);
   useEffect(() => {
     let cancelled = false;
-    fetchUsageTrend(30)
+    fetchUsageTotals(30)
       .then((r) => {
-        if (!cancelled && r.kind === "ok") setTotals(r.value.totals);
+        if (!cancelled && r.kind === "ok") setTotals(r.value);
       })
       .catch(() => {});
     return () => {

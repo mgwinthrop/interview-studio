@@ -1,16 +1,8 @@
 // The table twin of the trend chart: one row per day, one column per series, then the day's total.
 import { FEATURE_LABELS, type ChartData, type Measure } from "../../lib/usageChart";
 import { tableCell, tableTotalCell } from "./chartLayout";
+import { cellStyle, headStyle, rowHeadStyle } from "./tableStyles";
 
-const cellStyle: React.CSSProperties = {
-  padding: "8px 10px",
-  borderBottom: "1px solid #E2E6EA",
-  textAlign: "right",
-  fontVariantNumeric: "tabular-nums",
-  whiteSpace: "nowrap",
-};
-const headStyle: React.CSSProperties = { ...cellStyle, fontWeight: 700, color: "#000000" };
-const rowHeadStyle: React.CSSProperties = { ...cellStyle, textAlign: "left", fontWeight: 600 };
 
 export function TrendTable({ data, measure, captionId }: { data: ChartData; measure: Measure; captionId: string }) {
   return (

@@ -48,6 +48,21 @@ export interface ChartData {
 }
 
 const KNOWN: ReadonlySet<string> = new Set(FEATURE_ORDER);
+
+/** Shown in place of a cost when none of the calls had a price. */
+export const NOT_AVAILABLE = "not available";
+
+/** The series a feature id belongs to; ids the page does not know are grouped as "other". */
+export function seriesKeyOf(feature: string): SeriesKey {
+  return KNOWN.has(feature) ? (feature as SeriesKey) : "other";
+}
+
+/** Sum of the known costs; null when neither part has one. */
+export function addCost(a: number | null, b: number | null): number | null {
+  if (a === null) return b;
+  if (b === null) return a;
+  return a + b;
+}
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 export function hasCost(trend: UsageTrend): boolean {
@@ -76,12 +91,12 @@ export function buildChartData(trend: UsageTrend, measure: Measure): ChartData {
     const acc = new Map<SeriesKey, { calls: number; tokens: number; cost: number | null }>();
     for (const [feature, t] of Object.entries(day.byFeature)) {
       if (t.calls <= 0) continue;
-      const key: SeriesKey = KNOWN.has(feature) ? (feature as SeriesKey) : "other";
+      const key = seriesKeyOf(feature);
       if (key === "other") hasUnknown = true;
       const cur = acc.get(key) ?? { calls: 0, tokens: 0, cost: null };
       cur.calls += t.calls;
       cur.tokens += t.inputTokens + t.outputTokens;
-      if (t.estimatedCostUsd !== null) cur.cost = (cur.cost ?? 0) + t.estimatedCostUsd;
+      cur.cost = addCost(cur.cost, t.estimatedCostUsd);
       acc.set(key, cur);
     }
 

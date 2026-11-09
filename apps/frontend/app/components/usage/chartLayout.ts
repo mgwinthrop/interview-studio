@@ -3,6 +3,7 @@
 import { formatCount, formatUsd } from "../../lib/usage";
 import {
   FEATURE_LABELS,
+  NOT_AVAILABLE,
   SERIES_COLORS,
   formatTokens,
   niceTicks,
@@ -33,7 +34,6 @@ const GAP = 2;
 const MAX_COLUMN = 24;
 const TOP_RADIUS = 4;
 
-export const NOT_AVAILABLE = "not available";
 export const NO_CALLS_CELL = "–";
 
 export interface Segment {

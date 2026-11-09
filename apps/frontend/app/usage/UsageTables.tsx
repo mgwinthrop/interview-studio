@@ -3,20 +3,11 @@
 import type { CSSProperties } from "react";
 import { panelStyle } from "../interviewers/edit/EditorParts";
 import { formatCount, formatUsd, type UsageTotals, type UsageTrend } from "../lib/usage";
-import { FEATURE_LABELS, FEATURE_ORDER, type SeriesKey } from "../lib/usageChart";
-
-const NOT_AVAILABLE = "not available";
+import { NOT_AVAILABLE, FEATURE_LABELS, FEATURE_ORDER, addCost, seriesKeyOf, type SeriesKey } from "../lib/usageChart";
+import { cellStyle, headStyle, rowHeadStyle as baseRowHeadStyle } from "../components/usage/tableStyles";
 
 const headingStyle: CSSProperties = { fontSize: 18, fontWeight: 700, color: "#102B33", margin: "0 0 8px" };
-const cellStyle: CSSProperties = {
-  padding: "8px 10px",
-  borderBottom: "1px solid #E2E6EA",
-  textAlign: "right",
-  fontVariantNumeric: "tabular-nums",
-  whiteSpace: "nowrap",
-};
-const headStyle: CSSProperties = { ...cellStyle, fontWeight: 700, color: "#000000" };
-const rowHeadStyle: CSSProperties = { ...cellStyle, textAlign: "left", whiteSpace: "normal", fontWeight: 600, overflowWrap: "anywhere" };
+const rowHeadStyle: CSSProperties = { ...baseRowHeadStyle, whiteSpace: "normal", overflowWrap: "anywhere" };
 const totalStyle: CSSProperties = { ...cellStyle, fontWeight: 700 };
 
 interface Row extends UsageTotals {
@@ -28,21 +19,12 @@ function cost(n: number | null): string {
   return n === null ? NOT_AVAILABLE : formatUsd(n);
 }
 
-/** Sum of the known costs; null when none of the parts has one. */
-function addCost(a: number | null, b: number | null): number | null {
-  if (a === null) return b;
-  if (b === null) return a;
-  return a + b;
-}
-
-const KNOWN: ReadonlySet<string> = new Set(FEATURE_ORDER);
-
 /** Feature rows in the fixed order; unknown feature ids are grouped as "Other", last. */
 export function featureRows(trend: UsageTrend): Row[] {
   const acc = new Map<SeriesKey, UsageTotals>();
   for (const r of trend.byFeature) {
     if (r.calls <= 0) continue;
-    const key: SeriesKey = KNOWN.has(r.feature) ? (r.feature as SeriesKey) : "other";
+    const key = seriesKeyOf(r.feature);
     const cur = acc.get(key) ?? { calls: 0, inputTokens: 0, outputTokens: 0, estimatedCostUsd: null };
     acc.set(key, {
       calls: cur.calls + r.calls,

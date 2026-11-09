@@ -83,6 +83,16 @@ function priceTableAsOf(prices: PriceTable): string | null {
   return dates.length === 0 ? null : dates.sort().at(-1)!;
 }
 
+/** `priceTableAsOf` for one owner; null (and a fixed log line) when the prices cannot be read. */
+async function loadPriceAsOf(ownerId: string, prices?: PriceTable): Promise<string | null> {
+  try {
+    return priceTableAsOf(prices ?? priceTableFrom(await listPrices(ownerId)));
+  } catch (err) {
+    console.error(`[usage] price lookup failed: ${errName(err)}`);
+    return null;
+  }
+}
+
 /**
  * Usage of one owner over the last `sinceDays` days, per feature (sorted by name). A feature's
  * cost sums only the calls that had an estimate; it is null when none had one. The price date is
@@ -102,20 +112,17 @@ export async function summarizeUsage(
   }[];
   priceTableAsOf: string | null;
 }> {
-  let priceAsOf: string | null = null;
-  try {
-    priceAsOf = priceTableAsOf(prices ?? priceTableFrom(await listPrices(ownerId)));
-  } catch (err) {
-    console.error(`[usage] price lookup failed: ${errName(err)}`);
-  }
   const since = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000);
-  const groups = await prisma.llmUsage.groupBy({
-    by: ["feature"],
-    where: { ownerId, at: { gte: since } },
-    _count: { _all: true },
-    _sum: { inputTokens: true, outputTokens: true, estimatedCostUsd: true },
-    orderBy: { feature: "asc" },
-  });
+  const [priceAsOf, groups] = await Promise.all([
+    loadPriceAsOf(ownerId, prices),
+    prisma.llmUsage.groupBy({
+      by: ["feature"],
+      where: { ownerId, at: { gte: since } },
+      _count: { _all: true },
+      _sum: { inputTokens: true, outputTokens: true, estimatedCostUsd: true },
+      orderBy: { feature: "asc" },
+    }),
+  ]);
   return {
     byFeature: groups.map((g) => ({
       feature: g.feature,
@@ -177,38 +184,39 @@ function addTotals(a: UsageTotals, b: UsageTotals): UsageTotals {
 
 const EMPTY_TOTALS: UsageTotals = { calls: 0, inputTokens: 0, outputTokens: 0, estimatedCostUsd: null };
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** The last `days` UTC calendar days, today included: `startMs` inclusive, `endMs` exclusive. */
+function calendarRange(days: number): { startMs: number; endMs: number } {
+  const now = new Date();
+  const todayStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return { startMs: todayStart - (days - 1) * DAY_MS, endMs: todayStart + DAY_MS };
+}
+
 /**
  * Day-by-day usage of one owner over the last `days` UTC days (today included), per feature, plus
  * per-feature, per-model and overall totals. Cost semantics are those of `summarizeUsage`. Days
  * without calls are filled in here, not by the database.
  */
 export async function usageTrend(ownerId: string, days: number, prices?: PriceTable): Promise<UsageTrend> {
-  let priceAsOf: string | null = null;
-  try {
-    priceAsOf = priceTableAsOf(prices ?? priceTableFrom(await listPrices(ownerId)));
-  } catch (err) {
-    console.error(`[usage] price lookup failed: ${errName(err)}`);
-  }
-
-  const DAY_MS = 24 * 60 * 60 * 1000;
-  const now = new Date();
-  const todayStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  const startMs = todayStart - (days - 1) * DAY_MS;
-
-  const byDayFeature = await prisma.$queryRaw<RawGroup[]>(Prisma.sql`
-    SELECT strftime('%Y-%m-%d', "at" / 1000, 'unixepoch') AS day, "feature" AS feature,
-           COUNT(*) AS calls, SUM("inputTokens") AS inputTokens, SUM("outputTokens") AS outputTokens,
-           SUM("estimatedCostUsd") AS cost
-    FROM "LlmUsage"
-    WHERE "ownerId" = ${ownerId} AND "at" >= ${startMs} AND "at" < ${todayStart + DAY_MS}
-    GROUP BY day, "feature"`);
-  const byModelRows = await prisma.$queryRaw<RawGroup[]>(Prisma.sql`
-    SELECT "model" AS model,
-           COUNT(*) AS calls, SUM("inputTokens") AS inputTokens, SUM("outputTokens") AS outputTokens,
-           SUM("estimatedCostUsd") AS cost
-    FROM "LlmUsage"
-    WHERE "ownerId" = ${ownerId} AND "at" >= ${startMs} AND "at" < ${todayStart + DAY_MS}
-    GROUP BY "model"`);
+  const { startMs, endMs } = calendarRange(days);
+  const [priceAsOf, byDayFeature, byModelRows] = await Promise.all([
+    loadPriceAsOf(ownerId, prices),
+    prisma.$queryRaw<RawGroup[]>(Prisma.sql`
+      SELECT strftime('%Y-%m-%d', "at" / 1000, 'unixepoch') AS day, "feature" AS feature,
+             COUNT(*) AS calls, SUM("inputTokens") AS inputTokens, SUM("outputTokens") AS outputTokens,
+             SUM("estimatedCostUsd") AS cost
+      FROM "LlmUsage"
+      WHERE "ownerId" = ${ownerId} AND "at" >= ${startMs} AND "at" < ${endMs}
+      GROUP BY day, "feature"`),
+    prisma.$queryRaw<RawGroup[]>(Prisma.sql`
+      SELECT "model" AS model,
+             COUNT(*) AS calls, SUM("inputTokens") AS inputTokens, SUM("outputTokens") AS outputTokens,
+             SUM("estimatedCostUsd") AS cost
+      FROM "LlmUsage"
+      WHERE "ownerId" = ${ownerId} AND "at" >= ${startMs} AND "at" < ${endMs}
+      GROUP BY "model"`),
+  ]);
 
   const dayMap = new Map<string, Record<string, UsageTotals>>();
   const featureMap = new Map<string, UsageTotals>();
@@ -217,7 +225,9 @@ export async function usageTrend(ownerId: string, days: number, prices?: PriceTa
     const t = totalsOf(g);
     const day = g.day!;
     const feature = g.feature!;
-    dayMap.set(day, { ...(dayMap.get(day) ?? {}), [feature]: t });
+    let perDay = dayMap.get(day);
+    if (!perDay) dayMap.set(day, (perDay = {}));
+    perDay[feature] = t;
     featureMap.set(feature, addTotals(featureMap.get(feature) ?? EMPTY_TOTALS, t));
     totals = addTotals(totals, t);
   }
@@ -239,6 +249,26 @@ export async function usageTrend(ownerId: string, days: number, prices?: PriceTa
     totals,
     priceTableAsOf: priceAsOf,
   };
+}
+
+/**
+ * Overall totals over the same UTC calendar days as `usageTrend`, from one aggregate query and
+ * without the per-day, per-feature and per-model breakdowns (the Dashboard line needs only these).
+ */
+export async function usageTotals(
+  ownerId: string,
+  days: number,
+): Promise<{ totals: UsageTotals; priceTableAsOf: string | null }> {
+  const { startMs, endMs } = calendarRange(days);
+  const [priceAsOf, rows] = await Promise.all([
+    loadPriceAsOf(ownerId),
+    prisma.$queryRaw<RawGroup[]>(Prisma.sql`
+      SELECT COUNT(*) AS calls, SUM("inputTokens") AS inputTokens, SUM("outputTokens") AS outputTokens,
+             SUM("estimatedCostUsd") AS cost
+      FROM "LlmUsage"
+      WHERE "ownerId" = ${ownerId} AND "at" >= ${startMs} AND "at" < ${endMs}`),
+  ]);
+  return { totals: rows[0] ? totalsOf(rows[0]) : EMPTY_TOTALS, priceTableAsOf: priceAsOf };
 }
 
 /** Totals for one session of one owner; zero calls for an unknown or foreign session. */

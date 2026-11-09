@@ -209,3 +209,37 @@ describe("usageTrend", () => {
     expect(logged).not.toContain("secret-detail");
   });
 });
+
+describe("usageTotals", () => {
+  it("equals the trend's totals and price date for the same range, owner-scoped", async () => {
+    await seed({ feature: "conversation", estimatedCostUsd: 0.5, inputTokens: 40, outputTokens: 4 });
+    await seed({ at: new Date(todayStartMs() - 2 * DAY), inputTokens: null, outputTokens: null });
+    await seed({ at: new Date(todayStartMs() - 5 * DAY) }); // outside a 3-day range
+    await seed({ ownerId: "someone-else", estimatedCostUsd: 9 });
+    await prisma.modelPrice.create({
+      data: { ownerId: "local", model: "m", inputPerMtok: 1, outputPerMtok: 1, asOf: "2026-03-01" },
+    });
+    const totals = await usage.usageTotals("local", 3);
+    const trend = await usage.usageTrend("local", 3);
+    expect(totals.totals).toEqual(trend.totals);
+    expect(totals.totals).toEqual({ calls: 2, inputTokens: 40, outputTokens: 4, estimatedCostUsd: 0.5 });
+    expect(totals.priceTableAsOf).toBe("2026-03-01");
+  });
+
+  it("is all zero with a null cost and null price date when there is nothing", async () => {
+    expect(await usage.usageTotals("nobody", 30)).toEqual({
+      totals: { calls: 0, inputTokens: 0, outputTokens: 0, estimatedCostUsd: null },
+      priceTableAsOf: null,
+    });
+  });
+
+  it("a failing price lookup gives a null date without throwing", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(prisma.modelPrice, "findMany").mockRejectedValueOnce(new Error("boom"));
+    await seed();
+    const t = await usage.usageTotals("local", 1);
+    expect(t.priceTableAsOf).toBeNull();
+    expect(t.totals.calls).toBe(1);
+  });
+});
+
