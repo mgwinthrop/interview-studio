@@ -83,6 +83,8 @@ Number fields (prices and reply length) are text boxes, so type digits. Prices a
 
 The field becomes read-only, with a message and a retry. Values already saved keep working. You can still enter prices for the models that are selected. If the Claude list is down, Reset leaves the model choices untouched (it still resets reply length, speech models and format), and the page says so.
 
+The message says why. If Anthropic or ElevenLabs rejected the API key (an invalid or revoked key), it names the provider and the variable to check (`ANTHROPIC_API_KEY` or `ELEVENLABS_API_KEY`). If no key is set, it says to add one. For any other cause (network, timeout, an unexpected answer) it keeps the short "could not be loaded" sentence. The wording is fixed: the page never shows a key, a header or text from the provider. The backend reads its keys only when it starts, so after a rejected or missing key, **Try loading the list again** does not help until you fix the `.env` file and restart the backend; the page says so next to the button.
+
 ## Keys and providers
 
 API keys stay in environment variables (`apps/backend/.env`). They are never sent to the browser and never stored in settings. Choosing a different provider (for example OpenAI) is a separate follow-on feature: it would need a new provider implementation, its own model list and usage handling, and updated privacy documentation.

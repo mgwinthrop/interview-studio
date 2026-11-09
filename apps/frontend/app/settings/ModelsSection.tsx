@@ -1,7 +1,7 @@
 "use client";
 
 // Claude models (one select per job, with its recommendation) and the reply length.
-import { SETTINGS_LIMITS, tierLabel, type Job, type SettingsPage } from "../lib/settings";
+import { SETTINGS_LIMITS, listDownMessage, tierLabel, type Job, type SettingsPage } from "../lib/settings";
 import { disabledStyle, sectionHeadingStyle } from "../interviewers/edit/PhaseFields";
 import { panelStyle } from "../interviewers/edit/EditorParts";
 import { valueId, type DraftValues, type ValueKey } from "./draft";
@@ -82,6 +82,7 @@ interface ModelsSectionProps {
 
 export function ModelsSection({ page, values, errors, locked, onChange, onRetryList, retrying }: ModelsSectionProps) {
   const listDown = page.claudeModels === null;
+  const downMsg = listDownMessage("claude", page.claudeListIssue);
   const tokensId = valueId("replyMaxTokens");
   const tokensError = errors["values.replyMaxTokens"];
 
@@ -99,7 +100,7 @@ export function ModelsSection({ page, values, errors, locked, onChange, onRetryL
       {listDown && (
         <div style={{ marginBottom: 16 }}>
           <p id={LIST_DOWN_ID} style={{ ...hintStyle, color: "#102B33", fontWeight: 700, fontSize: 14 }}>
-            The model list could not be loaded.
+            {downMsg.text}
           </p>
           <button
             type="button"
@@ -111,6 +112,7 @@ export function ModelsSection({ page, values, errors, locked, onChange, onRetryL
           >
             {retrying ? "Loading the list…" : "Try loading the list again"}
           </button>
+          {downMsg.keyNote && <p style={{ ...hintStyle, marginTop: 8 }}>{downMsg.keyNote}</p>}
         </div>
       )}
 
