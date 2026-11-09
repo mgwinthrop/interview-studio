@@ -31,11 +31,11 @@ The choices come from Anthropic's live model list, fetched with your `ANTHROPIC_
 
 When a job has no stored model and the list loads, the app resolves the recommendation and saves it. After that it changes only when you change it or press **Reset to recommended**. A newer model appearing in the list does not change a saved choice.
 
-If the list cannot be loaded, the built-in fallback `claude-sonnet-4-6` is used for that call and is not saved, so the next call tries again.
+If the list cannot be loaded, the built-in fallback `claude-sonnet-4-6` is used for that call and is not saved. The next call tries again once the failed lookup expires (about 30 seconds).
 
 What you will notice on an existing install: the first time a model is needed after this change, conversation replies switch from `claude-sonnet-4-6` to the recommended Fast-tier model. That changes speed, cost and voice. Choosing models on the page overrides it.
 
-The very first conversation (or the first after Reset) may wait for Anthropic's model list for up to 8 seconds before the interviewer speaks. This happens once, because the list is then cached. Opening the Settings page first remembers the defaults and avoids that wait.
+The very first conversation (or the first after Reset) may wait for Anthropic's model list for about 8 seconds per request before the interviewer speaks. This happens once, because the list is then cached. Opening the Settings page first remembers the defaults and avoids that wait.
 
 ## When settings apply
 
@@ -89,11 +89,12 @@ API keys stay in environment variables (`apps/backend/.env`). They are never sen
 
 ## Known limitations
 
-- The first conversation after an upgrade or Reset can wait up to 8 seconds for the model list before the interviewer speaks (see above).
+- The first conversation after an upgrade or Reset can wait about 8 seconds per request for the model list before the interviewer speaks (see above).
 - A model id of `__proto__` would get no cost estimate.
 - Saving writes the values, then the prices, in two steps. If the second fails, the values stay saved and the page reports an error; save again.
 - A second browser tab can overwrite a price row saved in the first.
 - The real Anthropic and ElevenLabs list endpoints were written from their documentation and have not been tried with real keys.
+- If the first greeting is interrupted while the settings are still being read, then a typed message is sent, and the session is ended before the read finishes, that typed message can be dropped. This is only reachable while the first read is slow.
 - Recommendations are general guidance.
 - If the settings cannot be read from the database, the app uses the built-in values for that call.
 
@@ -111,4 +112,4 @@ Do this with real keys.
 8. Press Reset to recommended.
 9. On a phone, check the numeric keypad appears for the number fields.
 10. After changing a model choice, check the saved model can still be selected again.
-11. Check the `:focus-visible` outline on the price table scroll region.
+11. Check the visible focus outline (`:focus-visible`) on the price table scroll region, and the contrast of controls shown at reduced opacity (the disabled-looking state).

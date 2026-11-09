@@ -31,6 +31,7 @@ Nothing is stored from the pasted calls: not the original, not the redacted text
 | Saved persona (including `behaviours`) | Your SQLite database | Yes | It is stored text the model wrote | You edit it before saving; delete it like any interviewer |
 | Rehearsal audio | Your browser to your backend, then to the speech provider (ElevenLabs) | Audio is never stored by this tool | Provider-side handling of voice | Operator contract and settings with the provider |
 | Rehearsal transcript and report | Anthropic's API (conversation, report) | Yes, in your SQLite database | Same as any session | Delete route, `RETENTION_DAYS` |
+| Model-list requests | Your backend to Anthropic's and ElevenLabs' model-list endpoints, using the API keys from environment variables | No. Results are cached in memory for about 10 minutes; only the model ids you choose are stored (as settings). | None of substance: the requests carry no conversation, transcript or call content | Nothing from a session is included in them |
 | Usage rows | Your SQLite database | Yes, numbers and ids only | None of substance: no text | No prompts, transcripts or replies are written to them |
 
 ## Controls
