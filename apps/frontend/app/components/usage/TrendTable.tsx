@@ -2,7 +2,6 @@
 import { FEATURE_LABELS, type ChartData, type Measure } from "../../lib/usageChart";
 import { tableCell, tableTotalCell } from "./chartLayout";
 
-// Same look as the usage table in UsageSummary.tsx.
 const cellStyle: React.CSSProperties = {
   padding: "8px 10px",
   borderBottom: "1px solid #E2E6EA",

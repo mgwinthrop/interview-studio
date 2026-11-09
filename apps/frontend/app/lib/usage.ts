@@ -14,11 +14,6 @@ export interface FeatureUsage extends UsageTotals {
   feature: string;
 }
 
-export interface UsageSummary {
-  byFeature: FeatureUsage[];
-  priceTableAsOf: string | null;
-}
-
 export interface TrendDay {
   /** UTC calendar day, "YYYY-MM-DD". */
   date: string;
@@ -49,20 +44,6 @@ function parseTotals(o: Record<string, unknown>): UsageTotals | null {
   if (!isCount(calls) || !isCount(inputTokens) || !isCount(outputTokens)) return null;
   if (estimatedCostUsd !== null && !isCount(estimatedCostUsd)) return null;
   return { calls, inputTokens, outputTokens, estimatedCostUsd };
-}
-
-function parseSummary(body: unknown): UsageSummary | null {
-  if (!isRecord(body) || !Array.isArray(body.byFeature)) return null;
-  const asOf = body.priceTableAsOf;
-  if (asOf !== null && typeof asOf !== "string") return null;
-  const byFeature: FeatureUsage[] = [];
-  for (const row of body.byFeature) {
-    if (!isRecord(row) || typeof row.feature !== "string") return null;
-    const totals = parseTotals(row);
-    if (!totals) return null;
-    byFeature.push({ feature: row.feature, ...totals });
-  }
-  return { byFeature, priceTableAsOf: asOf };
 }
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -124,10 +105,6 @@ async function get<T>(path: string, parse: (body: unknown) => T | null): Promise
   }
   const value = parse(body);
   return value ? { kind: "ok", value } : { kind: "error" };
-}
-
-export function fetchUsageSummary(days: number): Promise<UsageResult<UsageSummary>> {
-  return get(`/api/usage/summary?days=${encodeURIComponent(String(days))}`, parseSummary);
 }
 
 export function fetchUsageTrend(days: number): Promise<UsageResult<UsageTrend>> {

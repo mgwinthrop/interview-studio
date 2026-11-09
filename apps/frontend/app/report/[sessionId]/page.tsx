@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import { apiUrl } from "../../lib/config";
 import { Nav } from "../../components/Nav";
 import { FlowStepper } from "../../components/FlowStepper";
@@ -319,7 +320,10 @@ function SessionUsageLine({ sessionId }: { sessionId: string }) {
     <p style={{ margin: 0, padding: "8px 32px 0", fontSize: 13, color: "#566475" }}>
       Usage for this session: {formatCount(usage.calls)} model {usage.calls === 1 ? "call" : "calls"},{" "}
       {formatCount(usage.inputTokens)} input tokens, {formatCount(usage.outputTokens)} output tokens.
-      {usage.estimatedCostUsd !== null && ` Estimated cost: ${formatUsd(usage.estimatedCostUsd)} USD.`}
+      {usage.estimatedCostUsd !== null && ` Estimated cost: ${formatUsd(usage.estimatedCostUsd)} USD.`}{" "}
+      <Link href="/usage" style={{ color: "#066C77", textDecoration: "underline" }}>
+        See all usage →
+      </Link>
     </p>
   );
 }

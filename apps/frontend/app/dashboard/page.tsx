@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Nav } from "../components/Nav";
-import { UsageSummary } from "../components/UsageSummary";
+import { UsageLine } from "../components/UsageLine";
 import { ReportView } from "../components/ReportView";
 import { apiUrl } from "../lib/config";
 import { EARLIER_INTERVIEW_LABEL } from "../lib/interviewers";
@@ -233,6 +233,7 @@ export default function DashboardPage() {
         >
           Completed conversations and their reports
         </p>
+        <UsageLine />
       </header>
 
       {/* Body: empty state or two-column layout */}
@@ -476,11 +477,6 @@ export default function DashboardPage() {
           </div>
         </main>
       )}
-
-      {/* Usage: collapsed by default, scrolls on its own so it never squeezes the report */}
-      <div style={{ flexShrink: 0, maxHeight: "45vh", overflowY: "auto" }}>
-        <UsageSummary />
-      </div>
 
       {/* Footer stats bar */}
       <footer
