@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import {
   fetchUsageSummary,
@@ -146,7 +147,15 @@ function Body({ summary }: { summary: Summary }) {
       <p style={noteStyle}>
         {summary.priceTableAsOf !== null
           ? `Cost is an estimate using prices as of ${summary.priceTableAsOf}.`
-          : "No price table is set up, so costs are not available."}
+          : (
+              <>
+                No prices are set, so costs are not available. Add prices in{" "}
+                <Link href="/settings" style={{ color: "#066C77", textDecoration: "underline" }}>
+                  Settings
+                </Link>
+                .
+              </>
+            )}
       </p>
       <ul style={{ ...noteStyle, paddingLeft: 20 }}>
         <li>Replies that were interrupted (aborted) are not counted.</li>
