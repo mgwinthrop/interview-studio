@@ -282,7 +282,8 @@ export const CREATOR_PLAN_FORMAT: SpokenFormat = "mp3_44100_192";
 // ---- Client-side rules (the server checks everything again) ----
 
 const STT_ID = /^[A-Za-z0-9._-]{1,60}$/;
-const DECIMAL = /^\d+(\.\d+)?$/;
+// Digits with an optional point: "5", "5.", ".5", "0.5". No comma, sign or exponent.
+const DECIMAL = /^(\d+\.?\d*|\.\d+)$/;
 
 export function isRealDate(s: string): boolean {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);

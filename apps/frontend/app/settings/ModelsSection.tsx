@@ -1,7 +1,6 @@
 "use client";
 
 // Claude models (one select per job, with its recommendation) and the reply length.
-import { secondaryButtonStyle } from "../lib/ui";
 import { SETTINGS_LIMITS, tierLabel, type Job, type SettingsPage } from "../lib/settings";
 import { disabledStyle, sectionHeadingStyle } from "../interviewers/edit/PhaseFields";
 import { panelStyle } from "../interviewers/edit/EditorParts";
@@ -15,7 +14,9 @@ import {
   fieldBlockStyle,
   hintStyle,
   labelStyle,
+  smallSecondaryStyle,
   subHeadingStyle,
+  withKept,
   type Option,
 } from "./fields";
 
@@ -45,9 +46,7 @@ const JOBS: readonly { job: Job; key: "replyModel" | "reportModel" | "draftModel
 
 const LIST_DOWN_ID = "claude-list-down";
 
-export const smallSecondaryStyle: React.CSSProperties = { ...secondaryButtonStyle, padding: "8px 16px", fontSize: 14 };
-
-function modelOptions(page: SettingsPage, job: Job, current: string): Option[] {
+function modelOptions(page: SettingsPage, job: Job, saved: string, current: string): Option[] {
   const list = page.claudeModels;
   if (!list) return [{ value: current, label: current }];
   const recommended = page.recommended[job]?.model;
@@ -59,8 +58,7 @@ function modelOptions(page: SettingsPage, job: Job, current: string): Option[] {
     if (m.id === recommended) label += " – Recommended";
     return { value: m.id, label };
   });
-  if (!list.some((m) => m.id === current)) options.unshift({ value: current, label: `${current} (not in the current list)` });
-  return options;
+  return withKept(options, saved, current);
 }
 
 function recommendationLine(page: SettingsPage, job: Job): string | null {
@@ -125,7 +123,7 @@ export function ModelsSection({ page, values, errors, locked, onChange, onRetryL
             id={id}
             label={label}
             value={values[key]}
-            options={modelOptions(page, job, values[key])}
+            options={modelOptions(page, job, page.values[key], values[key])}
             onChange={(v) => onChange(key, v)}
             unavailable={locked || listDown}
             hintIds={[rec ? `${id}-rec` : "", `${id}-advice`, listDown ? LIST_DOWN_ID : ""]}
@@ -148,11 +146,9 @@ export function ModelsSection({ page, values, errors, locked, onChange, onRetryL
         </label>
         <input
           id={tokensId}
-          type="number"
+          type="text"
           inputMode="numeric"
-          min={SETTINGS_LIMITS.replyMaxTokensMin}
-          max={SETTINGS_LIMITS.replyMaxTokensMax}
-          step={1}
+          autoComplete="off"
           value={values.replyMaxTokens}
           readOnly={locked}
           aria-invalid={tokensError ? true : undefined}

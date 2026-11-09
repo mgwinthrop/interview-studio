@@ -44,12 +44,11 @@ const RESET_PARTIAL = "Some model choices could not be reset because the model l
 
 type Load = { kind: "loading" } | { kind: "failed"; message: string; attempt: number } | { kind: "ready" };
 type Busy = "save" | "reset" | "reload-claude" | "reload-tts" | "retry-load" | null;
-type FocusTo = "status" | "summary" | "failure" | "title" | "models-heading" | "speech-heading" | "reset-confirm" | "reset-button";
+type FocusTo = "status" | "summary" | "title" | "models-heading" | "speech-heading" | "reset-confirm" | "reset-button";
 
 const FOCUS_IDS: Record<FocusTo, string> = {
   status: "settings-status",
   summary: "error-summary-heading",
-  failure: "settings-failure",
   title: "settings-title",
   "models-heading": "models-heading",
   "speech-heading": "speech-heading",
@@ -88,8 +87,8 @@ export default function SettingsPageView() {
   }
 
   function showFailure(message: string) {
+    // Announced by role="alert"; focus stays where it is (callers move it when its control goes).
     setFailure((f) => ({ message, n: (f?.n ?? 0) + 1 }));
-    focus("failure");
   }
 
   useEffect(() => {
@@ -237,6 +236,8 @@ export default function SettingsPageView() {
     setConfirmReset(false);
     if (r.kind !== "ok") {
       showFailure(r.kind === "network" ? NETWORK_MESSAGE : RESET_FAILED);
+      // The confirmation (and its Confirm button) is gone: return focus to the Reset button.
+      focus("reset-button");
       return;
     }
     // Reset replaces the value choices; unsaved price edits are kept (prices are not reset).
@@ -302,13 +303,14 @@ export default function SettingsPageView() {
       </div>
 
       {failure && (
-        <p key={failure.n} id="settings-failure" role="alert" tabIndex={-1} style={{ ...bodyStyle, color: ERROR_COLOR, fontWeight: 700, outline: "none" }}>
+        <p key={failure.n} id="settings-failure" role="alert" style={{ ...bodyStyle, color: ERROR_COLOR, fontWeight: 700 }}>
           Error: {failure.message}
         </p>
       )}
 
       {showSummary && (
-        <div role="alert" style={{ ...panelStyle, border: `2px solid ${ERROR_COLOR}` }}>
+        // No role="alert": focus moves to the heading, which reads it once (error-summary pattern).
+        <div style={{ ...panelStyle, border: `2px solid ${ERROR_COLOR}` }}>
           <h2 id="error-summary-heading" tabIndex={-1} style={{ fontSize: 16, fontWeight: 700, color: "#102B33", margin: "0 0 8px", outline: "none" }}>
             Some settings were not saved
           </h2>

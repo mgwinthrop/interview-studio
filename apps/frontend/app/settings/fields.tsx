@@ -2,7 +2,7 @@
 // A control that cannot be changed right now (a request is running, or its list could not be
 // loaded) keeps its focus: it is marked aria-disabled and its change handler does nothing.
 import type { CSSProperties, ReactNode } from "react";
-import { FIELD_BORDER } from "../lib/ui";
+import { FIELD_BORDER, secondaryButtonStyle } from "../lib/ui";
 import { ERROR_COLOR, ErrorText, hintStyle, labelStyle } from "../interviewers/edit/FieldRow";
 
 export { ERROR_COLOR, ErrorText, hintStyle, labelStyle };
@@ -35,6 +35,8 @@ export function controlStyle(invalid: boolean, unavailable: boolean): CSSPropert
     cursor: unavailable ? "not-allowed" : undefined,
   };
 }
+
+export const smallSecondaryStyle: CSSProperties = { ...secondaryButtonStyle, padding: "8px 16px", fontSize: 14 };
 
 export const fieldBlockStyle: CSSProperties = { marginBottom: 20 };
 
@@ -91,6 +93,18 @@ export function SelectField({ id, label, value, options, onChange, unavailable, 
       {error && <ErrorText id={`${id}-error`} message={error} />}
     </div>
   );
+}
+
+/**
+ * Adds the saved value and the current choice to a list's options when the list lacks them, so
+ * the saved value can always be chosen again. Each is added once.
+ */
+export function withKept(options: Option[], saved: string, current: string): Option[] {
+  const out = [...options];
+  for (const v of saved === current ? [saved] : [current, saved]) {
+    if (!out.some((o) => o.value === v)) out.unshift({ value: v, label: `${v} (not in the current list)` });
+  }
+  return out;
 }
 
 /** One hint line under a field. */

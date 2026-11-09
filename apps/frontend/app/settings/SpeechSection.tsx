@@ -13,31 +13,28 @@ import {
 import { disabledStyle, sectionHeadingStyle } from "../interviewers/edit/PhaseFields";
 import { panelStyle } from "../interviewers/edit/EditorParts";
 import { valueId, type DraftValues, type ValueKey } from "./draft";
-import { ErrorText, Hint, SelectField, controlStyle, describedBy, fieldBlockStyle, hintStyle, labelStyle, type Option } from "./fields";
-import { smallSecondaryStyle } from "./ModelsSection";
+import { ErrorText, Hint, SelectField, controlStyle, describedBy, fieldBlockStyle, hintStyle, labelStyle, smallSecondaryStyle, withKept, type Option } from "./fields";
 
 const TTS_DOWN_ID = "tts-list-down";
 
-function ttsOptions(page: SettingsPage, current: string): Option[] {
+function ttsOptions(page: SettingsPage, saved: string, current: string): Option[] {
   const list = page.ttsModels;
   if (!list) return [{ value: current, label: current }];
   const options = list.map((m) => ({
     value: m.id,
     label: `${m.name} (${m.id})${m.id === RECOMMENDED_TTS ? " – Recommended" : ""}`,
   }));
-  if (!list.some((m) => m.id === current)) options.unshift({ value: current, label: `${current} (not in the current list)` });
-  return options;
+  return withKept(options, saved, current);
 }
 
-function formatOptions(page: SettingsPage, current: string): Option[] {
+function formatOptions(page: SettingsPage, saved: string, current: string): Option[] {
   const options: Option[] = page.spokenFormats.map((id) => {
     let label = formatLabel(id);
     if (id === RECOMMENDED_FORMAT) label += " – Recommended";
     if (id === CREATOR_PLAN_FORMAT) label += " – needs the ElevenLabs Creator plan or above";
     return { value: id, label };
   });
-  if (!options.some((o) => o.value === current)) options.unshift({ value: current, label: `${current} (not in the current list)` });
-  return options;
+  return withKept(options, saved, current);
 }
 
 interface SpeechSectionProps {
@@ -108,7 +105,7 @@ export function SpeechSection({ page, values, errors, locked, onChange, onRetryL
           id={ttsId}
           label="Text-to-speech model"
           value={values.ttsModel}
-          options={ttsOptions(page, values.ttsModel)}
+          options={ttsOptions(page, page.values.ttsModel, values.ttsModel)}
           onChange={(v) => onChange("ttsModel", v)}
           unavailable={locked || ttsDown}
           hintIds={[`${ttsId}-hint`, ttsDown ? TTS_DOWN_ID : ""]}
@@ -133,7 +130,7 @@ export function SpeechSection({ page, values, errors, locked, onChange, onRetryL
           id={formatId}
           label="Spoken-reply format"
           value={values.spokenFormat}
-          options={formatOptions(page, values.spokenFormat)}
+          options={formatOptions(page, page.values.spokenFormat, values.spokenFormat)}
           onChange={(v) => onChange("spokenFormat", v)}
           unavailable={locked}
           hintIds={[`${formatId}-hint`]}

@@ -159,11 +159,9 @@ function PriceRowView({ row, index, errors, locked, onChange, onClear }: PriceRo
               ) : (
                 <input
                   id={id}
-                  type="number"
+                  type="text"
                   inputMode="decimal"
-                  min={0}
-                  max={SETTINGS_LIMITS.priceMax}
-                  step="any"
+                  autoComplete="off"
                   value={value}
                   readOnly={locked}
                   aria-invalid={invalid ? true : undefined}
