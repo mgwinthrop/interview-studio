@@ -61,7 +61,7 @@ flowchart TD
 
 - A **draft** is only a proposal. Nothing saves it until you press **Save**.
 - **Try it** runs a practice conversation with the interviewer as it stands in the form. No session, transcript or report is kept, and nothing appears in your history.
-- The designer conversation also stores no session, turns or report; it writes only numbers-only usage rows (owner id, no session id).
+- The designer conversation also stores no session, turns or report; it writes only numbers-only usage rows (owner id, no session id) and, the first time default models are remembered, the owner's settings row (model ids only).
 - You can keep up to 50 custom interviewers.
 - You can duplicate, edit and delete custom interviewers on the Interviewers page.
 

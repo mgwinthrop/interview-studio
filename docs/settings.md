@@ -35,7 +35,7 @@ If the list cannot be loaded, the built-in fallback `claude-sonnet-4-6` is used 
 
 What you will notice on an existing install: the first time a model is needed after this change, conversation replies switch from `claude-sonnet-4-6` to the recommended Fast-tier model. That changes speed, cost and voice. Choosing models on the page overrides it.
 
-The very first conversation (or the first after Reset) may wait for Anthropic's model list for about 8 seconds per request before the interviewer speaks. This happens once, because the list is then cached. Opening the Settings page first remembers the defaults and avoids that wait.
+The first time a model is needed with nothing saved, the app reads Anthropic's model list. That normally takes well under a second; if Anthropic is slow to answer, the first conversation can wait up to about 8 seconds (the time limit for each request) before the interviewer speaks. It stops once a model is saved; opening the Settings page first saves the defaults. If the list cannot be loaded, the built-in model is used for that call without being saved, and a later conversation tries again once the failed lookup expires (about 30 seconds).
 
 ## When settings apply
 
@@ -89,7 +89,8 @@ API keys stay in environment variables (`apps/backend/.env`). They are never sen
 
 ## Known limitations
 
-- The first conversation after an upgrade or Reset can wait about 8 seconds per request for the model list before the interviewer speaks (see above).
+- If Anthropic is slow to answer, the first conversation with no saved model can wait up to about 8 seconds for the model list before the interviewer speaks, and again later if the list failed to load (see above).
+- If Anthropic retires a model you have saved, calls for that job fail until you pick another. The page marks a saved model that is no longer in the list with "(not in the current list)".
 - A model id of `__proto__` would get no cost estimate.
 - Saving writes the values, then the prices, in two steps. If the second fails, the values stay saved and the page reports an error; save again.
 - A second browser tab can overwrite a price row saved in the first.
