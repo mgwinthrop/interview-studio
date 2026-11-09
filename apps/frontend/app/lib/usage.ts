@@ -19,6 +19,21 @@ export interface UsageSummary {
   priceTableAsOf: string | null;
 }
 
+export interface TrendDay {
+  /** UTC calendar day, "YYYY-MM-DD". */
+  date: string;
+  /** Per feature id; empty for a day with no calls. */
+  byFeature: Record<string, UsageTotals>;
+}
+
+export interface UsageTrend {
+  days: TrendDay[];
+  byFeature: FeatureUsage[];
+  byModel: (UsageTotals & { model: string })[];
+  totals: UsageTotals;
+  priceTableAsOf: string | null;
+}
+
 export type UsageResult<T> = { kind: "ok"; value: T } | { kind: "network" } | { kind: "error" };
 
 function isCount(v: unknown): v is number {
@@ -50,6 +65,49 @@ function parseSummary(body: unknown): UsageSummary | null {
   return { byFeature, priceTableAsOf: asOf };
 }
 
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+function parseTrend(body: unknown): UsageTrend | null {
+  if (!isRecord(body) || !Array.isArray(body.days) || body.days.length === 0) return null;
+  if (!Array.isArray(body.byFeature) || !Array.isArray(body.byModel) || !isRecord(body.totals)) {
+    return null;
+  }
+  const asOf = body.priceTableAsOf;
+  if (asOf !== null && typeof asOf !== "string") return null;
+  const totals = parseTotals(body.totals);
+  if (!totals) return null;
+
+  const days: TrendDay[] = [];
+  for (const d of body.days) {
+    if (!isRecord(d) || typeof d.date !== "string" || !DATE_PATTERN.test(d.date)) return null;
+    if (!isRecord(d.byFeature)) return null;
+    const byFeature: Record<string, UsageTotals> = {};
+    for (const [feature, value] of Object.entries(d.byFeature)) {
+      if (!isRecord(value)) return null;
+      const t = parseTotals(value);
+      if (!t) return null;
+      byFeature[feature] = t;
+    }
+    days.push({ date: d.date, byFeature });
+  }
+
+  const byFeature: FeatureUsage[] = [];
+  for (const row of body.byFeature) {
+    if (!isRecord(row) || typeof row.feature !== "string") return null;
+    const t = parseTotals(row);
+    if (!t) return null;
+    byFeature.push({ feature: row.feature, ...t });
+  }
+  const byModel: (UsageTotals & { model: string })[] = [];
+  for (const row of body.byModel) {
+    if (!isRecord(row) || typeof row.model !== "string") return null;
+    const t = parseTotals(row);
+    if (!t) return null;
+    byModel.push({ model: row.model, ...t });
+  }
+  return { days, byFeature, byModel, totals, priceTableAsOf: asOf };
+}
+
 async function get<T>(path: string, parse: (body: unknown) => T | null): Promise<UsageResult<T>> {
   let res: Response;
   try {
@@ -70,6 +128,10 @@ async function get<T>(path: string, parse: (body: unknown) => T | null): Promise
 
 export function fetchUsageSummary(days: number): Promise<UsageResult<UsageSummary>> {
   return get(`/api/usage/summary?days=${encodeURIComponent(String(days))}`, parseSummary);
+}
+
+export function fetchUsageTrend(days: number): Promise<UsageResult<UsageTrend>> {
+  return get(`/api/usage/trend?days=${encodeURIComponent(String(days))}`, parseTrend);
 }
 
 export function fetchSessionUsage(sessionId: string): Promise<UsageResult<UsageTotals>> {
