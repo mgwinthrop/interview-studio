@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { tierOf, type ClaudeModel, type Listing, type ModelCatalog, type TtsModel } from "../modelCatalog";
+import { tierOf, type ClaudeModel, type ListFailure, type Listing, type ModelCatalog, type TtsModel } from "../modelCatalog";
 import { BUILT_IN, type PriceRow, type SettingsValues } from "../settings";
 import { createSettingsService, staticSettings, type SettingsStoreDeps } from "../settingsService";
 
@@ -23,16 +23,21 @@ const TTS: TtsModel[] = [
   { id: "eleven_multilingual_v2", name: "Multilingual" },
 ];
 
-function fakeCatalog(init: { claude?: ClaudeModel[] | "fail" | "throw"; tts?: TtsModel[] | "fail" } = {}) {
+function fakeCatalog(init: { claude?: ClaudeModel[] | "fail" | "throw" | ListFailure; tts?: TtsModel[] | "fail" | ListFailure } = {}) {
   const state = { claude: init.claude ?? BASE_MODELS, tts: init.tts ?? TTS };
   const claude = vi.fn(async (): Promise<Listing<ClaudeModel>> => {
     await Promise.resolve();
     if (state.claude === "throw") throw new Error("boom");
-    if (state.claude === "fail") return { ok: false };
+    if (state.claude === "fail") return { ok: false, reason: "unavailable" };
+    if (typeof state.claude === "string") return { ok: false, reason: state.claude };
     return { ok: true, models: state.claude.map((m) => ({ ...m })) };
   });
   const tts = vi.fn(async (): Promise<Listing<TtsModel>> =>
-    state.tts === "fail" ? { ok: false } : { ok: true, models: state.tts.map((m) => ({ ...m })) },
+    state.tts === "fail"
+      ? { ok: false, reason: "unavailable" }
+      : typeof state.tts === "string"
+        ? { ok: false, reason: state.tts }
+        : { ok: true, models: state.tts.map((m) => ({ ...m })) },
   );
   const catalog: ModelCatalog = { claude, tts };
   return { catalog, state, claude, tts };
@@ -83,8 +88,8 @@ function setup(
   init: {
     values?: Partial<SettingsValues>;
     prices?: PriceRow[];
-    claude?: ClaudeModel[] | "fail" | "throw";
-    tts?: TtsModel[] | "fail";
+    claude?: ClaudeModel[] | "fail" | "throw" | ListFailure;
+    tts?: TtsModel[] | "fail" | ListFailure;
   } = {},
 ) {
   const s = fakeStore(init);
@@ -255,6 +260,16 @@ describe("page", () => {
     expect(a.values).toEqual(b.values);
     expect(a.values).toEqual({ ...BUILT_IN, ...data.values });
     expect(data.values.replyModel).toBe("haiku-new");
+  });
+
+  it("reports the failure reason per list, and null issues when lists load", async () => {
+    const bad = await setup({ claude: "key-rejected", tts: "no-key" }).svc.page(OWNER);
+    expect(bad.claudeListIssue).toBe("key-rejected");
+    expect(bad.ttsListIssue).toBe("no-key");
+    const fail = await setup({ claude: "fail", tts: "fail" }).svc.page(OWNER);
+    expect([fail.claudeListIssue, fail.ttsListIssue]).toEqual(["unavailable", "unavailable"]);
+    const ok = await setup().svc.page(OWNER);
+    expect([ok.claudeListIssue, ok.ttsListIssue]).toEqual([null, null]);
   });
 
   it("shows null lists and recommendations when unavailable", async () => {

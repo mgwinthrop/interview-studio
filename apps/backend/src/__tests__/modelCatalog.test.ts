@@ -97,13 +97,13 @@ describe("claude listing", () => {
   });
 
   it.each([
-    ["non-200", () => json({ error: "x" }, 401)],
+    ["non-200", () => json({ error: "x" }, 500)],
     ["bad json", () => json("not json{")],
     ["empty data", () => json({ data: [], has_more: false })],
     ["only retired", () => json({ data: [entry("r", "haiku", "2024-01-01T00:00:00Z", "retired")] })],
-  ])("gives ok:false on %s", async (_n, make) => {
+  ])("gives ok:false (unavailable) on %s", async (_n, make) => {
     const c = createModelCatalog(cfg(), { fetch: (async () => make()) as unknown as F });
-    expect(await c.claude()).toEqual({ ok: false });
+    expect(await c.claude()).toEqual({ ok: false, reason: "unavailable" });
   });
 
   it("gives ok:false on a thrown fetch without leaking the key anywhere", async () => {
@@ -116,7 +116,7 @@ describe("claude listing", () => {
     };
     const c = createModelCatalog(cfg(), { fetch: fetch as unknown as F });
     const r = await c.claude();
-    expect(r).toEqual({ ok: false });
+    expect(r).toEqual({ ok: false, reason: "unavailable" });
     expect(JSON.stringify(r)).not.toContain(KEY);
     expect(logs.join("\n")).not.toContain(KEY);
   });
@@ -127,10 +127,48 @@ describe("claude listing", () => {
       const c = createModelCatalog(cfg({ anthropicApiKey: k, elevenlabsApiKey: k }), {
         fetch: fetch as unknown as F,
       });
-      expect(await c.claude()).toEqual({ ok: false });
-      expect(await c.tts()).toEqual({ ok: false });
+      expect(await c.claude()).toEqual({ ok: false, reason: "no-key" });
+      expect(await c.tts()).toEqual({ ok: false, reason: "no-key" });
     }
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each([401, 403])("maps HTTP %i on the first page to key-rejected", async (status) => {
+    const c = createModelCatalog(cfg(), { fetch: (async () => json({ error: "x" }, status)) as unknown as F });
+    expect(await c.claude()).toEqual({ ok: false, reason: "key-rejected" });
+  });
+
+  it("maps a 401 on page 2 to key-rejected, and a 500 on page 2 to unavailable", async () => {
+    for (const [status, reason] of [[401, "key-rejected"], [500, "unavailable"]] as const) {
+      let n = 0;
+      const fetch = async () =>
+        n++ === 0
+          ? json({ data: [entry("a", "haiku", "2025-01-01T00:00:00Z")], has_more: true, last_id: "a" })
+          : json("x", status);
+      const c = createModelCatalog(cfg(), { fetch: fetch as unknown as F });
+      expect(await c.claude()).toEqual({ ok: false, reason });
+    }
+  });
+
+  it("maps a timeout to unavailable", async () => {
+    const fetch = async () => {
+      throw new DOMException("timed out", "TimeoutError");
+    };
+    const c = createModelCatalog(cfg(), { fetch: fetch as unknown as F });
+    expect(await c.claude()).toEqual({ ok: false, reason: "unavailable" });
+  });
+
+  it("maps an ElevenLabs 401 to key-rejected", async () => {
+    const c = createModelCatalog(cfg(), { fetch: (async () => json({}, 401)) as unknown as F });
+    expect(await c.tts()).toEqual({ ok: false, reason: "key-rejected" });
+  });
+
+  it("returns a cached failure with the same reason and no new fetch", async () => {
+    const fetch = vi.fn(async () => json({}, 401));
+    const c = createModelCatalog(cfg(), { fetch: fetch as unknown as F });
+    expect(await c.claude()).toEqual({ ok: false, reason: "key-rejected" });
+    expect(await c.claude()).toEqual({ ok: false, reason: "key-rejected" });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("caches a success for ttlMs and refetches after", async () => {
@@ -187,11 +225,11 @@ describe("tts listing", () => {
 
   it("gives ok:false on non-array or no TTS models", async () => {
     const c1 = createModelCatalog(cfg(), { fetch: (async () => json({})) as unknown as F });
-    expect(await c1.tts()).toEqual({ ok: false });
+    expect(await c1.tts()).toEqual({ ok: false, reason: "unavailable" });
     const c2 = createModelCatalog(cfg(), {
       fetch: (async () => json([{ model_id: "a", name: "A", can_do_text_to_speech: false }])) as unknown as F,
     });
-    expect(await c2.tts()).toEqual({ ok: false });
+    expect(await c2.tts()).toEqual({ ok: false, reason: "unavailable" });
   });
 });
 

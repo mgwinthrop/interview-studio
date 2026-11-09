@@ -15,7 +15,8 @@ export interface TtsModel {
   id: string;
   name: string;
 }
-export type Listing<T> = { ok: true; models: T[] } | { ok: false };
+export type ListFailure = "key-rejected" | "no-key" | "unavailable";
+export type Listing<T> = { ok: true; models: T[] } | { ok: false; reason: ListFailure };
 export interface ModelCatalog {
   claude(): Promise<Listing<ClaudeModel>>;
   tts(): Promise<Listing<TtsModel>>;
@@ -83,7 +84,11 @@ function parseClaudeEntry(e: unknown): ClaudeModel | null {
   };
 }
 
-class Failure extends Error {}
+class Failure extends Error {
+  constructor(readonly reason: ListFailure = "unavailable") {
+    super();
+  }
+}
 
 export function createModelCatalog(
   config: Config,
@@ -103,7 +108,7 @@ export function createModelCatalog(
     }
     if (res.status !== 200) {
       console.warn(`[catalog] ${who} list unavailable (${res.status})`);
-      throw new Failure();
+      throw new Failure(res.status === 401 || res.status === 403 ? "key-rejected" : "unavailable");
     }
     try {
       return await res.json();
@@ -123,9 +128,9 @@ export function createModelCatalog(
         let value: Listing<T>;
         try {
           const models = await load();
-          value = models.length > 0 ? { ok: true, models } : { ok: false };
-        } catch {
-          value = { ok: false };
+          value = models.length > 0 ? { ok: true, models } : { ok: false, reason: "unavailable" };
+        } catch (err) {
+          value = { ok: false, reason: err instanceof Failure ? err.reason : "unavailable" };
         }
         entry = { value, expiresAt: now() + (value.ok ? ttlMs : Math.min(ttlMs, FAILURE_TTL_MS)) };
         return value;
@@ -138,7 +143,7 @@ export function createModelCatalog(
 
   const claude = cached<ClaudeModel>(async () => {
     const key = config.anthropicApiKey;
-    if (!key) return [];
+    if (!key) throw new Failure("no-key");
     const headers = { "x-api-key": key, "anthropic-version": "2023-06-01" };
     const out: ClaudeModel[] = [];
     let url = ANTHROPIC_URL;
@@ -158,7 +163,7 @@ export function createModelCatalog(
 
   const tts = cached<TtsModel>(async () => {
     const key = config.elevenlabsApiKey;
-    if (!key) return [];
+    if (!key) throw new Failure("no-key");
     const body = await get(ELEVEN_URL, { "xi-api-key": key }, "elevenlabs");
     if (!Array.isArray(body)) throw new Failure();
     const out: TtsModel[] = [];

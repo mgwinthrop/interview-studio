@@ -23,7 +23,7 @@ function catalog(up = true): ModelCatalog {
     claude: async () =>
       up
         ? { ok: true, models: [model("c-haiku", "haiku"), model("c-sonnet", "sonnet"), model("c-opus", "opus")] }
-        : { ok: false },
+        : { ok: false, reason: "key-rejected" },
     tts: async () => ({ ok: true, models: [{ id: "tts-a", name: "A" }] }),
   };
 }
@@ -39,6 +39,7 @@ describe("/api/settings", () => {
     const res = await fetch(`${r.base}/api/settings`);
     expect(res.status).toBe(200);
     const page = await res.json() as any;
+    expect([(page as any).claudeListIssue, (page as any).ttsListIssue]).toEqual([null, null]);
     expect(page.values.replyModel).toBe("mock-fast");
     expect(page.values.reportModel).toBe("mock-balanced");
     expect(page.values.draftModel).toBe("mock-balanced");
@@ -46,6 +47,17 @@ describe("/api/settings", () => {
     expect(Array.isArray(page.spokenFormats)).toBe(true);
     const again = await (await fetch(`${r.base}/api/settings`)).json() as any;
     expect(again.values).toEqual(page.values);
+  });
+
+  it("GET carries the list issues: null when loaded, the reason when failing", async () => {
+    const up = await start({ config: cloud(), catalog: catalog() });
+    const a = await (await fetch(`${up.base}/api/settings`)).json() as any;
+    expect([a.claudeListIssue, a.ttsListIssue]).toEqual([null, null]);
+    await up.close();
+    const down = await start({ config: cloud(), catalog: catalog(false) });
+    const b = await (await fetch(`${down.base}/api/settings`)).json() as any;
+    expect(b.claudeModels).toBeNull();
+    expect([b.claudeListIssue, b.ttsListIssue]).toEqual(["key-rejected", null]);
   });
 
   it("PUT a valid change then GET shows it", async () => {
