@@ -2,9 +2,7 @@
 import type { CSSProperties } from "react";
 import { panelStyle } from "../interviewers/edit/EditorParts";
 import { formatCount, formatUsd, type UsageTotals } from "../lib/usage";
-import { formatTokens } from "../lib/usageChart";
-
-const NOT_AVAILABLE = "not available";
+import { NOT_AVAILABLE, formatTokens } from "../lib/usageChart";
 
 const tileStyle: CSSProperties = { ...panelStyle, margin: 0, flex: "1 1 180px", minWidth: 0 };
 const labelStyle: CSSProperties = { fontSize: 14, fontWeight: 700, color: "#102B33", margin: 0 };

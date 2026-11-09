@@ -128,6 +128,34 @@ describe("GET /api/usage/trend", () => {
   });
 });
 
+describe("GET /api/usage/totals", () => {
+  it("returns only the totals and price date, owner-scoped, defaulting to 30 days", async () => {
+    const r = await start();
+    await seed({ feature: "conversation", estimatedCostUsd: 0.5, at: new Date() });
+    await seed({ feature: "report", ownerId: "someone-else", estimatedCostUsd: 3, at: new Date() });
+    const res = await fetch(`${r.base}/api/usage/totals`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      totals: { calls: 1, inputTokens: 100, outputTokens: 10, estimatedCostUsd: 0.5 },
+      priceTableAsOf: null,
+    });
+  });
+
+  it.each(["0", "366", "abc", "1.5", "-1", ""])("days=%j is the fixed 422", async (days) => {
+    const r = await start();
+    const res = await fetch(`${r.base}/api/usage/totals?days=${encodeURIComponent(days)}`);
+    expect(res.status).toBe(422);
+    expect(await res.json()).toEqual({
+      errors: [{ path: "days", message: "days must be a whole number from 1 to 365" }],
+    });
+  });
+
+  it("is rejected without the token in token mode", async () => {
+    const t = await start({ config: makeConfig({ AUTH_TOKEN: "another-token" }) });
+    expect((await fetch(`${t.base}/api/usage/totals`)).status).toBe(401);
+  });
+});
+
 describe("GET /api/usage/session/:sessionId", () => {
   it("totals one session for the caller's owner only", async () => {
     const r = await start();

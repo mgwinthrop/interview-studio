@@ -26,7 +26,7 @@ With no calls in the range the chart and tables are replaced by "No usage record
 
 ## Days and ranges
 
-Days are **UTC calendar days**, not your local days. The range is the last N days **including today**, so a 7-day range is today and the six days before it. Every day is shown, oldest first, and days with no activity are empty columns. The page is served by `GET /api/usage/trend?days=1..365` (default 30; anything else returns 422 with a fixed message).
+Days are **UTC calendar days**, not your local days. The range is the last N days **including today**, so a 7-day range is today and the six days before it. Every day is shown, oldest first, and days with no activity are empty columns. The page is served by `GET /api/usage/trend?days=1..365` (default 30; anything else returns 422 with a fixed message). The Dashboard line uses `GET /api/usage/totals?days=1..365`, which counts the same days and returns only the overall totals.
 
 ## How cost is worked out
 
@@ -56,7 +56,7 @@ Each day also has a spoken label with the same numbers. **View as table** is a t
 
 ## The old summary route
 
-`GET /api/usage/summary` still works and is unchanged, but it uses a **rolling window of 24-hour periods** back from now. The Usage page and the Dashboard line use UTC calendar days. For the same "30 days" the two can differ slightly, mainly in the oldest day. The Dashboard no longer calls the summary route, so it agrees with the page.
+`GET /api/usage/summary` still works and is unchanged, but it uses a **rolling window of 24-hour periods** back from now. The Usage page and the Dashboard line use UTC calendar days. The Dashboard line's cost counts only calls that had a price, and says so. For the same "30 days" the two can differ slightly, mainly in the oldest day. The Dashboard does not call the summary route, so it agrees with the page.
 
 ## Owner acceptance checklist
 

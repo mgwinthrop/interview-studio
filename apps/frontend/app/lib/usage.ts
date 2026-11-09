@@ -111,6 +111,13 @@ export function fetchUsageTrend(days: number): Promise<UsageResult<UsageTrend>> 
   return get(`/api/usage/trend?days=${encodeURIComponent(String(days))}`, parseTrend);
 }
 
+/** The overall totals for the last `days` UTC days, without the day-by-day breakdown. */
+export function fetchUsageTotals(days: number): Promise<UsageResult<UsageTotals>> {
+  return get(`/api/usage/totals?days=${encodeURIComponent(String(days))}`, (b) =>
+    isRecord(b) && isRecord(b.totals) ? parseTotals(b.totals) : null
+  );
+}
+
 export function fetchSessionUsage(sessionId: string): Promise<UsageResult<UsageTotals>> {
   return get(`/api/usage/session/${encodeURIComponent(sessionId)}`, (b) =>
     isRecord(b) ? parseTotals(b) : null
