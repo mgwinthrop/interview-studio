@@ -54,7 +54,11 @@ export interface DayGeom {
   cx: number;
   colX: number;
   colW: number;
+  /** Top of the drawn stack (the baseline for a day that draws nothing). */
+  colTop: number;
   segments: Segment[];
+  /** Cost measure only: a baseline dash for a day with calls but no priced call. */
+  unpriced: { x: number; y: number; w: number; h: number } | null;
 }
 
 export interface Layout {
@@ -65,6 +69,8 @@ export interface Layout {
   xLabels: { index: number; x: number; label: string }[];
   days: DayGeom[];
   direct: { index: number; x: number; y: number; text: string } | null;
+  /** True when at least one day shows the "calls without a price" dash. */
+  hasUnpriced: boolean;
 }
 
 export function clampWidth(measured: number): number {
@@ -74,6 +80,88 @@ export function clampWidth(measured: number): number {
 
 export function formatValue(measure: Measure, v: number): string {
   return measure === "tokens" ? formatTokens(v) : formatUsd(v);
+}
+
+/**
+ * Ticks for one y axis. Token ticks are whole numbers (a tiny maximum gets 0..ceil(max) in steps of 1).
+ */
+export function axisTicks(measure: Measure, max: number): number[] {
+  if (measure === "tokens") {
+    const ceil = Math.ceil(Math.max(0, max));
+    if (ceil <= 4) {
+      const out: number[] = [];
+      for (let i = 0; i <= Math.max(1, ceil); i++) out.push(i);
+      return out;
+    }
+  }
+  return niceTicks(max);
+}
+
+/**
+ * Labels for all ticks of one axis, with the same number of decimals on every tick, taken from the
+ * step, so labels are exact and unique ($0.005 steps print "$0.000, $0.005, $0.010"; whole-dollar
+ * steps print "$500", "$1,000").
+ */
+export function formatTicks(measure: Measure, ticks: number[]): string[] {
+  if (measure === "tokens") return ticks.map((v) => formatTokens(v));
+  const step = ticks.length > 1 ? ticks[1] - ticks[0] : 1;
+  const digits = step >= 1 ? 0 : Math.min(10, Math.ceil(-Math.log10(step) - 1e-9));
+  const fmt = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+  return ticks.map((v) => fmt.format(v));
+}
+
+export const TOOLTIP_GAP = 8;
+
+/** Estimated tooltip height: 8px padding top and bottom, border, a title and total line, then one line per row. */
+export function tooltipHeight(rows: number): number {
+  return 18 + (2 + rows) * 18.2 + rows * 2;
+}
+
+export function tooltipWidth(wrapperWidth: number): number {
+  return Math.min(wrapperWidth, Math.min(220, Math.max(160, wrapperWidth - 16)));
+}
+
+export interface TooltipPlacement {
+  left: number;
+  top: number;
+  width: number;
+  side: "left" | "right" | "below";
+}
+
+/**
+ * Where the tooltip goes: beside the inspected column (the side with more room), never over it;
+ * below the chart when neither side has room. Always inside the wrapper horizontally.
+ */
+export function placeTooltip(opts: {
+  colLeft: number;
+  colRight: number;
+  colTop: number;
+  plotTop: number;
+  plotBottom: number;
+  chartHeight: number;
+  wrapperWidth: number;
+  rows: number;
+}): TooltipPlacement {
+  const width = tooltipWidth(opts.wrapperWidth);
+  const height = tooltipHeight(opts.rows);
+  const leftRoom = opts.colLeft - TOOLTIP_GAP;
+  const rightRoom = opts.wrapperWidth - opts.colRight - TOOLTIP_GAP;
+  if (Math.max(leftRoom, rightRoom) >= width) {
+    const side = rightRoom >= leftRoom ? "right" : "left";
+    const left = side === "right" ? opts.colRight + TOOLTIP_GAP : opts.colLeft - TOOLTIP_GAP - width;
+    const mid = (opts.colTop + opts.plotBottom) / 2;
+    let top = mid - height / 2;
+    if (top < 0 || top + height > opts.chartHeight) top = opts.plotTop;
+    top = clamp(top, 0, opts.chartHeight - height);
+    return { left, top, width, side };
+  }
+  const centre = (opts.colLeft + opts.colRight) / 2;
+  return { left: clamp(centre - width / 2, 0, opts.wrapperWidth - width), top: opts.chartHeight, width, side: "below" };
 }
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -115,9 +203,9 @@ export function roundedTopPath(x: number, y: number, w: number, h: number): stri
 export function computeLayout(data: ChartData, measure: Measure, measuredWidth: number): Layout {
   const width = clampWidth(measuredWidth);
   const height = CHART_HEIGHT;
-  const tickValues = niceTicks(data.maxTotal);
+  const tickValues = axisTicks(measure, data.maxTotal);
   const topValue = tickValues[tickValues.length - 1] || 1;
-  const tickLabels = tickValues.map((v) => formatValue(measure, v));
+  const tickLabels = formatTicks(measure, tickValues);
   const widest = Math.max(...tickLabels.map((l) => l.length));
   const left = Math.max(X_LABEL_WIDTH / 2 + 2, widest * CHAR_WIDTH + 8);
   const right = width - RIGHT_MARGIN;
@@ -132,25 +220,28 @@ export function computeLayout(data: ChartData, measure: Measure, measuredWidth: 
 
   const days: DayGeom[] = data.days.map((day, index) => {
     const slotX = left + index * slotW;
-    const colW = Math.min(MAX_COLUMN, Math.max(2, slotW * 0.7));
+    const colW = Math.min(MAX_COLUMN, Math.max(1, slotW * 0.7));
     const colX = clamp(slotX + (slotW - colW) / 2, left, right - colW);
     const visible = day.parts.filter((p): p is DayPart & { value: number } => p.value !== null && p.value > 0);
-    const segments: Segment[] = [];
-    let cumPx = 0;
-    visible.forEach((p, j) => {
-      const raw = p.value * scale;
-      const segBottom = bottom - cumPx - (j > 0 ? GAP : 0);
-      let h = Math.max(1, raw - (j > 0 ? GAP : 0));
-      let y = segBottom - h;
-      if (y < top) {
-        h = Math.max(0, segBottom - top);
-        y = top;
-      }
-      cumPx += raw;
-      if (h <= 0) return;
-      segments.push({ key: p.key, color: SERIES_COLORS[p.key], x: colX, y, w: colW, h, rounded: j === visible.length - 1 });
-    });
-    return { index, slotX, slotW, cx: slotX + slotW / 2, colX, colW, segments };
+    const segments = stackSegments(
+      visible.map((p) => ({ key: p.key, raw: p.value * scale })),
+      plotH
+    ).map((s, j, all) => ({
+      key: s.key,
+      color: SERIES_COLORS[s.key],
+      x: colX,
+      y: bottom - s.end,
+      w: colW,
+      h: s.end - s.start,
+      rounded: j === all.length - 1,
+    }));
+    const colTop = segments.length > 0 ? Math.min(...segments.map((s) => s.y)) : bottom;
+    let unpriced: DayGeom["unpriced"] = null;
+    if (measure === "cost" && day.calls > 0 && day.total === null) {
+      const w = Math.max(1, colW * 0.7);
+      unpriced = { x: slotX + (slotW - w) / 2, y: bottom - 3, w, h: 2 };
+    }
+    return { index, slotX, slotW, cx: slotX + slotW / 2, colX, colW, colTop, segments, unpriced };
   });
 
   let direct: Layout["direct"] = null;
@@ -165,9 +256,7 @@ export function computeLayout(data: ChartData, measure: Measure, measuredWidth: 
   if (maxIndex >= 0) {
     const text = formatValue(measure, maxValue);
     const half = (text.length * CHAR_WIDTH) / 2;
-    const segs = days[maxIndex].segments;
-    const colTop = segs.length > 0 ? Math.min(...segs.map((s) => s.y)) : bottom;
-    direct = { index: maxIndex, x: clamp(days[maxIndex].cx, half, width - half), y: colTop - 6, text };
+    direct = { index: maxIndex, x: clamp(days[maxIndex].cx, half, width - half), y: days[maxIndex].colTop - 6, text };
   }
 
   const half = X_LABEL_WIDTH / 2;
@@ -177,7 +266,34 @@ export function computeLayout(data: ChartData, measure: Measure, measuredWidth: 
     label: data.days[index].label,
   }));
 
-  return { width, height, plot: { left, top, right, bottom }, ticks, xLabels, days, direct };
+  const hasUnpriced = days.some((d) => d.unpriced !== null);
+  return { width, height, plot: { left, top, right, bottom }, ticks, xLabels, days, direct, hasUnpriced };
+}
+
+/**
+ * Stack parts bottom-up as offsets from the baseline. Each part is at least 1px high and sits at least
+ * GAP above the drawn top of the one below it (tiny parts inflate the stack by a few pixels rather than
+ * overlap). If that pushes the stack past `maxPx`, it is packed down from the top so it stays inside.
+ */
+export function stackSegments<K>(parts: { key: K; raw: number }[], maxPx: number): { key: K; start: number; end: number }[] {
+  const out: { key: K; start: number; end: number }[] = [];
+  let rawCum = 0;
+  let prevTop = 0;
+  parts.forEach((p, j) => {
+    const start = j === 0 ? 0 : Math.max(rawCum, prevTop) + GAP;
+    const end = Math.max(start + 1, rawCum + p.raw);
+    out.push({ key: p.key, start, end });
+    rawCum += p.raw;
+    prevTop = end;
+  });
+  let ceiling = maxPx;
+  for (let j = out.length - 1; j >= 0; j--) {
+    const s = out[j];
+    s.end = Math.min(s.end, ceiling);
+    s.start = j === 0 ? 0 : Math.min(s.start, s.end - 1);
+    ceiling = s.start - GAP;
+  }
+  return out;
 }
 
 /** Roving focus: the day index a key moves to, or null when the key is not a navigation key. */
@@ -195,11 +311,6 @@ export function nextActiveIndex(key: string, current: number, n: number): number
     default:
       return null;
   }
-}
-
-/** Left edge of a tooltip centred on `anchorX`, kept inside a wrapper of `wrapperWidth`. */
-export function tooltipLeft(anchorX: number, tooltipWidth: number, wrapperWidth: number): number {
-  return clamp(anchorX - tooltipWidth / 2, 0, wrapperWidth - tooltipWidth);
 }
 
 function partValue(measure: Measure, p: DayPart): string {

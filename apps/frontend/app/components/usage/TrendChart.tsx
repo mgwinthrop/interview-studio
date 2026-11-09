@@ -10,11 +10,11 @@ import {
   dayAriaLabel,
   nextActiveIndex,
   roundedTopPath,
+  placeTooltip,
   tooltipContent,
-  tooltipLeft,
+  type Layout,
 } from "./chartLayout";
 
-const TOOLTIP_WIDTH = 220;
 const secondaryText: React.CSSProperties = { margin: "8px 0 0", fontSize: 13, color: "#566475", lineHeight: 1.5 };
 const swatch = (color: string): React.CSSProperties => ({
   display: "inline-block",
@@ -24,6 +24,14 @@ const swatch = (color: string): React.CSSProperties => ({
   background: color,
   flex: "0 0 auto",
 });
+// The "calls without a price" key: the same flat dash as the mark, so it is told apart by shape.
+const dashSwatch: React.CSSProperties = { ...swatch("#7A8590"), height: 2, borderRadius: 0 };
+
+/** Horizontal extent of the focus ring around a day (also what the tooltip must not cover). */
+function ringExtent(d: Layout["days"][number]): { left: number; width: number } {
+  const width = Math.max(d.slotW, d.colW + 6);
+  return { left: d.cx - width / 2, width };
+}
 
 export function TrendChart({ data, measure, titleId }: { data: ChartData; measure: Measure; titleId: string }) {
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -51,6 +59,17 @@ export function TrendChart({ data, measure, titleId }: { data: ChartData; measur
     setHovered(null);
   }, [n]);
 
+  // A tapped day's tooltip goes away when the person taps or clicks anywhere outside the chart.
+  useEffect(() => {
+    if (hovered === null) return;
+    const onDown = (e: PointerEvent) => {
+      const el = wrapRef.current;
+      if (el && e.target instanceof Node && !el.contains(e.target)) setHovered(null);
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [hovered]);
+
   if (!data.hasAnyUsage) return <p style={secondaryText}>No usage recorded in this range.</p>;
 
   const layout = computeLayout(data, measure, measured);
@@ -74,8 +93,8 @@ export function TrendChart({ data, measure, titleId }: { data: ChartData; measur
   }
 
   return (
-    <div>
-      <div ref={wrapRef} role="group" aria-labelledby={titleId} style={{ position: "relative", width: "100%" }}>
+    <div ref={wrapRef} style={{ position: "relative", width: "100%" }}>
+      <div role="group" aria-labelledby={titleId}>
         <svg
           width={layout.width}
           height={layout.height}
@@ -124,7 +143,11 @@ export function TrendChart({ data, measure, titleId }: { data: ChartData; measur
                   setFocused(g.index);
                   setDismissed(false);
                 }}
-                onBlur={() => setFocused((f) => (f === g.index ? null : f))}
+                onBlur={(e) => {
+                  setFocused((f) => (f === g.index ? null : f));
+                  const next = e.relatedTarget;
+                  if (!(next instanceof Node) || !wrapRef.current?.contains(next)) setHovered(null);
+                }}
                 onKeyDown={(e) => onKeyDown(e, g.index)}
                 onMouseEnter={() => setHovered(g.index)}
                 onClick={() => setHovered(g.index)}
@@ -136,6 +159,16 @@ export function TrendChart({ data, measure, titleId }: { data: ChartData; measur
                   ) : (
                     <rect key={s.key} x={s.x} y={s.y} width={s.w} height={s.h} fill={s.color} />
                   )
+                )}
+                {g.unpriced && (
+                  <rect
+                    x={g.unpriced.x}
+                    y={g.unpriced.y}
+                    width={g.unpriced.w}
+                    height={g.unpriced.h}
+                    fill="#7A8590"
+                    data-mark="unpriced"
+                  />
                 )}
               </g>
             );
@@ -152,9 +185,9 @@ export function TrendChart({ data, measure, titleId }: { data: ChartData; measur
           {focused !== null && focused < n && (
             <rect
               aria-hidden="true"
-              x={layout.days[focused].cx - Math.max(layout.days[focused].slotW, layout.days[focused].colW + 6) / 2}
+              x={ringExtent(layout.days[focused]).left}
               y={plot.top - 3}
-              width={Math.max(layout.days[focused].slotW, layout.days[focused].colW + 6)}
+              width={ringExtent(layout.days[focused]).width}
               height={plot.bottom - plot.top + 6}
               fill="none"
               stroke="#087E8B"
@@ -179,7 +212,6 @@ export function TrendChart({ data, measure, titleId }: { data: ChartData; measur
             </text>
           )}
         </svg>
-        {shownDay && shown !== null && <Tooltip day={shownDay} measure={measure} anchorX={layout.days[shown].cx} wrapperWidth={layout.width} />}
       </div>
       <p style={secondaryText}>Use the arrow keys to move between days.</p>
       <ul
@@ -192,7 +224,16 @@ export function TrendChart({ data, measure, titleId }: { data: ChartData; measur
             {FEATURE_LABELS[key]}
           </li>
         ))}
+        {layout.hasUnpriced && (
+          <li style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#102B33" }}>
+            <span aria-hidden="true" style={dashSwatch} />
+            Calls without a price
+          </li>
+        )}
       </ul>
+      {shownDay && shown !== null && (
+        <Tooltip day={shownDay} measure={measure} layout={layout} index={shown} wrapperWidth={measured} />
+      )}
     </div>
   );
 }
@@ -200,24 +241,37 @@ export function TrendChart({ data, measure, titleId }: { data: ChartData; measur
 function Tooltip({
   day,
   measure,
-  anchorX,
+  layout,
+  index,
   wrapperWidth,
 }: {
   day: ChartData["days"][number];
   measure: Measure;
-  anchorX: number;
+  layout: Layout;
+  index: number;
   wrapperWidth: number;
 }) {
   const c = tooltipContent(day, measure);
-  const width = Math.min(TOOLTIP_WIDTH, wrapperWidth);
+  const geom = layout.days[index];
+  const ring = ringExtent(geom);
+  const place = placeTooltip({
+    colLeft: ring.left,
+    colRight: ring.left + ring.width,
+    colTop: geom.colTop,
+    plotTop: layout.plot.top,
+    plotBottom: layout.plot.bottom,
+    chartHeight: layout.height,
+    wrapperWidth: wrapperWidth > 0 ? wrapperWidth : layout.width,
+    rows: c.rows.length,
+  });
   return (
     <div
       aria-hidden="true"
       style={{
         position: "absolute",
-        top: 0,
-        left: tooltipLeft(anchorX, width, wrapperWidth),
-        width,
+        top: place.top,
+        left: place.left,
+        width: place.width,
         boxSizing: "border-box",
         pointerEvents: "none",
         background: "#FFFFFF",
