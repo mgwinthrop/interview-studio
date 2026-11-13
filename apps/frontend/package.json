@@ -12,12 +12,12 @@
     "@ricky0123/vad-web": "^0.0.30",
     "next": "14.2.35",
     "onnxruntime-web": "^1.24.3",
-    "react": "^18",
+    "react": "^19",
     "react-dom": "^18"
   },
   "devDependencies": {
     "@types/node": "^20",
-    "@types/react": "^18",
+    "@types/react": "^19",
     "@types/react-dom": "^18",
     "copy-webpack-plugin": "^14.0.0",
     "eslint": "^8",
