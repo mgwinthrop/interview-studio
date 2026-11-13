@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/mgwinthrop/interview-studio/actions/workflows/ci.yml/badge.svg)](https://github.com/mgwinthrop/interview-studio/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Node 20+](https://img.shields.io/badge/node-20%2B-brightgreen.svg)](https://nodejs.org/)
+[![Node 22+](https://img.shields.io/badge/node-22%2B-brightgreen.svg)](https://nodejs.org/)
 
 **Find your voice through guided conversation.** An AI interviewer asks you questions, follows up on your answers and gives you space to work out what you want to say. Afterwards you get a transcript and a written reflection on what you said and how you delivered it.
 
@@ -26,7 +26,7 @@ A conversation moves through four phases (intro, share, deep dive, wrap up). Whe
 
 ## Quick start
 
-You need **Node.js 20 or later** and **git**. Check with `node -v`.
+You need **Node.js 22.12 or later** and **git**. Check with `node -v`.
 
 ### 1. Try it without API keys
 

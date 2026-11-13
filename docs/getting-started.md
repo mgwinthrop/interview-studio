@@ -6,7 +6,7 @@ This page takes you from nothing to a running Interview Studio, and helps when s
 
 | Requirement | Why | How to check |
 |---|---|---|
-| Node.js 20 or later | Runs both the backend and the frontend | `node -v` |
+| Node.js 22.12 or later | Runs both the backend and the frontend | `node -v` |
 | git | To clone the repo | `git --version` |
 | A modern browser and a microphone | The app asks for microphone access before the first conversation | Try the mic check on the first page |
 | Ports 3000 and 3001 free | The frontend uses 3000 and the backend uses 3001 | `lsof -i :3000 -i :3001` (macOS and Linux) |
