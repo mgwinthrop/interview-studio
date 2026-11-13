@@ -9,7 +9,7 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "@ricky0123/vad-web": "^0.0.30",
+    "@ricky0123/vad-web": "^0.0.31",
     "next": "^16.4.6",
     "onnxruntime-web": "^1.24.3",
     "react": "^19.3.1",
