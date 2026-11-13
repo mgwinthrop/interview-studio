@@ -1,5 +1,9 @@
 # Interview Studio
 
+[![CI](https://github.com/mgwinthrop/interview-studio/actions/workflows/ci.yml/badge.svg)](https://github.com/mgwinthrop/interview-studio/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Node 20+](https://img.shields.io/badge/node-20%2B-brightgreen.svg)](https://nodejs.org/)
+
 **Find your voice through guided conversation.** An AI interviewer asks you questions, follows up on your answers and gives you space to work out what you want to say. Afterwards you get a transcript and a written reflection on what you said and how you delivered it.
 
 ![The Interview Studio home page, showing the four conversation phases and the preset interviewers](docs/images/studio-home.jpg)
@@ -94,4 +98,4 @@ If something goes wrong, see [Troubleshooting](docs/getting-started.md#troublesh
 
 ## Project background
 
-Based on the AI Interview Tool implementation at commit `ffb890a`, with an animated interviewer, playback feedback and local setup documentation. No open-source license has been specified.
+Based on the AI Interview Tool implementation at commit `ffb890a`, with an animated interviewer, playback feedback and local setup documentation. Released under the [MIT License](LICENSE).
