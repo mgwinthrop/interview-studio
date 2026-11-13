@@ -18,11 +18,11 @@ Backend (`apps/backend`):
 - `npm run test:integration` — opt-in run of a real session against real providers over WebSocket with an LLM judge. Needs the backend already running with `PROFILE=cloud` and real API keys (also `ANTHROPIC_API_KEY` in the test's environment for the judge); sets `INTEGRATION_TEST=1`; `TEST_WS_URL` overrides the default `ws://localhost:3001`. Excluded from `npm test`.
 - `npm run build` — `tsc`
 
-Frontend (`apps/frontend`): `npm run dev` (port 3000), `npm run lint`, `npm run build`. There are no frontend tests.
+Frontend (`apps/frontend`): `npm run dev` (port 3000), `npm run lint`, `npm run build`, `npm test` (vitest unit tests for the pure logic under `app/`, in `tests/unit/`), `npm run test:e2e` (Playwright smoke tests in `e2e/` against the mock backend and a production build, with a fake microphone; needs `npx playwright install chromium` once and ports 3000 and 3001 free). Real microphone speech is not automated.
 
 Server tests share one harness: see "Adding a server test" in `docs/contributing.md`.
 
-Before publishing, run all of: `npm test`, frontend lint, frontend build, backend build.
+Before publishing, run all of: `npm test`, frontend `npm test`, frontend lint, frontend build, `npm run test:e2e`, backend build.
 
 `http://localhost:3000/avatar` previews every avatar state with no backend, keys or microphone. Use it to check UI states and reduced motion.
 

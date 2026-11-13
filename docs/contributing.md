@@ -26,14 +26,22 @@ flowchart LR
 
 ```sh
 npm test                                  # backend unit tests and the keyless conversation test
+npm --prefix apps/frontend test           # frontend unit tests
 npm --prefix apps/frontend run lint
 npm --prefix apps/frontend run build
 npm --prefix apps/backend run build
+npm --prefix apps/frontend run test:e2e   # browser smoke tests (see below)
 ```
 
 `npm test` needs no keys and no running server. A single file runs with `cd apps/backend && npx vitest run src/__tests__/orchestrator.test.ts`.
 
-There are no frontend tests. An opt-in integration test (`npm run test:integration` in `apps/backend`) runs a real session against real providers with an LLM judge. It needs a running backend with real keys and is not part of `npm test`.
+### Frontend tests
+
+- **Unit tests** (`apps/frontend/tests/unit/`, vitest) cover the pure logic under `app/`: the report and draft parsers, the same-site path checks, PCM encoding, chart maths and wording, and the settings and calls validators. Add a test next to the ones for the module you change. A test that touches `sessionStorage` starts with `// @vitest-environment jsdom`.
+- **Browser smoke tests** (`apps/frontend/e2e/`, Playwright) run the real app in mock mode with a fake microphone: every page loads without console errors, the cross-origin isolation headers and VAD assets are served, and a live mock conversation connects and reaches the listening state. One-time setup: `npx playwright install chromium` in `apps/frontend`. Then `npm run test:e2e` builds the frontend and starts the mock backend itself (ports 3000 and 3001 must be free).
+- **Still manual:** real speech through a real microphone. Before a release, have one real conversation (the VAD, interrupt and playback behaviour need real audio).
+
+An opt-in integration test (`npm run test:integration` in `apps/backend`) runs a real session against real providers with an LLM judge. It needs a running backend with real keys and is not part of `npm test`.
 
 ## What to keep stable
 
