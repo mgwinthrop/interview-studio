@@ -70,20 +70,20 @@ const MSG = {
 const MODEL_ID = /^[A-Za-z0-9._:-]{1,100}$/;
 const STT_ID = /^[A-Za-z0-9._-]{1,60}$/;
 
-const modelId = z.string({ invalid_type_error: MSG.type, required_error: MSG.type }).regex(MODEL_ID, MSG.modelId);
+const modelId = z.string({ error: MSG.type }).regex(MODEL_ID, MSG.modelId);
 
 const valueFields = {
   replyModel: modelId,
   reportModel: modelId,
   draftModel: modelId,
   replyMaxTokens: z
-    .number({ invalid_type_error: MSG.tokens, required_error: MSG.tokens })
+    .number({ error: MSG.tokens })
     .int(MSG.tokens)
     .min(SETTINGS_LIMITS.replyMaxTokensMin, MSG.tokens)
     .max(SETTINGS_LIMITS.replyMaxTokensMax, MSG.tokens),
-  sttModel: z.string({ invalid_type_error: MSG.type, required_error: MSG.type }).regex(STT_ID, MSG.sttId),
+  sttModel: z.string({ error: MSG.type }).regex(STT_ID, MSG.sttId),
   ttsModel: modelId,
-  spokenFormat: z.enum(SPOKEN_FORMATS, { errorMap: () => ({ message: MSG.format }) }),
+  spokenFormat: z.enum(SPOKEN_FORMATS, { error: MSG.format }),
 } as const;
 
 const valuesPatchSchema = z.object(valueFields).partial().strict();
@@ -128,8 +128,7 @@ function isRealDate(s: string): boolean {
 }
 
 const priceNumber = z
-  .number({ invalid_type_error: MSG.price, required_error: MSG.price })
-  .finite(MSG.price)
+  .number({ error: MSG.price })
   .min(0, MSG.price)
   .max(SETTINGS_LIMITS.priceMax, MSG.price);
 
@@ -139,7 +138,7 @@ const priceRowSchema = z
     inputPerMtok: priceNumber,
     outputPerMtok: priceNumber,
     asOf: z
-      .string({ invalid_type_error: MSG.date, required_error: MSG.date })
+      .string({ error: MSG.date })
       .refine(isRealDate, MSG.date),
   })
   .strict();

@@ -86,13 +86,16 @@ const MSG = {
   feedbackOff: "Turn on content or delivery feedback (or both).",
 };
 
+/** Missing value reads as "required", any other wrong type as "wrong type". */
+const typeErr = (iss: { input?: unknown }) => (iss.input === undefined ? MSG.required : MSG.type);
+
 const tooLong = (cap: number) => `Must be at most ${cap} characters.`;
 
 function text(cap: number) {
   return z.preprocess(
     (v) => (typeof v === "string" ? v.replace(/\r\n?/g, "\n").trim() : v),
     z
-      .string({ invalid_type_error: MSG.type, required_error: MSG.required })
+      .string({ error: typeErr })
       .min(1, MSG.required)
       .max(cap, tooLong(cap))
       .refine((s) => !CONTROL_CHARS.test(s), MSG.control),
@@ -100,7 +103,7 @@ function text(cap: number) {
 }
 
 const turns = z
-  .number({ invalid_type_error: MSG.type })
+  .number({ error: typeErr })
   .int(MSG.integer)
   .min(1, MSG.turnsRange)
   .max(INTERVIEWER_LIMITS.turns, MSG.turnsRange);
@@ -123,7 +126,7 @@ const inputShape = {
   opening: text(INTERVIEWER_LIMITS.opening),
   closing: text(INTERVIEWER_LIMITS.closing),
   phases: z
-    .array(phaseSchema, { invalid_type_error: MSG.type, required_error: MSG.required })
+    .array(phaseSchema, { error: typeErr })
     .min(1, "At least 1 phase is required.")
     .max(INTERVIEWER_LIMITS.phases, `At most ${INTERVIEWER_LIMITS.phases} phases are allowed.`)
     .superRefine((phases, ctx) => {
@@ -159,14 +162,14 @@ const inputShape = {
       });
     }),
   focus: z
-    .array(text(INTERVIEWER_LIMITS.focusItem), { invalid_type_error: MSG.type, required_error: MSG.required })
+    .array(text(INTERVIEWER_LIMITS.focusItem), { error: typeErr })
     .max(INTERVIEWER_LIMITS.focusItems, `At most ${INTERVIEWER_LIMITS.focusItems} focus items are allowed.`),
-  contentFeedback: z.boolean({ invalid_type_error: MSG.type }).default(true),
-  deliveryFeedback: z.boolean({ invalid_type_error: MSG.type }).default(true),
+  contentFeedback: z.boolean({ error: typeErr }).default(true),
+  deliveryFeedback: z.boolean({ error: typeErr }).default(true),
   voice: z
     .object({
       cloud: z
-        .string({ invalid_type_error: MSG.type })
+        .string({ error: typeErr })
         .regex(/^[A-Za-z0-9]{10,40}$/, MSG.voice)
         .optional(),
     })
@@ -192,19 +195,17 @@ const definitionSchema = z
   .object({
     ...inputShape,
     id: z
-      .string({ invalid_type_error: MSG.type, required_error: MSG.required })
+      .string({ error: typeErr })
       .min(1, MSG.required)
       .max(64, tooLong(64))
       .regex(/^[A-Za-z0-9_-]+$/, MSG.id),
-    source: z.enum(["preset", "custom"], {
-      errorMap: () => ({ message: "Must be preset or custom." }),
-    }),
+    source: z.enum(["preset", "custom"], { error: "Must be preset or custom." }),
     ownerId: z
-      .string({ invalid_type_error: MSG.type, required_error: MSG.required })
+      .string({ error: typeErr })
       .min(1, MSG.required)
       .max(64, tooLong(64)),
     version: z
-      .number({ invalid_type_error: MSG.type, required_error: MSG.required })
+      .number({ error: typeErr })
       .int(MSG.integer)
       .min(1, "Must be at least 1."),
     createdAt: isoDate(),
@@ -214,7 +215,7 @@ const definitionSchema = z
 
 function isoDate() {
   return z
-    .string({ invalid_type_error: MSG.type, required_error: MSG.required })
+    .string({ error: typeErr })
     .refine((s) => !Number.isNaN(Date.parse(s)) && /^\d{4}-\d{2}-\d{2}/.test(s), MSG.date);
 }
 
@@ -227,17 +228,17 @@ function toFieldErrors(error: z.ZodError): FieldError[] {
         break;
       case "invalid_type":
         message =
-          issue.received === "undefined"
-            ? MSG.required
-            : issue.expected === "integer"
-              ? MSG.integer
+          issue.expected === "int"
+            ? MSG.integer
+            : issue.message === MSG.required
+              ? MSG.required
               : MSG.type;
         break;
       case "too_small":
       case "too_big":
       case "custom":
-      case "invalid_string":
-      case "invalid_enum_value":
+      case "invalid_format":
+      case "invalid_value":
         message = issue.message;
         break;
       default:
