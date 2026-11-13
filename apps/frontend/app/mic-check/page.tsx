@@ -119,7 +119,7 @@ export default function MicCheckPage() {
       if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
       if (audioCtxRef.current) audioCtxRef.current.close();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, []);
 
   function handleDeviceChange(deviceId: string) {

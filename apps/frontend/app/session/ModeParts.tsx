@@ -33,7 +33,7 @@ export function OverlayFrame({
 }: {
   role?: "alert" | "status";
   title: ReactNode;
-  titleRef?: RefObject<HTMLHeadingElement>;
+  titleRef?: RefObject<HTMLHeadingElement | null>;
   body: ReactNode;
   children?: ReactNode;
 }) {
@@ -62,7 +62,7 @@ export function LoadFailedOverlay({ onRetry }: { onRetry: () => void }) {
 }
 
 // Design mode: the draft was made but this browser would not keep it for the editor.
-export function DraftNotKeptOverlay({ retryRef, onRetry }: { retryRef: RefObject<HTMLButtonElement>; onRetry: () => void }) {
+export function DraftNotKeptOverlay({ retryRef, onRetry }: { retryRef: RefObject<HTMLButtonElement | null>; onRetry: () => void }) {
   return (
     <OverlayFrame title="Draft not kept" body="Your draft could not be kept in this browser. Try again.">
       <button ref={retryRef} onClick={onRetry} style={overlayPrimaryStyle}>
@@ -73,7 +73,7 @@ export function DraftNotKeptOverlay({ retryRef, onRetry }: { retryRef: RefObject
 }
 
 // Design mode: the server could not make a valid draft.
-export function DesignFailedOverlay({ retryRef, onRetry }: { retryRef: RefObject<HTMLButtonElement>; onRetry: () => void }) {
+export function DesignFailedOverlay({ retryRef, onRetry }: { retryRef: RefObject<HTMLButtonElement | null>; onRetry: () => void }) {
   return (
     <OverlayFrame title="No draft yet" body="The designer could not make a draft from this conversation.">
       <button ref={retryRef} onClick={onRetry} style={overlayPrimaryStyle}>
@@ -112,7 +112,7 @@ export function SessionFailedOverlay() {
 }
 
 // Try mode: the draft was refused before the trial started.
-export function DraftRejectedOverlay({ backRef, onBack }: { backRef: RefObject<HTMLButtonElement>; onBack: () => void }) {
+export function DraftRejectedOverlay({ backRef, onBack }: { backRef: RefObject<HTMLButtonElement | null>; onBack: () => void }) {
   return (
     <OverlayFrame
       title="This draft isn&apos;t ready to try yet"
@@ -157,7 +157,7 @@ export function ConnectionLostOverlay({
 }
 
 // Design mode: waiting for the draft. Nothing to dismiss; the draft or a failure ends it.
-export function MakingDraftOverlay({ headingRef }: { headingRef: RefObject<HTMLHeadingElement> }) {
+export function MakingDraftOverlay({ headingRef }: { headingRef: RefObject<HTMLHeadingElement | null> }) {
   return (
     <OverlayFrame
       role="status"
@@ -178,7 +178,7 @@ export function TrialBanner() {
 }
 
 // Full-screen dim so presenter and audience see the paused state clearly.
-export function PausedOverlay({ resumeRef, onResume }: { resumeRef: RefObject<HTMLButtonElement>; onResume: () => void }) {
+export function PausedOverlay({ resumeRef, onResume }: { resumeRef: RefObject<HTMLButtonElement | null>; onResume: () => void }) {
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="paused-title" style={pausedBackdropStyle}>
       <div style={{ fontSize: 48, lineHeight: 1 }} aria-hidden="true">⏸</div>

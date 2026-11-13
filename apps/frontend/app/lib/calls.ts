@@ -215,7 +215,7 @@ export function parseTerms(input: string): { ok: true; terms: string[] } | { ok:
   for (const raw of input.split(/[,\r\n]/)) {
     const term = raw.trim();
     if (term.length === 0) continue;
-    // eslint-disable-next-line no-control-regex
+     
     if (/[\u0000-\u001F\u007F]/.test(term)) {
       return { ok: false, message: "A name contains a tab or other control character. Remove it, then try again." };
     }
@@ -242,13 +242,13 @@ export function normaliseApprovedText(text: string): string {
     text
       .replace(/\r\n?/g, "\n")
       .replace(/\t/g, " ")
-      // eslint-disable-next-line no-control-regex
+       
       .replace(/[\u0000-\u0008\u000B-\u001F\u007F]/g, "")
       .trim()
   );
 }
 
-// eslint-disable-next-line no-control-regex
+ 
 const LINE_BREAKS = /[\r\n\u000B\u000C\u0085\u2028\u2029]+/g;
 const CALL_ROLE_LINE = /^(?:Buyer|Our side \d+): /;
 const BUYER_PREFIX = "Buyer: ";
