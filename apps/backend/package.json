@@ -19,7 +19,7 @@
     "express": "^4.21.2",
     "uuid": "^11.0.3",
     "ws": "^8.18.0",
-    "zod": "^3.25.76"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
@@ -37,5 +37,9 @@
     "type": "git",
     "url": "git+https://github.com/mgwinthrop/interview-studio.git"
   },
-  "description": "Interview Studio backend: voice conversations with an AI interviewer"
+  "description": "Interview Studio backend: voice conversations with an AI interviewer",
+  "overrides": {
+    "qs": "^6.17.1",
+    "esbuild": "^0.28.1"
+  }
 }

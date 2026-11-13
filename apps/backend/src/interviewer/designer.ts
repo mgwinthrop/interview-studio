@@ -1,4 +1,4 @@
-import { z, type ZodType, type ZodTypeDef } from "zod";
+import { z, type ZodType } from "zod";
 import type { ChatMessage, LlmProvider } from "../providers/types";
 import { findLeaks } from "../redaction/leakCheck";
 import type { UsageMeta } from "../usage";
@@ -82,7 +82,7 @@ function pick(obj: Record<string, unknown>, keys: readonly string[]): Record<str
  * saving. Issues carry paths and fixed messages only, never the model's text. Throwing here lets
  * the cloud provider retry the call once.
  */
-const draftOutputSchema: ZodType<InterviewerInput, ZodTypeDef, unknown> = z.unknown().transform((raw, ctx) => {
+const draftOutputSchema: ZodType<InterviewerInput, unknown> = z.unknown().transform((raw, ctx) => {
   if (!isPlainObject(raw)) {
     ctx.addIssue({ code: "custom", message: "Expected a JSON object." });
     return z.NEVER;
