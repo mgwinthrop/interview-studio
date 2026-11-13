@@ -13,12 +13,12 @@
     "next": "14.2.35",
     "onnxruntime-web": "^1.24.3",
     "react": "^18",
-    "react-dom": "^18"
+    "react-dom": "^19"
   },
   "devDependencies": {
     "@types/node": "^20",
     "@types/react": "^18",
-    "@types/react-dom": "^18",
+    "@types/react-dom": "^19",
     "copy-webpack-plugin": "^14.0.0",
     "eslint": "^8",
     "eslint-config-next": "14.2.35",
