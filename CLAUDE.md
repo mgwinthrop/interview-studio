@@ -8,7 +8,7 @@ Interview Studio: a voice-conversation tool where an AI interviewer asks questio
 
 ## Commands
 
-Requires Node 20+. Install per app: `npm --prefix apps/backend ci` and `npm --prefix apps/frontend ci`. Copy `apps/backend/.env.example` to `.env` and `apps/frontend/.env.example` to `.env.local`.
+Requires Node 22.12+. Install per app: `npm --prefix apps/backend ci` and `npm --prefix apps/frontend ci`. Copy `apps/backend/.env.example` to `.env` and `apps/frontend/.env.example` to `.env.local`.
 
 Backend (`apps/backend`):
 - `npx prisma generate` — required once after install, and after schema changes

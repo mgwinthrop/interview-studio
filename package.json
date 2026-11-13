@@ -9,5 +9,8 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/mgwinthrop/interview-studio.git"
+  },
+  "engines": {
+    "node": ">=22.12.0"
   }
 }

@@ -37,5 +37,8 @@
     "type": "git",
     "url": "git+https://github.com/mgwinthrop/interview-studio.git"
   },
-  "description": "Interview Studio frontend: voice conversations with an AI interviewer"
+  "description": "Interview Studio frontend: voice conversations with an AI interviewer",
+  "engines": {
+    "node": ">=22.12.0"
+  }
 }
