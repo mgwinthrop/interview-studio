@@ -9,3 +9,15 @@ A tool for finding your voice through guided conversation and helpful feedback. 
 - Public source is not a public hosted service: local mode accepts loopback connections only, with Host and Origin checks, and an optional shared `AUTH_TOKEN` mode exists. It is still a single-user prototype with no per-user accounts.
 - Cloud sending of call text is off unless `CLOUD_SEND_TRANSCRIPTS` is set (the mock profile also allows it); LLM usage rows hold numbers and ids only, never text. See `docs/calls-and-privacy.md`.
 - Verify frontend lint/build and backend tests/build before publishing changes.
+
+## Factory
+
+Read `CLAUDE.md` for the project's commands and conventions, then read
+`docs/factory/CONTRACT.md` and `docs/factory/CHARTER.md` before changing anything.
+For first-time setup and the local dry run, follow `docs/factory/README.md`.
+
+The contract is shared with Claude Code. If this adapter and the contract disagree, the
+contract wins. Use the repo-scoped skills under `.agents/skills/` for factory workflows.
+
+Repository hooks in `.codex/hooks.json` are defense in depth. They require local trust and
+do not replace GitHub branch protection.
