@@ -33,6 +33,8 @@ interface UseVADReturn {
   hearing: Hearing;
   /** Set when the remembered microphone was missing and another one opened instead (FQ-40). */
   micFallback: MicFallback | null;
+  /** Whether the latest hearing attempt was the first start or a reopen after a pause (FQ-79). */
+  hearingAttempt: "start" | "resume";
   startMic: () => Promise<void>;
   stopMic: () => void;
   pauseMic: () => void;
@@ -43,6 +45,10 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
   const [micActive, setMicActive] = useState(false);
   const [hearing, setHearing] = useState<Hearing>("off");
   const [micFallback, setMicFallback] = useState<MicFallback | null>(null);
+  const [hearingAttempt, setHearingAttempt] = useState<"start" | "resume">("start");
+  // Bumped by every pauseMic and resumeMic: a reopen whose number is no longer current is stale
+  // (a pause or a newer resume happened while it was opening), like a stale start generation.
+  const resumeSeqRef = useRef(0);
   const vadRef = useRef<Awaited<ReturnType<typeof MicVAD.new>> | null>(null);
   // Start generation: each startMic takes a new one, and stopMic/unmount bump it. A VAD whose
   // generation is no longer current is stale: its callbacks do nothing, and if it finishes
@@ -86,7 +92,7 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
     // chosen in the mic check, found by id and then by name (ids can change between page loads),
     // or else the default with a notice (FQ-40). A stream that arrives after this start went
     // stale is stopped, so a stop during a reopen never leaves a microphone live.
-    const openMic = async (): Promise<MediaStream> => {
+    const openMic = async (resumeSeq?: number): Promise<MediaStream> => {
       const choice = readMicChoice();
       let stream: MediaStream;
       let fallback: MicFallback | null = null;
@@ -106,7 +112,7 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
           fallback = { label: choice.label, using: stream.getAudioTracks()[0]?.label ?? "" };
         }
       }
-      if (gen !== genRef.current) {
+      if (gen !== genRef.current || (resumeSeq !== undefined && resumeSeq !== resumeSeqRef.current)) {
         stream.getTracks().forEach((t) => t.stop());
         throw new Error("stale microphone open");
       }
@@ -133,7 +139,8 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
       },
       // Reopen after a pause: same device and settings (vad-web's default reopens the browser
       // default with its own settings).
-      resumeStream: () => openMic(),
+      // vad-web calls this synchronously inside start(), so the number read here is the resume's.
+      resumeStream: () => openMic(resumeSeqRef.current),
 
       // Locked thresholds — do not change (AGENTS.md)
       positiveSpeechThreshold: 0.8,
@@ -230,6 +237,7 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
     if (startingRef.current) return startingRef.current; // a start is already in progress
     const gen = ++genRef.current;
     setHearing("starting");
+    setHearingAttempt("start");
     setMicFallback(null);
     const starting = loadVad(gen);
     startingRef.current = starting;
@@ -254,12 +262,32 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
 
   const pauseMic = useCallback(() => {
     pausedRef.current = true;
+    resumeSeqRef.current++; // a reopen still in flight is now stale
     vadRef.current?.pause().catch(() => {});
   }, []);
 
+  // FQ-79: report whether the microphone really reopened. Only a paused, loaded VAD reopens
+  // anything: with no VAD (still loading, or its start failed) or without a pause before it
+  // (vad-web's start() is then a no-op), the current hearing state stays as it is.
   const resumeMic = useCallback(() => {
+    const wasPaused = pausedRef.current;
     pausedRef.current = false;
-    vadRef.current?.start().catch(() => {});
+    const vad = vadRef.current;
+    if (!vad || !wasPaused) return;
+    const gen = genRef.current;
+    const seq = ++resumeSeqRef.current;
+    const current = () => gen === genRef.current && seq === resumeSeqRef.current;
+    setHearing("starting");
+    setHearingAttempt("resume");
+    vad.start().then(
+      () => { if (current()) setHearing("ready"); },
+      (err: unknown) => {
+        if (!current()) return;
+        console.warn("Microphone reopen failed:", err instanceof Error ? err.name : "unknown");
+        setMicFallback(null);
+        setHearing("failed");
+      },
+    );
   }, []);
 
   // Clean up on unmount — bumping the generation gates callbacks so StrictMode's
@@ -276,5 +304,5 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
     };
   }, []);
 
-  return { micActive, hearing, micFallback, startMic, stopMic, pauseMic, resumeMic };
+  return { micActive, hearing, micFallback, hearingAttempt, startMic, stopMic, pauseMic, resumeMic };
 }

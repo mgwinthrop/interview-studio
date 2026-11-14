@@ -173,7 +173,7 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
     return Math.max(0, speechStartedAtMs - endedAt);
   }, []);
 
-  const { micActive, hearing, micFallback, startMic, stopMic, pauseMic, resumeMic } = useVAD({
+  const { micActive, hearing, micFallback, hearingAttempt, startMic, stopMic, pauseMic, resumeMic } = useVAD({
     sendMessage: sendMessageWithFlush,
     aiSpeaking: aiSpeaking || audioPlaying,
     onSpeechSent: handleSpeechSent,
@@ -241,11 +241,19 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
   // FQ-41: if voice detection is not listening 10 s after this view opens, for any reason (failed
   // or hung load, blocked worklet, no gesture after a reload), say so and open typing. A late
   // start that becomes ready clears the message.
+  // FQ-79: the 10 s also restarts with every new attempt (a start, or a reopen after a pause),
+  // so a reopen that hangs is reported too. The first timer still runs from mount, so a start
+  // that never begins (no gesture) is reported as before.
   const [hearingDeadlinePassed, setHearingDeadlinePassed] = useState(false);
+  const [hearingEpoch, setHearingEpoch] = useState(0);
   useEffect(() => {
+    if (hearing === "starting") setHearingEpoch((e) => e + 1);
+  }, [hearing]);
+  useEffect(() => {
+    setHearingDeadlinePassed(false);
     const t = setTimeout(() => setHearingDeadlinePassed(true), HEARING_DEADLINE_MS);
     return () => clearTimeout(t);
-  }, []);
+  }, [hearingEpoch]);
   const cannotHear = hearingUnavailable(hearing, hearingDeadlinePassed);
   useEffect(() => {
     if (cannotHear) setShowTextInput(true);
@@ -534,7 +542,11 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
       {/* Text input fallback — fixed bar above footer, hidden by default (spec §7) */}
       {cannotHear && (
         <p role="alert" className="session-hearing-alert">
-          <strong>We can&apos;t hear you in this browser.</strong> Voice detection didn&apos;t start. You can type your answers instead.
+          {hearingAttempt === "resume" ? (
+            <><strong>We can&apos;t hear your microphone.</strong> It didn&apos;t restart after the pause. You can type your answers, or pause and resume to try again.</>
+          ) : (
+            <><strong>We can&apos;t hear you in this browser.</strong> Voice detection didn&apos;t start. You can type your answers instead.</>
+          )}
         </p>
       )}
       {showTextInput && <TextInputBar value={textInput} onChange={setTextInput} onSend={handleTextSend} />}
