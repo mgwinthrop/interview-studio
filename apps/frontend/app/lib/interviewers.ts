@@ -21,6 +21,8 @@ export interface InterviewerPhase {
 /** The editable fields of an interviewer (the body of create and update). */
 export interface InterviewerInput {
   name: string;
+  /** Who the person talks to ("Practice interviewer"); optional. `name` is the activity. */
+  displayName?: string;
   purpose: string;
   persona: string;
   style: string;

@@ -304,6 +304,7 @@ body {
 .interviewer-heading h2 { font-size:26px; font-weight:700; margin:8px 0; letter-spacing:-.04em; }
 .interviewer-eyebrow { font-size:10px; letter-spacing:.15em; color:#93C9C4; font-weight:600; }
 .interviewer-heading p,.interviewer-caption { font-size:12px; line-height:1.6; color:#B5CDCE; max-width:190px; margin:0; }
+.interviewer-heading p { display:-webkit-box; -webkit-line-clamp:3; line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere; }
 .interviewer-avatar { color:#87D6C8; width:min(100%,220px); flex-shrink:0; }
 .interviewer-avatar svg { width:100%; height:auto; display:block; }
 .interviewer-avatar .avatar-mouth,.interviewer-avatar .avatar-thought { display:none; }
