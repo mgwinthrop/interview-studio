@@ -125,3 +125,22 @@ state transitions), and the PR checklist must record the Playwright run.
   the same alert with different wording.
 - **C. Panel state.** Reuse the avatar's existing `error` look with the label "Can't hear you"
   (proposed: no new animation), or add a dedicated avatar state.
+
+## Critic review and owner decisions (2026-11-14)
+
+factory-critic verdict on the draft above: **needs changes before approval**. Its main findings, all confirmed against the code:
+
+1. Hearing can also fail silently after `MicVAD.new`: a blocked worklet makes `vad.start()` reject (today only a warning). It can also never start: `startMic` waits for `audioQueue.resume()`, and after a reload the gesture flag is gone, so the panel says "Listening" forever. And during "starting" the panel already says "Listening".
+2. ORT's backend failure is sticky for the page, so a retry cannot recover. Discarding a late success would turn one slow load into a session-long "can't hear you".
+3. A failing browser test merged alone would turn CI red. The fix, the test and the copy must ship together.
+4. The oracle could not tell "ready" from "starting". It needs an observable state, an assertion on the worklet request, and a hanging route for the timeout.
+5. The `.mjs` is also fetched as a module-worker script (pthreads), so its response needs COEP `require-corp`. The catch-all header rule provides it, and the test must check it.
+6. Reusing the avatar `error` look would announce "Connection error" to screen readers.
+7. Copy the runtime from the package that vad-web resolves, not from a fixed path.
+
+Owner decisions, which supersede decisions A-C above:
+
+- **Trigger:** if hearing is not ready 10 s after the session view opens, for any reason (load failure, hang, worklet, permission, no gesture), show the message and open typing. Until hearing is ready, the panel says "Getting ready…", never "Listening".
+- **Late success recovers:** hearing starts, the message clears, and the panel returns to Listening.
+- **Panel:** a new, still avatar state, "Can't hear you", that replaces only the listening display. Thinking and speaking still show during typed turns.
+- **Process:** formal gates 3 and 4 waived by the owner. Built as one interactive draft PR (fix, browser test and hook unit tests), with deep gates, the verifier and a human read. Stop and split if the diff exceeds 400 lines.
