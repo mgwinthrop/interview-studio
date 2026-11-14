@@ -2,13 +2,15 @@
 
 import { useEffect, useRef } from "react";
 import type { TranscriptEntry } from "../types";
+import { speakerBadge, speakerLabel } from "../lib/transcriptLabels";
 
 interface LiveTranscriptProps {
   entries: TranscriptEntry[];
   aiSpeaking: boolean;
+  interviewerName: string;
 }
 
-function Avatar({ role }: { role: "user" | "assistant" }) {
+function Avatar({ role, interviewerName }: { role: "user" | "assistant"; interviewerName: string }) {
   return (
     <div
       style={{
@@ -26,7 +28,7 @@ function Avatar({ role }: { role: "user" | "assistant" }) {
         letterSpacing: 0,
       }}
     >
-      {role === "assistant" ? "M" : "U"}
+      {speakerBadge(role, interviewerName)}
     </div>
   );
 }
@@ -50,7 +52,7 @@ function Chip({ label, bg, color }: { label: string; bg: string; color: string }
   );
 }
 
-export function LiveTranscript({ entries, aiSpeaking }: LiveTranscriptProps) {
+export function LiveTranscript({ entries, aiSpeaking, interviewerName }: LiveTranscriptProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -155,7 +157,7 @@ export function LiveTranscript({ entries, aiSpeaking }: LiveTranscriptProps) {
             return (
               <div key={entry.id} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <Avatar role="user" />
+                  <Avatar role="user" interviewerName={interviewerName} />
                   <span
                     style={{
                       fontSize: 10,
@@ -165,7 +167,7 @@ export function LiveTranscript({ entries, aiSpeaking }: LiveTranscriptProps) {
                       color: "#566475",
                     }}
                   >
-                    Participant
+                    {speakerLabel("user", interviewerName)}
                   </span>
                 </div>
                 <div
@@ -191,7 +193,7 @@ export function LiveTranscript({ entries, aiSpeaking }: LiveTranscriptProps) {
             return (
               <div key={entry.id} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <Avatar role="assistant" />
+                  <Avatar role="assistant" interviewerName={interviewerName} />
                   <span
                     style={{
                       fontSize: 10,
@@ -201,7 +203,7 @@ export function LiveTranscript({ entries, aiSpeaking }: LiveTranscriptProps) {
                       color: "#566475",
                     }}
                   >
-                    Interviewer Speaking
+                    {speakerLabel("assistant", interviewerName)} speaking
                   </span>
                   <Chip label="Current Question" bg="#D8F0EC" color="#066C77" />
                 </div>
@@ -239,7 +241,7 @@ export function LiveTranscript({ entries, aiSpeaking }: LiveTranscriptProps) {
           return (
             <div key={entry.id} style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <Avatar role="assistant" />
+                <Avatar role="assistant" interviewerName={interviewerName} />
                 <span
                   style={{
                     fontSize: 10,
@@ -249,7 +251,7 @@ export function LiveTranscript({ entries, aiSpeaking }: LiveTranscriptProps) {
                     color: "#566475",
                   }}
                 >
-                  Interviewer
+                  {speakerLabel("assistant", interviewerName)}
                 </span>
                 <Chip label="Completed" bg="#F0F2F5" color="#566475" />
               </div>

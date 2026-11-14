@@ -490,7 +490,7 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
             overflow: "hidden",
           }}
         >
-          <LiveTranscript entries={transcript} aiSpeaking={aiSpeaking} />
+          <LiveTranscript entries={transcript} aiSpeaking={aiSpeaking} interviewerName={interviewer.name} />
         </section>
       </main>
 
