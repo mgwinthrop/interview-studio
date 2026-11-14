@@ -151,6 +151,20 @@ describe("token mode", () => {
     expect(r).toMatchObject({ ok: false, status: 401 });
   });
 
+  it("still accepts the token after several spaces or a tab", () => {
+    expect(auth(req({ origin: ORIGIN, authorization: "bearer   s3cret" }))).toMatchObject({ ok: true });
+    expect(auth(req({ origin: ORIGIN, authorization: "Bearer\ts3cret" }))).toMatchObject({ ok: true });
+  });
+
+  it("rejects a long run of spaces before a line separator quickly", () => {
+    // Used to take seconds: `\s+` and `.` overlapped, so the failed match backtracked.
+    const authorization = `bearer${" ".repeat(32_000)}x\u2028y`;
+    const start = Date.now();
+    const r = auth(req({ origin: ORIGIN, authorization }));
+    expect(Date.now() - start).toBeLessThan(500);
+    expect(r).toMatchObject({ ok: false, status: 401 });
+  });
+
   it("never includes the token in the reason", () => {
     const r = auth(req({ origin: ORIGIN, authorization: "Bearer guess-token" }));
     expect(JSON.stringify(r)).not.toContain("guess-token");
