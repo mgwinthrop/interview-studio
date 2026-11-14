@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FQ-44 session mockup</title>
+<style>
+  :root { --ink:#102B33; --muted:#566475; --line:#E2E6EA; --paper:#F4F5F1; --teal:#066C77; --mint:#D8F0EC; }
+  body { margin:0; font-family: system-ui, sans-serif; background:#fff; color:#000; padding:16px; }
+  h1 { font-size:18px; margin:0 0 4px; }
+  .note { color:var(--muted); font-size:14px; margin:0 0 20px; }
+  .pair { display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:24px; }
+  .frame { border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .cap { font-size:12px; font-weight:700; letter-spacing:.08em; padding:8px 12px; background:var(--paper); border-bottom:1px solid var(--line); }
+  .cap.bad { color:#9B2C2C; } .cap.good { color:var(--teal); }
+  .screen { display:grid; grid-template-columns:150px 1fr; min-height:300px; }
+  .panel { background:var(--ink); color:#fff; padding:16px 12px; text-align:center; }
+  .eyebrow { font-size:9px; letter-spacing:.12em; color:#9ED8D0; }
+  .panel h2 { font-size:18px; margin:6px 0; }
+  .panel p { font-size:11px; color:#CFE3E0; margin:0 0 12px; }
+  .face { width:70px; height:70px; border-radius:50%; background:#1C4A55; margin:0 auto 10px; border:2px solid #9ED8D0; }
+  .status { font-size:12px; font-weight:600; }
+  .tx { padding:12px; display:flex; flex-direction:column; gap:10px; }
+  .who { display:flex; align-items:center; gap:6px; font-size:9px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+  .b { width:18px; height:18px; border-radius:50%; display:grid; place-items:center; font-size:9px; font-weight:700; }
+  .b.ai { background:var(--ink); color:#fff; } .b.me { background:var(--line); color:var(--muted); }
+  .chip { background:var(--mint); color:var(--teal); padding:2px 6px; border-radius:4px; }
+  .msg { background:var(--paper); border:1px solid var(--line); border-radius:6px; padding:8px 10px; font-size:13px; }
+  .msg.cur { background:var(--ink); color:#fff; }
+  mark { background:#FDE8E8; color:#9B2C2C; padding:0 2px; border-radius:2px; }
+  mark.ok { background:var(--mint); color:var(--teal); }
+</style>
+</head>
+<body>
+<h1>Session screen, "listening" state</h1>
+<p class="note">The interviewer has finished its question and is waiting for the person. Built-in interviewer: Rehearse an interview. Highlights mark what changes.</p>
+<div class="pair">
+  <div class="frame">
+    <div class="cap bad">BEFORE</div>
+    <div class="screen">
+      <div class="panel">
+        <div class="eyebrow">YOUR AI INTERVIEWER</div>
+        <h2><mark>AI interviewer</mark></h2>
+        <p><mark>Explore your experience through conversation.</mark></p>
+        <div class="face"></div>
+        <div class="status">● Listening</div>
+      </div>
+      <div class="tx">
+        <div class="who"><span class="b me">U</span><mark>Participant</mark></div>
+        <div class="msg">I led the migration to the new billing system.</div>
+        <div class="who"><span class="b ai"><mark>M</mark></span><mark>Interviewer speaking</mark> <span class="chip">Current question</span></div>
+        <div class="msg cur">What was the hardest trade-off you made?</div>
+      </div>
+    </div>
+  </div>
+  <div class="frame">
+    <div class="cap good">AFTER</div>
+    <div class="screen">
+      <div class="panel">
+        <div class="eyebrow">YOUR AI INTERVIEWER</div>
+        <h2><mark class="ok">Practice interviewer</mark></h2>
+        <p><mark class="ok">Practise answering interview questions out loud in a calm, supportive setting.</mark></p>
+        <div class="face"></div>
+        <div class="status">● Listening</div>
+      </div>
+      <div class="tx">
+        <div class="who"><span class="b me"><mark class="ok">Y</mark></span><mark class="ok">You</mark></div>
+        <div class="msg">I led the migration to the new billing system.</div>
+        <div class="who"><span class="b ai"><mark class="ok">P</mark></span><mark class="ok">Practice interviewer</mark> <span class="chip">Current question</span></div>
+        <div class="msg cur">What was the hardest trade-off you made?</div>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="note" style="margin-top:20px">While the voice is playing, the after-label reads "Practice interviewer speaking"; it drops "speaking" when the panel changes to Listening.</p>
+</body>
+</html>
