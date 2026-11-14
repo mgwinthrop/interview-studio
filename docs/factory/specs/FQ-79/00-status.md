@@ -8,8 +8,9 @@ slices_completed: 0 / ?
 decisions:
   - Message wording as proposed (owner, gate 1)
   - The person lands in the running session with typing open (owner, gate 1)
+  - A - a no-op resume after a failed reopen keeps 'failed' (tracked with a ref) (owner, gate 2)
 open_questions:
-  - Gate 2 decision A and approval (owner)
+  - Gate 2 approval, after the factory-critic review (owner)
 evidence:
   - Reproduced 2026-11-14 on main after PR #81 - getUserMedia made to fail with NotReadableError during a pause; 12 s after Resume the panel said Listening, data-hearing was ready, no message. A second Pause/Resume after the microphone came back appeared to recover.
   - Filed from the FQ-40 spec (decision D, owner chose to keep it out of FQ-40)
