@@ -4,7 +4,7 @@ supersedes: PR #64 (closed unmerged 2026-11-14 at owner's direction)
 gate_1_product: approved 2026-11-14 (owner, interactive)
 gate_2_architecture: approved 2026-11-14 (owner, interactive; revision 2 after factory-critic)
 gate_3_design: approved 2026-11-14 (owner, interactive)
-gate_4_slices: pending
+gate_4_slices: approved 2026-11-14 (owner); queued as #65 #66 #67 #68
 slices_completed: 0 / 4
 decisions:
   - Presets use role names - Curious newcomer, Practice interviewer, Story listener, Thinking partner (owner, gate 1)
