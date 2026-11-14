@@ -3,30 +3,48 @@
 # The working tree must be clean. The script restores it even when the test command fails.
 #
 # Usage:
-#   ./.factory/scripts/prove-test.sh <base-ref> --test-path <path> -- <test command...>
+#   ./.factory/scripts/prove-test.sh <base-ref> [--test-path <path>]... [--precheck <command>] -- <test command...>
+#
+# Order: with the fix, the precheck must pass and the test must pass; then the non-test hunks
+# are reverted, the precheck must still pass, and the test must fail. A test that fails with
+# the fix, or a precheck that fails on either side, is never reported as PROVEN.
+#
+# --precheck is a shell command (run with bash -c) that must succeed on both sides before the
+# test result counts. Use it whenever the test can fail for reasons other than its assertions,
+# for example a Playwright spec, whose web server build fails if the reverted tree does not
+# compile: --precheck 'npm --prefix apps/frontend run build'.
 
 set -euo pipefail
 
-BASE="${1:-}"
-if [ -z "$BASE" ]; then
-  echo "usage: $0 <base-ref> [--test-path <path>]... -- <test command...>" >&2
+usage() {
+  echo "usage: $0 <base-ref> [--test-path <path>]... [--precheck <command>] -- <test command...>" >&2
   exit 2
-fi
+}
+
+BASE="${1:-}"
+[ -n "$BASE" ] || usage
 shift
 
 test_paths=()
+precheck=""
 while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do
-  if [ "$1" != "--test-path" ] || [ "$#" -lt 2 ]; then
-    echo "usage: $0 <base-ref> [--test-path <path>]... -- <test command...>" >&2
-    exit 2
-  fi
-  test_paths+=("$2")
-  shift 2
+  case "$1" in
+    --test-path)
+      [ "$#" -ge 2 ] || usage
+      test_paths+=("$2")
+      shift 2
+      ;;
+    --precheck)
+      [ "$#" -ge 2 ] || usage
+      precheck="$2"
+      shift 2
+      ;;
+    *) usage ;;
+  esac
 done
 
 if [ "${1:-}" != "--" ] || [ "$#" -lt 2 ]; then
-  echo "usage: $0 <base-ref> [--test-path <path>]... -- <test command...>" >&2
-  exit 2
+  usage
 fi
 shift
 
@@ -88,8 +106,45 @@ if [ ! -s "$patch_file" ]; then
   exit 2
 fi
 
+run_precheck() {
+  [ -n "$precheck" ] || return 0
+  echo "PROOF: precheck ($1): $precheck" >&2
+  bash -c "$precheck"
+}
+
+# 1. With the fix: the precheck and the test must both pass.
+set +e
+run_precheck "with fix"
+precheck_status=$?
+set -e
+if [ "$precheck_status" -ne 0 ]; then
+  echo "PROOF: status=MISCONFIGURED reason=precheck-failed-with-fix precheck_exit=$precheck_status"
+  exit 2
+fi
+
+set +e
+"$@"
+fixed_status=$?
+set -e
+if [ "$fixed_status" -ne 0 ]; then
+  echo "PROOF: status=FAILED reason=test-fails-with-fix test_exit=$fixed_status"
+  exit 1
+fi
+
+# 2. Without the fix: the precheck must still pass, and the test must fail.
 git apply -R "$patch_file"
 reverted=1
+
+set +e
+run_precheck "without fix"
+precheck_status=$?
+set -e
+if [ "$precheck_status" -ne 0 ]; then
+  git apply "$patch_file"
+  reverted=0
+  echo "PROOF: status=MISCONFIGURED reason=precheck-failed-without-fix precheck_exit=$precheck_status"
+  exit 2
+fi
 
 set +e
 "$@"

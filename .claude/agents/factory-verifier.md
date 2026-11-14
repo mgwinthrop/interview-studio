@@ -50,12 +50,30 @@ This is the check that catches the most real defects. Start from a clean, commit
 and run the focused test through the shared proof script:
 
 ```bash
-./.factory/scripts/prove-test.sh <base-ref> --test-path <new-or-approved-test-path> -- <focused-test-command>
+./.factory/scripts/prove-test.sh <base-ref> --test-path <new-or-approved-test-path> [--precheck '<build command>'] -- <focused-test-command>
 ```
 
-The script builds a binary patch for the non-test hunks, reverses it, runs the test, and
-restores the patch under a trap. It refuses a dirty working tree. A test that passes with
-the fix removed is worthless and its presence is actively misleading.
+The script builds a binary patch for the non-test hunks. With the fix in place it runs the
+precheck and the test, and both must pass. It then reverses the patch, runs the precheck
+again (it must still pass) and runs the test (it must fail), and restores the patch under a
+trap. It refuses a dirty working tree. A test that passes with the fix removed is worthless
+and its presence is actively misleading.
+
+Only `PROOF: status=PROVEN` counts as proof. `FAILED` (`test-passed-without-fix` or
+`test-fails-with-fix`) is a rejection. `MISCONFIGURED` means the proof could not be made:
+report "could-not-determine", never "yes".
+
+For a Playwright spec (anything under `apps/frontend/e2e/`), a tree that does not compile
+also makes the spec fail, which would read as proof. So:
+
+- Pass `--precheck 'npm --prefix apps/frontend run build'`, so a base that does not build
+  is reported as `MISCONFIGURED reason=precheck-failed-without-fix` instead of PROVEN.
+- Pass only the spec as `--test-path`. New unit tests and the new modules they import are
+  then reverted together and the base still builds. Prove a unit test in its own run.
+- Use `npx --prefix apps/frontend playwright test -c apps/frontend/playwright.config.ts
+  <spec> --trace off --reporter=line` as the test command, and read the output: the
+  failures without the fix must be assertion failures (`expect(...)`), not web server,
+  browser launch or port errors.
 
 If you cannot cleanly separate test from implementation, say so and mark the verdict
 `accepted-with-reservations` rather than pretending you checked.
