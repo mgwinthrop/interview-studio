@@ -20,7 +20,8 @@ function tokensMatch(presented: string, expected: string): boolean {
 function extractToken(req: AuthRequest): string | undefined {
   const header = req.headers.authorization;
   if (typeof header === "string") {
-    const m = /^Bearer\s+(.*)$/i.exec(header.trim());
+    // `\S` after `\s+` keeps the two classes from overlapping, so a failed match cannot backtrack.
+    const m = /^Bearer\s+(\S.*)$/i.exec(header.trim());
     if (m) return m[1];
   }
   try {
