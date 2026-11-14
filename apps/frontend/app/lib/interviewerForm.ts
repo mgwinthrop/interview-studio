@@ -6,6 +6,7 @@ import type { FieldError, InterviewerDetail, InterviewerInput } from "./intervie
 // Copy of INTERVIEWER_LIMITS in apps/backend/src/interviewer/schema.ts. Keep the two in sync.
 export const INTERVIEWER_LIMITS = {
   name: 60,
+  displayName: 40,
   purpose: 200,
   persona: 1500,
   style: 600,
@@ -43,6 +44,7 @@ export function emptyInput(): InterviewerInput {
 export function inputFromDetail(d: InterviewerDetail): InterviewerInput {
   return {
     name: d.name,
+    ...(d.displayName !== undefined ? { displayName: d.displayName } : {}),
     purpose: d.purpose,
     persona: d.persona,
     style: d.style,
@@ -105,6 +107,7 @@ function turns(v: unknown): number | null | undefined {
 function parseShape(raw: unknown): InterviewerInput | null {
   if (!isRecord(raw)) return null;
   const name = str(raw.name, INTERVIEWER_LIMITS.name);
+  const displayName = raw.displayName === undefined ? undefined : str(raw.displayName, INTERVIEWER_LIMITS.displayName);
   const purpose = str(raw.purpose, INTERVIEWER_LIMITS.purpose);
   const persona = str(raw.persona, INTERVIEWER_LIMITS.persona);
   const style = str(raw.style, INTERVIEWER_LIMITS.style);
@@ -112,7 +115,7 @@ function parseShape(raw: unknown): InterviewerInput | null {
   const opening = str(raw.opening, INTERVIEWER_LIMITS.opening);
   const closing = str(raw.closing, INTERVIEWER_LIMITS.closing);
   if (
-    name === null || purpose === null || persona === null ||
+    name === null || displayName === null || purpose === null || persona === null ||
     style === null || behaviours === null || opening === null || closing === null
   ) {
     return null;
@@ -159,7 +162,9 @@ function parseShape(raw: unknown): InterviewerInput | null {
   }
 
   return {
-    name, purpose, persona, style,
+    name,
+    ...(displayName !== undefined ? { displayName } : {}),
+    purpose, persona, style,
     ...(behaviours !== undefined ? { behaviours } : {}),
     opening, closing,
     phases, focus,
