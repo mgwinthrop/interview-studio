@@ -28,6 +28,7 @@ import {
 } from "./ModeParts";
 import { LoadingScreen, SessionPageInner, type SessionViewProps } from "./SessionLoader";
 import { headerBarStyle, interviewerNameStyle, sessionIdStyle, sessionRootStyle, timerStyle } from "./styles";
+import { THINKING_WATCHDOG_MS } from "./timing";
 
 // The live conversation. Mounted only after the interviewer has loaded.
 function SessionView({ interviewer, demo, mode = null, start, returnTo }: SessionViewProps) {
@@ -129,7 +130,7 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
     watchdogRef.current = setTimeout(() => {
       setOrbState((prev) => (prev === "thinking" ? "listening" : prev));
       watchdogRef.current = null;
-    }, 6000);
+    }, THINKING_WATCHDOG_MS);
   }, []);
 
   const handleInterrupt = useCallback(() => {
