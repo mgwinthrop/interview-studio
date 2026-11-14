@@ -4,7 +4,7 @@ gate_1_product: approved 2026-11-14 (owner)
 gate_2_architecture: approved 2026-11-14 (owner, before the factory-critic returned "needs changes first"; all findings folded into the implementation, see the end of 02-architecture.md)
 gate_3_design: waived by owner 2026-11-14 (one interactive PR)
 gate_4_slices: waived by owner 2026-11-14 (single slice, issue #79)
-slices_completed: 0 / 1
+slices_completed: implemented in PR #83 (draft, awaiting owner review)
 decisions:
   - Message wording as proposed (owner, gate 1)
   - The person lands in the running session with typing open (owner, gate 1)
