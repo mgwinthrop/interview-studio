@@ -81,6 +81,7 @@ type Loaded = {
 
 const TEXT_FIELDS: { key: TextKey; label: string; rows?: number; hint: string }[] = [
   { key: "name", label: "Name", hint: "Shown in the list of interviewers." },
+  { key: "displayName", label: "Display name", hint: "Optional. Who the person talks to, shown during the session (for example \"Practice interviewer\"). Left blank, it shows \"Interviewer\"." },
   { key: "purpose", label: "Purpose", rows: 2, hint: "One or two sentences on what this interviewer is for." },
   { key: "persona", label: "Persona", rows: 6, hint: "Who the interviewer is, written to the interviewer (\"You are…\")." },
   { key: "style", label: "Style", rows: 4, hint: "How the interviewer asks questions and responds." },
@@ -501,7 +502,7 @@ function Editor({ source }: { source: Source }) {
         }}
         noValidate
       >
-        {TEXT_FIELDS.filter((f) => !(readOnly && f.key === "behaviours" && form.behaviours === "")).map((f) => (
+        {TEXT_FIELDS.filter((f) => !(readOnly && (f.key === "behaviours" || f.key === "displayName") && form[f.key] === "")).map((f) => (
           <TextField
             key={f.key}
             path={f.key}

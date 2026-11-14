@@ -18,6 +18,7 @@ export interface FormFocus {
 
 export interface FormState {
   name: string;
+  displayName: string;
   purpose: string;
   persona: string;
   style: string;
@@ -31,7 +32,7 @@ export interface FormState {
   voiceCloud: string;
 }
 
-export type TextKey = "name" | "purpose" | "persona" | "style" | "behaviours" | "opening" | "closing";
+export type TextKey = "name" | "displayName" | "purpose" | "persona" | "style" | "behaviours" | "opening" | "closing";
 
 /** Turn counts a phase gets when it stops being the last one. */
 export const DEFAULT_MIN_TURNS = "1";
@@ -46,6 +47,7 @@ export function formFromInput(input: InterviewerInput): FormState {
   const last = input.phases.length - 1;
   return {
     name: input.name,
+    displayName: input.displayName ?? "",
     purpose: input.purpose,
     persona: input.persona,
     style: input.style,
@@ -77,8 +79,11 @@ export function inputFromForm(f: FormState): InterviewerInput {
   const last = f.phases.length - 1;
   const voice = f.voiceCloud.trim();
   const behaviours = f.behaviours.trim();
+  // Optional; the server refuses "", so a blank display name is left out.
+  const displayName = f.displayName.trim();
   return {
     name: f.name,
+    ...(displayName ? { displayName } : {}),
     purpose: f.purpose,
     persona: f.persona,
     style: f.style,
@@ -135,6 +140,7 @@ export function fieldId(path: string): string {
 
 const TOP_LABELS: Record<string, string> = {
   name: "Name",
+  displayName: "Display name",
   purpose: "Purpose",
   persona: "Persona",
   style: "Style",
@@ -177,7 +183,7 @@ export function labelForPath(path: string): string | null {
  * to it), or null when the error is only in the summary.
  */
 export function targetIdForPath(path: string, f: FormState): string | null {
-  if (["name", "purpose", "persona", "style", "behaviours", "opening", "closing", "phases", "focus"].includes(path)) {
+  if (["name", "displayName", "purpose", "persona", "style", "behaviours", "opening", "closing", "phases", "focus"].includes(path)) {
     return fieldId(path);
   }
   if (path === "contentFeedback" || path === "deliveryFeedback") return fieldId("contentFeedback");
