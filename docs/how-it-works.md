@@ -182,7 +182,7 @@ These are the built-in defaults. The Claude models, reply length, speech-to-text
 | Text to speech | `eleven_flash_v2_5` | Lowest-latency ElevenLabs model |
 | Spoken-reply format | `mp3_44100_128` (MP3 variants only) | The browser player and protocol assume MP3 |
 | Fallback voice (fixed) | Cartesia `sonic-english` | An independent provider covers ElevenLabs outages |
-| Voice activity detection (fixed) | `@ricky0123/vad-web` (Silero) | Runs in the browser, so no round trip to find the end of a turn. Its model and ONNX Runtime files are served by the app itself, never a CDN. If it has not started listening 10 s after a session opens, the session says so and opens typing. Sessions record from the microphone chosen on the mic check (remembered in this browser only); if it is missing, the default is used and the session says so |
+| Voice activity detection (fixed) | `@ricky0123/vad-web` (Silero) | Runs in the browser, so no round trip to find the end of a turn. Its model and ONNX Runtime files are served by the app itself, never a CDN. If it has not started listening 10 s after a session opens, or after the microphone reopens following a pause, the session says so and opens typing. Sessions record from the microphone chosen on the mic check (remembered in this browser only); if it is missing, the default is used and the session says so |
 | Microphone format (fixed) | 16 kHz mono PCM16 | The best input format for Scribe v2 |
 
 ## Where to go next
