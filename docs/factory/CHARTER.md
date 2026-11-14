@@ -4,9 +4,9 @@
 It is the primary policy file a human must review, and an agent must never edit it on its
 own initiative.
 
-> **Draft for review.** The values below were proposed by Claude during setup at the
-> owner's request, from the repository's CLAUDE.md, AGENTS.md, CI and code. They are not
-> approved. The owner sets `CHARTER_STATUS: ready` only after reviewing every section.
+> **Approved 2026-11-14.** Claude proposed these values during setup from the repository's
+> CLAUDE.md, AGENTS.md, CI and code. The owner chose the tier and kept `useVAD.ts`
+> load-bearing, then instructed Claude to mark the charter ready and merge the install.
 
 Fill it in once per repo. Revisit it deliberately (see "Constraint review" at the bottom),
 not continuously.
@@ -14,7 +14,7 @@ not continuously.
 Set this to `ready` only after reviewing every section:
 
 ```
-CHARTER_STATUS: incomplete
+CHARTER_STATUS: ready
 ```
 
 ---
@@ -184,6 +184,6 @@ The last one is the orchestration-tax limit. When the review queue is full, stop
   trusted. Record what the gate missed.
 
 ```
-LAST_REVIEWED: <YYYY-MM-DD>
-NEXT_REVIEW: <YYYY-MM-DD>
+LAST_REVIEWED: 2026-11-14
+NEXT_REVIEW: 2026-12-14
 ```
