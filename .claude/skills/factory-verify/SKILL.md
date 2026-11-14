@@ -18,8 +18,11 @@ this skill is the PR-level version and can be driven by a GitHub-triggered routi
    body; produce your own and compare. A mismatch is the finding.
 4. Run the checks the deterministic gates cannot make:
    - Does the test fail without the implementation? Start from a clean committed branch and
-     run `./.factory/scripts/prove-test.sh <base-ref> --test-path <test-path> -- <focused-test-command>`.
-     Do not use `git stash` or an ad hoc destructive revert.
+     run `./.factory/scripts/prove-test.sh <base-ref> --test-path <test-path> [--precheck '<build command>'] -- <focused-test-command>`.
+     Do not use `git stash` or an ad hoc destructive revert. Only `PROOF: status=PROVEN`
+     is a yes; `MISCONFIGURED` is could-not-determine. For a Playwright spec, follow the
+     precheck rules in `.claude/agents/factory-verifier.md` (section 3): a base that does
+     not build must not read as proof.
    - Were pre-existing test files modified? Any change there needs an explicit, argued
      justification in the PR body.
    - Does the diff stay inside the declared scope?
