@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advancePhase, buildTurnRequest, GREETING_PRIME } from "../orchestrator";
+import { advancePhase, buildTurnRequest, endsWithQuestion, GREETING_PRIME } from "../orchestrator";
 import { buildSystemPrompt } from "../interviewer/prompt";
 import { PRESETS } from "../interviewer/presets";
 import type { InterviewerDefinition, PhaseDefinition } from "../interviewer/schema";
@@ -108,4 +108,23 @@ describe("advancePhase", () => {
       expect(advancePhase(p, 3, 50, false)).toBeNull();
     }
   });
+});
+
+describe("endsWithQuestion", () => {
+  it.each([
+    "What was the room like?",
+    "  Where were you standing?  ",
+    'Did she say "come in?"',
+    "Was that the moment (the first one?)",
+    "And then what happened\u2019s next?",
+    "What did you feel?\u201d",
+  ])("is true for %j", (s) => expect(endsWithQuestion(s)).toBe(true));
+
+  it.each([
+    "Thanks for sharing that.",
+    "Take all the time you need!",
+    "Who was there? Tell me more.",
+    "What is going on? I wonder",
+    "",
+  ])("is false for %j", (s) => expect(endsWithQuestion(s)).toBe(false));
 });

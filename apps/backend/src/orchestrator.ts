@@ -12,6 +12,14 @@ export interface TurnSession {
   turns: readonly ConversationTurn[];
 }
 
+/**
+ * True when a sentence ends with a question mark, with any closing quote or bracket after it.
+ * Used to keep to one question per turn (the voice rule) when the model asks more than one.
+ */
+export function endsWithQuestion(sentence: string): boolean {
+  return /\?["'\u2019\u201d)\]]*$/.test(sentence.trim());
+}
+
 /** The greeting is generated in reply to this priming message, which is never stored. */
 export const GREETING_PRIME = "Hello";
 

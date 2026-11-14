@@ -6,7 +6,7 @@ import { errName } from "./errors";
 import type { Providers, Word } from "./providers/types";
 import type { InterviewerDefinition, InterviewerInput } from "./interviewer/schema";
 import { generateDraft } from "./interviewer/designer";
-import { advancePhase, buildTurnRequest, type TurnSession } from "./orchestrator";
+import { advancePhase, buildTurnRequest, endsWithQuestion, type TurnSession } from "./orchestrator";
 import { generateReport } from "./reportGenerator";
 import { SentenceChunker } from "./sentenceChunker";
 import { BUILT_IN, type SettingsValues } from "./settings";
@@ -380,8 +380,18 @@ export class SessionController {
       }
     };
 
+    let questions = 0;
     chunker.on("sentence", (sentence: string) => {
       if (signal.aborted) return;
+      // One question per turn (the voice rule). The model sometimes asks a second one anyway:
+      // it is not spoken, shown or stored, so the history the model sees matches what was said.
+      if (endsWithQuestion(sentence)) {
+        if (questions >= 1) {
+          this.log("extra question dropped");
+          return;
+        }
+        questions += 1;
+      }
       spoken = spoken ? `${spoken} ${sentence}` : sentence;
       this.deps.sendJson({ type: "transcript", text: spoken, role: "assistant", partial: true });
       ttsChain = ttsChain

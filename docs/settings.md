@@ -45,7 +45,7 @@ The first time a model is needed with nothing saved, the app reads Anthropic's m
 
 ## Reply length
 
-The reply length is the hard token ceiling on a spoken reply: default 300, allowed 50 to 1000. The instruction in the prompt to keep replies to about 40 words is unchanged. Reports (3072 tokens) and drafts (6144) keep their own larger fixed budgets.
+The reply length is the hard token ceiling on a spoken reply: default 300, allowed 50 to 1000. The instruction in the prompt to keep replies to about 40 words is unchanged. The server also keeps to one question per turn: if the model asks a second one, it is not spoken, shown or stored. Reports (3072 tokens) and drafts (6144) keep their own larger fixed budgets.
 
 ## Speech
 

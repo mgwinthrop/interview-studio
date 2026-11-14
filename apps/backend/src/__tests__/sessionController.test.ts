@@ -178,6 +178,48 @@ describe("SessionController greeting", () => {
   });
 });
 
+describe("SessionController one question per turn", () => {
+  const TWO_QUESTIONS =
+    "That sounds like a vivid moment to me. What was the room like when you walked in? " +
+    "And who was sitting closest to you? Take all the time you need.";
+  const KEPT =
+    "That sounds like a vivid moment to me. What was the room like when you walked in? Take all the time you need.";
+
+  it("drops a second question: not spoken, shown or stored", async () => {
+    const spoken: string[] = [];
+    const providers = createMockProviders({ llmReplies: [TWO_QUESTIONS] });
+    const realSynthesize = providers.tts.synthesize.bind(providers.tts);
+    providers.tts = {
+      synthesize: (text, signal, opts) => {
+        spoken.push(text);
+        return realSynthesize(text, signal, opts);
+      },
+    };
+    const { ctl, json, storedTurns } = setup({ providers });
+    await ctl.start();
+    const final = json().find((m) => m.type === "transcript" && m.role === "assistant" && !m.partial);
+    expect((final as { text: string }).text).toBe(KEPT);
+    expect(storedTurns().map((t) => t.content)).toEqual([KEPT]);
+    expect(spoken.join(" ")).toBe(KEPT);
+    expect(spoken.join(" ")).not.toContain("closest to you");
+  });
+
+  it("allows one question again on the next turn", async () => {
+    const { ctl, storedTurns } = setup({ script: { llmReplies: [TWO_QUESTIONS, TWO_QUESTIONS] } });
+    await ctl.start();
+    ctl.handleText("it was a small room");
+    await ctl.settled();
+    const assistant = storedTurns().filter((t) => t.role === "assistant").map((t) => t.content);
+    expect(assistant).toEqual([KEPT, KEPT]);
+  });
+
+  it("leaves a reply with one question untouched", async () => {
+    const { ctl, storedTurns } = setup();
+    await ctl.start();
+    expect(storedTurns().map((t) => t.content)).toEqual([LONG_REPLY]);
+  });
+});
+
 describe("SessionController turns", () => {
   it("answers two quick handleText calls in order with two assistant turns", async () => {
     const { ctl, json, storedTurns } = setup();
