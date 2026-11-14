@@ -6,7 +6,7 @@
 #
 # Usage:
 #   ./.claude/scripts/gates.sh fast    # types + lint            (~seconds, run constantly)
-#   ./.claude/scripts/gates.sh full    # + tests + build         (default, run before any PR)
+#   ./.claude/scripts/gates.sh full    # + tests + build + e2e   (default, run before any PR)
 #   ./.claude/scripts/gates.sh deep    # + audit + complexity    (run on load-bearing changes)
 #
 # Exit codes:  0 = all required gates green   1 = at least one gate red
@@ -49,7 +49,7 @@ esac
 
 for gate in $REQUIRED; do
   case "$gate" in
-    types|lint|test|build|audit|mutation|architecture) ;;
+    types|lint|test|build|e2e|audit|mutation|architecture) ;;
     *)
       echo "error: unknown required gate in .factory/gates.conf: $gate" >&2
       printf 'FACTORY_GATES: level=%s status=MISCONFIGURED passed=0 failed=0 failing=none skipped=none misconfigured=unknown-required-gate:%s\n' "$LEVEL" "$gate"
@@ -155,6 +155,18 @@ if [ "$LEVEL" = "full" ] || [ "$LEVEL" = "deep" ]; then
     node)
       if pkg_has test; then run test $PMRUN test; else skip test "no test script"; fi
       if pkg_has build; then run build $PMRUN build; else skip build "no build script"; fi
+      # interview-studio: browser tests need the Chromium build the pinned @playwright/test
+      # expects and free ports 3000/3001. Without them the gate cannot run, so it is skipped
+      # (MISCONFIGURED when required), never reported as a red test.
+      if ! pkg_has e2e; then
+        skip e2e "no e2e script"
+      elif ! (cd apps/frontend && node -e "require('@playwright/test').chromium.launch().then((b)=>b.close()).then(()=>process.exit(0),()=>process.exit(1))") >/dev/null 2>&1; then
+        skip e2e "Playwright browser missing: cd apps/frontend && npx playwright install chromium"
+      elif ! node -e "const n=require('net');const t=[[3000,'127.0.0.1'],[3000,'::1'],[3001,'127.0.0.1'],[3001,'::1']];let left=t.length,busy=0;const done=()=>{if(--left===0)process.exit(busy)};for(const [p,h] of t){const s=n.connect(p,h);s.setTimeout(1000);s.on('connect',()=>{busy=1;s.destroy();done()});s.on('error',done);s.on('timeout',()=>{s.destroy();done()})}"; then
+        skip e2e "port 3000 or 3001 is in use"
+      else
+        run e2e $PMRUN e2e
+      fi
       ;;
     python)
       if has pytest; then run test pytest -q; else skip test "pytest not installed"; fi
