@@ -8,7 +8,8 @@ An interviewer defines one kind of conversation: who the interviewer is, how it 
 
 | Field | What it does |
 |---|---|
-| `name` | Shown in the app and on reports. |
+| `name` | The activity ("Rehearse an interview"). Shown in the app and on reports. |
+| `displayName` | Optional, up to 40 characters. Who the person talks to ("Practice interviewer"), shown on the session screen. A blank value is refused, so clients leave the field out instead; screens show **Interviewer** when it is missing. The interviewer is not told this name. |
 | `purpose` | One line saying what the interviewer is for. |
 | `persona` | Who the interviewer is. |
 | `style` | How it speaks. |
@@ -85,6 +86,8 @@ sequenceDiagram
 When a session starts, the server copies the whole interviewer record into the session (`Session.interviewerJson`). Editing or deleting the interviewer, or changing a preset file, never changes a past or running session or its report.
 
 Sessions saved before interviewers existed have no snapshot. They show as **Earlier interview**.
+
+**Rolling back past a new field is one-way.** Stored definitions and snapshots are checked strictly, so unknown fields are refused. If code is reverted to a version without `displayName` after an interviewer or session has stored one, those interviewers drop out of the list and their past reports show as Earlier interview. Roll forward instead, or keep the field in the schema while removing its use.
 
 ## How the prompt is built
 
