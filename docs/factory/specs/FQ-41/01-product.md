@@ -2,17 +2,23 @@
 
 ## The user problem
 
-Sometimes a person starts a session, sees "Listening", speaks, and is never heard. Nothing on
-screen says anything is wrong. They wait, repeat themselves, and eventually give up or
-reload without knowing why.
-
-This happened twice in about a dozen session starts during testing on 2026-11-14. It is
-intermittent, so the person cannot tell whether it is their microphone, their browser or
-the app.
+On some networks a person starts a session, sees "Listening", speaks, and is never heard.
+Nothing on screen says anything is wrong. They wait, repeat themselves, and eventually give
+up or reload without knowing why.
 
 The cause is that part of the app's ability to hear speech is fetched from an outside
-service at the start of every session. If that fetch fails or is slow, hearing never
-starts. Two further consequences follow:
+service when a session starts listening. Wherever that service is blocked or unreachable
+(a corporate network that filters outside sites, a locked-down machine, no internet), hearing
+never starts, every time. This was observed on 2026-11-14 in a sandboxed environment whose
+network blocks that service: every attempt to start hearing failed silently.
+
+> **Correction (2026-11-14, after gate 1 approval).** The first version of this gate said the
+> failure was intermittent ("2 of about 12 session starts"). That was wrong. The test
+> environment blocks the outside service, so every attempt failed. Hearing was only attempted
+> in some runs. There is no evidence of intermittent failure on an open network. The case
+> rests on blocked networks, privacy and silent breakage, not on flakiness.
+
+Two further consequences follow:
 
 - **Privacy expectation.** People use this app to rehearse things they may not want to
   leave their machine. Every session currently contacts an outside service they did not
@@ -26,8 +32,9 @@ starts. Two further consequences follow:
 1. **No outside contact.** A full practice session (start, speak, interrupt, end) makes no
    request to any host other than the app itself and the speech and AI providers the
    person configured. Checked with the browser's network log on a mock-mode session.
-2. **Hearing starts reliably.** 50 consecutive session starts in mock mode all begin
-   listening. In one day's testing, 2 of about 12 starts failed: a small sample, but not rare.
+2. **Hearing works where the outside service is blocked.** On a network that blocks the
+   outside service (as the test sandbox does), a session starts listening. Today it never
+   does there.
 3. **No silent failure.** If hearing still cannot start (an unsupported browser, a blocked
    file), the person sees a plain message within 10 seconds of the session opening. It says
    their voice cannot be heard and offers typing instead. The screen never shows "Listening"
@@ -65,7 +72,8 @@ starts. Two further consequences follow:
 
 ## Kill check
 
-Should this exist? Yes. Points 2 and 3 fix a real defect seen in testing. Point 1 removes a
+Should this exist? Yes. Points 2 and 3 fix a real defect on blocked networks, and point 3 also
+covers any other reason hearing cannot start. Point 1 removes a
 privacy surprise that the app's own documentation never discloses. The cost is a larger
 install. The risk to watch is that the change makes hearing fail differently, which success
 measures 2 and 4 cover.

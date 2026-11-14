@@ -1,15 +1,17 @@
 item: FQ-41
 scope: load voice detection's runtime from the app, not a CDN; no silent failure when hearing cannot start
-gate_1_product: pending
+gate_1_product: re-approval needed (approved 2026-11-14, then evidence corrected: failures were a blocked network, not intermittent)
 gate_2_architecture: not-started
 gate_3_design: not-started
 gate_4_slices: not-started
 slices_completed: 0 / ?
+decisions:
+  - Include the "can't hear you" message (owner, gate 1)
+  - Message wording as proposed (owner, gate 1)
 open_questions:
-  - Include the "can't hear you" message, or only move the download (owner)
-  - Wording of the message (owner)
+  - Re-approve gate 1 with corrected evidence (owner)
 evidence:
-  - Two intermittent "no available backend found ... Failed to fetch" failures in about 12 mock session loads on 2026-11-14 (comments on #41)
+  - CORRECTED: the 'no available backend found ... Failed to fetch' errors seen on 2026-11-14 were the sandbox's network policy refusing cdn.jsdelivr.net (proxy 403), not intermittent failures
   - Installed runtime 1.31.1 against WASM pinned to 1.24.3 on jsDelivr
   - The build already copies two runtime WASM files into the app, but the code points at the CDN (found during gate 1 research; gate 2 detail)
   - The voice-detection setup call is not inside error handling, so a load failure is silent (gate 2 detail)
