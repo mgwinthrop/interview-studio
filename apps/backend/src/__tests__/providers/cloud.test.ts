@@ -287,7 +287,7 @@ describe("cloud llm", () => {
     expect(create).toHaveBeenCalledTimes(2);
   });
 
-  it("structured rejects after the retry also fails", async () => {
+  it("structured rejects after every retry also fails", async () => {
     const { client, create } = fakeAnthropic("not json");
     await expect(
       createCloudProviders(baseConfig, { anthropic: client }).llm.structured(
@@ -300,7 +300,7 @@ describe("cloud llm", () => {
         live,
       ),
     ).rejects.toBeDefined();
-    expect(create).toHaveBeenCalledTimes(2);
+    expect(create).toHaveBeenCalledTimes(3);
   });
 });
 
