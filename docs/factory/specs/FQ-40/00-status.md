@@ -4,13 +4,13 @@ gate_1_product: approved 2026-11-14 (owner)
 gate_2_architecture: approved 2026-11-14 (owner; revision 2 after factory-critic)
 gate_3_design: waived by owner 2026-11-14 (one interactive PR)
 gate_4_slices: waived by owner 2026-11-14 (single slice, issue #40)
-slices_completed: 0 / 1
+slices_completed: implemented in PR #81 (draft, awaiting owner review); owner exception for 583 changed lines recorded on #40; #80 filed for factory-tune
 decisions:
   - Choice remembered in this browser until changed (owner, gate 1)
   - Missing mic - use the default and show a one-line notice (owner, gate 1)
   - A - resumeStream reopens the same device with the first-open settings (owner, gate 2; re-confirmed on corrected facts - only the device changes)
   - B - store the microphone's label so the notice can name it (owner, gate 2)
-  - C - unstable device ids in some browsers: document only (owner, gate 2)
+  - C - revised by owner during implementation: match by id, then by name, then fall back with a notice (device ids rotated on every page load in the test browser)
   - D - silent failed resume: out of scope, filed as #79 (owner, gate 2)
 open_questions: []
 evidence:
