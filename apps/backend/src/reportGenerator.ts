@@ -216,6 +216,7 @@ export async function generateReport(
         messages: [{ role: "user", content: userContent }],
         schema,
         maxTokens: REPORT_MAX_TOKENS,
+        constrainOutput: true,
         ...(options.usage ? { usage: options.usage } : {}),
         ...(options.model ? { model: options.model } : {}),
       },

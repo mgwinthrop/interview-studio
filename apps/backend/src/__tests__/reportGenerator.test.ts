@@ -84,6 +84,11 @@ const FINAL_INSTRUCTION = "Return only the JSON object. No preamble or markdown 
 const DELIVERY_NUMBERS = ["2917", "4.37", "134.1", "137"];
 
 describe("generateReport", () => {
+  it("asks the provider to hold the reply to the report schema", async () => {
+    const { req } = await run();
+    expect(req.constrainOutput).toBe(true);
+  });
+
   it("produces all three parts with the code-computed delivery summary", async () => {
     const { report } = await run(withSwitches(true, true));
     expect(report.format).toBe(2);
