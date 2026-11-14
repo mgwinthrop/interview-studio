@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import type Anthropic from "@anthropic-ai/sdk";
+import Anthropic from "@anthropic-ai/sdk";
 import { createCloudProviders } from "../../providers/cloud";
 import type { Config } from "../../config";
 
@@ -98,5 +98,73 @@ describe("cloud llm structured retry", () => {
     await llm.structured(req([{ role: "user", content: "t" }]), live);
     const calls = create.mock.calls as unknown as [{ messages: unknown[] }][];
     expect(calls[1][0].messages).toHaveLength(1);
+  });
+
+  it("reads the JSON from the text block when the reply opens with a thinking block", async () => {
+    const create = vi.fn(async () => ({
+      content: [
+        { type: "thinking", thinking: "", signature: "sig" },
+        { type: "text", text: FIXED },
+      ],
+      usage: USAGE,
+    }));
+    const anthropic = { messages: { create, stream: vi.fn() } } as unknown as Pick<Anthropic, "messages">;
+    const llm = createCloudProviders(config, { anthropic }).llm;
+    const out = await llm.structured(req([{ role: "user", content: "t" }]), live);
+    expect(out.nextSteps).toEqual(["Open with the room."]);
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects when the reply has no text block at all", async () => {
+    const create = vi.fn(async () => ({ content: [{ type: "thinking", thinking: "", signature: "s" }], usage: USAGE }));
+    const anthropic = { messages: { create, stream: vi.fn() } } as unknown as Pick<Anthropic, "messages">;
+    const llm = createCloudProviders(config, { anthropic }).llm;
+    await expect(llm.structured(req([{ role: "user", content: "t" }]), live)).rejects.toThrow(/Unexpected model response block/);
+  });
+
+  describe("constrainOutput", () => {
+    type Call = [{ output_config?: { format?: { type?: string; schema?: { properties?: Record<string, unknown> } } } }];
+    const calls = (create: { mock: { calls: unknown } }) => create.mock.calls as unknown as Call[];
+
+    it("sends the schema as a JSON-schema output format", async () => {
+      const { llm, create } = llmWith([FIXED]);
+      await llm.structured({ ...req([{ role: "user", content: "t" }]), constrainOutput: true }, live);
+      const format = calls(create)[0][0].output_config?.format;
+      expect(format?.type).toBe("json_schema");
+      expect(Object.keys(format?.schema?.properties ?? {})).toEqual(["content", "nextSteps"]);
+    });
+
+    it("sends no output format unless asked", async () => {
+      const { llm, create } = llmWith([FIXED]);
+      await llm.structured(req([{ role: "user", content: "t" }]), live);
+      expect(calls(create)[0][0].output_config).toBeUndefined();
+    });
+
+    it("carries on without the format when the model rejects it, and stays without it", async () => {
+      let n = 0;
+      const create = vi.fn(async (params: { output_config?: unknown }) => {
+        n++;
+        if (params.output_config) throw Anthropic.APIError.generate(400, {}, "format not supported", new Headers());
+        return { content: [{ type: "text", text: n <= 2 ? MISSING_BRACE : FIXED }], usage: USAGE };
+      });
+      const anthropic = { messages: { create, stream: vi.fn() } } as unknown as Pick<Anthropic, "messages">;
+      const llm = createCloudProviders(config, { anthropic }).llm;
+      const out = await llm.structured({ ...req([{ role: "user", content: "t" }]), constrainOutput: true }, live);
+      expect(out.nextSteps).toEqual(["Open with the room."]);
+      const sent = create.mock.calls.map((c) => Boolean(c[0].output_config));
+      expect(sent).toEqual([true, false, false]);
+    });
+
+    it("does not hide other errors behind the fallback", async () => {
+      const create = vi.fn(async () => {
+        throw Anthropic.APIError.generate(500, {}, "server error", new Headers());
+      });
+      const anthropic = { messages: { create, stream: vi.fn() } } as unknown as Pick<Anthropic, "messages">;
+      const llm = createCloudProviders(config, { anthropic }).llm;
+      await expect(
+        llm.structured({ ...req([{ role: "user", content: "t" }]), constrainOutput: true }, live),
+      ).rejects.toBeInstanceOf(Anthropic.InternalServerError);
+      expect(create).toHaveBeenCalledTimes(1);
+    });
   });
 });

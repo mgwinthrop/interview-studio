@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { ZodError } from "zod";
 import type { Config } from "../config";
 import type { UsageMeta, UsageRecord } from "../usage";
@@ -266,25 +267,43 @@ function createLlm(
       // A retry sends the same request plus the model's latest invalid output and what was wrong
       // with it. Resending the request unchanged tends to repeat the same mistake.
       let messages = toParams(req.messages);
+      // With constrainOutput the model is held to the schema as it writes. If the model refuses
+      // the format (a 400), carry on without it: the reply is validated in code either way.
+      let outputConfig: { format: { type: "json_schema"; schema: Record<string, unknown> } } | undefined;
+      if (req.constrainOutput) {
+        const format = zodOutputFormat(req.schema);
+        outputConfig = { format: { type: format.type, schema: format.schema as Record<string, unknown> } };
+      }
       for (let attempt = 0; attempt < STRUCTURED_ATTEMPTS; attempt++) {
         throwIfAborted(signal);
         let response;
-        try {
-          response = await client.messages.create(
+        const call = () =>
+          client.messages.create(
             {
               model: req.model ?? FALLBACK_LLM_MODEL,
               max_tokens: req.maxTokens,
               system: req.system,
               messages,
+              ...(outputConfig ? { output_config: outputConfig } : {}),
             },
             { signal },
           );
+        try {
+          try {
+            response = await call();
+          } catch (err) {
+            if (!outputConfig || !(err instanceof Anthropic.BadRequestError) || signal.aborted) throw err;
+            console.warn("[llm] structured output format rejected (400); continuing without it");
+            outputConfig = undefined;
+            response = await call();
+          }
         } catch (err) {
           throw normalizeAbort(err, signal);
         }
         // Each attempt is a separate API call, so each is reported.
         report(req.usage, req.model ?? FALLBACK_LLM_MODEL, tokens(response.usage?.input_tokens), tokens(response.usage?.output_tokens));
-        const block = response.content[0];
+        // The reply may open with a thinking block; the JSON is in the first text block.
+        const block = response.content.find((b) => b.type === "text");
         try {
           if (!block || block.type !== "text") throw new Error("Unexpected model response block");
           return req.schema.parse(extractJson(block.text));
