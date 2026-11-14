@@ -2,9 +2,9 @@
 
 export type FlowStep = 1 | 2 | 3 | 4;
 
-const STEPS: { n: FlowStep; label: string }[] = [
+export const FLOW_STEPS: readonly { n: FlowStep; label: string }[] = [
   { n: 1, label: "Mic check" },
-  { n: 2, label: "Persona selection" },
+  { n: 2, label: "Choose an interviewer" },
   { n: 3, label: "Live session" },
   { n: 4, label: "Report" },
 ];
@@ -30,7 +30,7 @@ export function FlowStepper({ currentStep }: FlowStepperProps) {
         flexShrink: 0,
       }}
     >
-      {STEPS.map(({ n, label }) => {
+      {FLOW_STEPS.map(({ n, label }) => {
         const isActive = n === currentStep;
         return (
           <div

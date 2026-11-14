@@ -9,6 +9,7 @@ import { ReportView } from "../components/ReportView";
 import { apiUrl } from "../lib/config";
 import { EARLIER_INTERVIEW_LABEL } from "../lib/interviewers";
 import { parseReport, parseReportFailure, type ReportView as ReportData } from "../lib/report";
+import { interviewersUsedLabel } from "../lib/interviewerWording";
 
 // One row of GET /api/sessions.
 interface SessionListItem {
@@ -172,7 +173,7 @@ export default function DashboardPage() {
   }
 
   // Footer stats
-  const personasUsed = new Set(sessions.map((s) => s.interviewerId)).size;
+  const interviewersUsed = new Set(sessions.map((s) => s.interviewerId)).size;
   const completedWithEnd = sessions.filter((s) => s.endedAt);
   const avgMinutes =
     completedWithEnd.length > 0
@@ -498,7 +499,7 @@ export default function DashboardPage() {
         </span>
         <span>·</span>
         <span>
-          {personasUsed} persona{personasUsed !== 1 ? "s" : ""} used
+          {interviewersUsedLabel(interviewersUsed)}
         </span>
         {avgMinutes !== null && (
           <>
