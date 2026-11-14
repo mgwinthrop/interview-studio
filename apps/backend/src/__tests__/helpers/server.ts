@@ -272,7 +272,7 @@ export const CUSTOM_PHASES = ["okapi-sentinel-warm", "okapi-sentinel-middle", "o
 
 /** A custom interviewer: three named phases, the first ending after 1 user turn, the second after 2. */
 export function customInput(): InterviewerInput {
-  const { id: _id, source: _s, ownerId: _o, version: _v, createdAt: _c, updatedAt: _u, ...rest } = PRESET;
+  const { id: _id, source: _s, ownerId: _o, version: _v, createdAt: _c, updatedAt: _u, displayName: _n, ...rest } = PRESET;
   return {
     ...rest,
     name: SENTINEL_NAME,

@@ -33,6 +33,8 @@ const RECORD_KEYS = [
   "createdAt",
   "updatedAt",
 ];
+// Presets carry a display name (FQ-68); custom interviewers created without one do not.
+const PRESET_RECORD_KEYS = [...RECORD_KEYS.slice(0, 2), "displayName", ...RECORD_KEYS.slice(2)];
 
 let tmpDir: string;
 let dbUrl: string;
@@ -145,7 +147,7 @@ async function call(
 }
 
 function inputOf(d: InterviewerDefinition): InterviewerInput {
-  const { id: _i, source: _s, ownerId: _o, version: _v, createdAt: _c, updatedAt: _u, ...input } = d;
+  const { id: _i, source: _s, ownerId: _o, version: _v, createdAt: _c, updatedAt: _u, displayName: _n, ...input } = d;
   return input;
 }
 
@@ -202,7 +204,7 @@ describe("GET", () => {
     expect(r.status).toBe(200);
     const { ownerId: _o, ...expected } = PRESETS[0];
     expect(r.json).toEqual(expected);
-    expect(Object.keys(r.json as object)).toEqual(RECORD_KEYS);
+    expect(Object.keys(r.json as object)).toEqual(PRESET_RECORD_KEYS);
   });
 
   it("answers a foreign custom interviewer exactly like an unknown id", async () => {
@@ -361,7 +363,7 @@ describe("duplicate", () => {
     const base = await start();
     const r = await call(base, "POST", `/${PRESETS[0].id}/duplicate`, "a");
     expect(r.status).toBe(201);
-    expect(Object.keys(r.json as object)).toEqual(RECORD_KEYS);
+    expect(Object.keys(r.json as object)).toEqual(PRESET_RECORD_KEYS);
     expect(r.json).toMatchObject({ name: `${PRESETS[0].name} (copy)`, source: "custom", version: 1 });
   });
 
