@@ -1,4 +1,9 @@
-# FQ-44 Gate 2 - Architecture (revision 2)
+# FQ-44 Gate 2 - Architecture (revision 2, amended)
+
+> **Amendment 2026-11-14 (post-approval, implementation finding):** slice 1 (#66, PR #70) found a
+> third field allowlist, `toResponse` in `interviewerRoutes.ts`, which this document did not list.
+> It is added to "Systems touched" below. No decision changed. Slice 2 should check the frontend
+> for further allowlists beyond `inputFromDetail` and `parseShape` before claiming done.
 
 Implements the approved product gate: an optional per-interviewer display name; the session
 panel and transcript show it (fallback "Interviewer"); the transcript's "speaking" wording
@@ -14,6 +19,7 @@ revision.
 |---|---|---|
 | Interviewer record (`apps/backend/src/interviewer/schema.ts`) | Optional `displayName` on the definition and input types, plus its limit (40) in `INTERVIEWER_LIMITS` | **yes** |
 | Interviewer store (`apps/backend/src/interviewerStore.ts`) | `inputFields` is an allowlist used by create, update and duplicate. It must copy `displayName`, or saves succeed and silently drop it | no |
+| Interviewer routes (`apps/backend/src/interviewerRoutes.ts`) | `toResponse` is a third allowlist: without it the field is stored but never returned. **Added after approval** (found by slice 1's tests, PR #70; missed by revision 2 and the critic) | no |
 | Presets (`apps/backend/src/interviewer/presets/*.ts`) | Four presets get their approved role names. **No version bump**: `syncPresets` already rewrites a row whose `definitionJson` differs | no |
 | Docs (`docs/interviewers.md`) | Document the field, limit, fallback and the rollback note below | no |
 | Frontend types and form (`app/lib/interviewers.ts`, `app/lib/interviewerForm.ts`, `app/interviewers/edit/*`) | Field on the types and the limits copy. `inputFromDetail` (an allowlist: opening and saving would erase the name) and `parseShape` (draft hand-off) carry it. The editor gets one optional field and omits it when blank, as it already does for `behaviours` | no |

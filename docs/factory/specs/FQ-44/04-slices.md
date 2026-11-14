@@ -45,7 +45,7 @@ heading and tagline.
   `interviewerSchema.test.ts` (approved at gate 2 C). `docs/interviewers.md` documents the
   field, limit, fallback and roll-forward note. `gates.sh deep` is GREEN. The PR is draft and
   marked for a human read.
-- files_expected: apps/backend/src/interviewer/schema.ts, apps/backend/src/interviewerStore.ts, apps/backend/src/__tests__/interviewerSchema.test.ts, apps/backend/src/__tests__/displayName.test.ts, apps/backend/src/__tests__/server.displayName.test.ts, docs/interviewers.md
+- files_expected (as approved; PR #70 also needed `apps/backend/src/interviewerRoutes.ts`): apps/backend/src/interviewer/schema.ts, apps/backend/src/interviewerStore.ts, apps/backend/src/__tests__/interviewerSchema.test.ts, apps/backend/src/__tests__/displayName.test.ts, apps/backend/src/__tests__/server.displayName.test.ts, docs/interviewers.md
 - load_bearing: true · gate_level: deep · confidence: medium
 - depends_on: none
 - Runs interactively, with the owner present. The unattended implement routine stops on
