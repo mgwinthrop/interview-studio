@@ -76,7 +76,13 @@ generic panel heading is already flagged in #45. The only part with real product
 the display-name field, because it adds one more thing to fill in when creating an
 interviewer. That risk is managed by making it optional, with a fallback.
 
-## Open questions for approval
+## Decisions (owner, gate 1, 2026-11-14)
+
+1. Role names for the four built-in interviewers, as proposed below.
+2. A custom interviewer with no display name shows "Interviewer".
+3. PR #64 closed unmerged; superseded by this spec.
+
+## Open questions as asked at gate 1
 
 1. **Display names for the four built-in interviewers.** Proposal (role names):
    - Explain an idea → *Curious newcomer*
