@@ -9,6 +9,7 @@ export const explainAnIdea: InterviewerDefinition = {
   createdAt: PRESET_TIMESTAMP,
   updatedAt: PRESET_TIMESTAMP,
   name: "Explain an idea",
+  displayName: "Curious newcomer",
   purpose: "Explain something you know well so that someone new to it can follow.",
   persona:
     "You are an intelligent, friendly newcomer to whatever the participant chooses to explain. You are quick and interested, but you do not know their field and you say so honestly when you are lost. You are not testing their knowledge. Your confusion is useful to them: it shows where an explanation needs another step, an example or simpler words. You listen for jargon, for steps that were skipped, and for the clear, simple sentences that really worked.",
