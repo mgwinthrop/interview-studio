@@ -96,6 +96,8 @@ body {
 .session-text-input-bar {
   /* desktop: bottom 53px set inline */
 }
+/* FQ-41: "can't hear you" notice, sitting just above the text input bar */
+.session-hearing-alert { position:fixed; left:32px; right:32px; bottom:124px; margin:0; padding:10px 14px; background:#FFF4E5; color:#8A4B00; border:1px solid #F3C98B; border-radius:6px; font-size:14px; line-height:1.5; z-index:5; }
 .session-footer {
   /* desktop padding set inline */
 }
@@ -206,6 +208,7 @@ body {
   }
 
   /* Text input bar: anchor to bottom of screen with safe-area inset */
+  .session-hearing-alert { left:12px; right:12px; bottom:72px; }
   .session-text-input-bar {
     bottom: 0 !important;
     padding: 8px 12px !important;
@@ -317,12 +320,12 @@ body {
 .interviewer-avatar[data-state="speaking"] .avatar-mouth { display:block; transform-box:fill-box; transform-origin:center; animation:avatar-talk .35s ease-in-out infinite alternate; }
 .interviewer-avatar[data-state="speaking"] .avatar-smile { display:none; }
 .interviewer-avatar[data-state="interrupted"] { color:#E9784A; }
-.interviewer-avatar[data-state="connecting"],.interviewer-avatar[data-state="disconnected"],.interviewer-avatar[data-state="error"],.interviewer-avatar[data-state="paused"] { color:#93A6AA; opacity:.65; }
-.interviewer-avatar[data-state="paused"] *,.interviewer-avatar[data-state="disconnected"] *,.interviewer-avatar[data-state="error"] * { animation:none; }
+.interviewer-avatar[data-state="connecting"],.interviewer-avatar[data-state="disconnected"],.interviewer-avatar[data-state="error"],.interviewer-avatar[data-state="paused"],.interviewer-avatar[data-state="starting"],.interviewer-avatar[data-state="unavailable"] { color:#93A6AA; opacity:.65; }
+.interviewer-avatar[data-state="paused"] *,.interviewer-avatar[data-state="disconnected"] *,.interviewer-avatar[data-state="error"] *,.interviewer-avatar[data-state="unavailable"] * { animation:none; }
 .interviewer-status { display:flex; align-items:center; gap:8px; font-size:14px; font-weight:600; }
 .interviewer-status-dot { width:7px; height:7px; border-radius:50%; background:#87D6C8; }
 .interviewer-status-dot[data-state="thinking"] { background:#E8BB61; }
-.interviewer-status-dot[data-state="interrupted"],.interviewer-status-dot[data-state="error"] { background:#E9784A; }
+.interviewer-status-dot[data-state="interrupted"],.interviewer-status-dot[data-state="error"],.interviewer-status-dot[data-state="unavailable"] { background:#E9784A; }
 .interviewer-status-dot[data-state="paused"],.interviewer-status-dot[data-state="disconnected"],.interviewer-status-dot[data-state="connecting"] { background:#93A6AA; }
 .interviewer-latency,.interviewer-session { color:#B5CDCE; font-size:10px; margin:0; }
 .interviewer-session { margin-top:auto; padding-top:16px; word-break:break-all; }

@@ -1,8 +1,15 @@
 import CopyPlugin from "copy-webpack-plugin";
+import { createRequire } from "module";
 import path from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// The onnxruntime-web build that vad-web's real-time VAD loads, resolved from vad-web itself so
+// the copied loader and WASM always match the JS runtime it runs (FQ-41: no CDN, no version skew).
+const ortDist = path.dirname(
+  createRequire(path.join(__dirname, "node_modules/@ricky0123/vad-web/package.json")).resolve("onnxruntime-web/wasm")
+);
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -59,14 +66,10 @@ const nextConfig = {
               ),
               to: path.join(__dirname, "public"),
             },
-            // ONNX Runtime WASM binaries — loaded via ort.env.wasm.wasmPaths
-            {
-              from: path.join(
-                __dirname,
-                "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm"
-              ),
-              to: path.join(__dirname, "public"),
-            },
+            // ONNX Runtime loader and WASM — loaded from "/" via ort.env.wasm.wasmPaths (useVAD.ts).
+            // The .mjs is also the script of the runtime's pthread workers.
+            { from: path.join(ortDist, "ort-wasm-simd-threaded.mjs"), to: path.join(__dirname, "public") },
+            { from: path.join(ortDist, "ort-wasm-simd-threaded.wasm"), to: path.join(__dirname, "public") },
             {
               from: path.join(
                 __dirname,

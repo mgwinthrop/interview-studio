@@ -29,7 +29,7 @@ import {
 import { LoadingScreen, SessionPageInner, type SessionViewProps } from "./SessionLoader";
 import { headerBarStyle, interviewerNameStyle, sessionIdStyle, sessionRootStyle, timerStyle } from "./styles";
 import { THINKING_WATCHDOG_MS } from "./timing";
-import { displayedOrbState } from "../lib/sessionDisplay";
+import { HEARING_DEADLINE_MS, displayedOrbState, hearingUnavailable, panelState } from "../lib/sessionDisplay";
 
 // The live conversation. Mounted only after the interviewer has loaded.
 function SessionView({ interviewer, demo, mode = null, start, returnTo }: SessionViewProps) {
@@ -172,7 +172,7 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
     return Math.max(0, speechStartedAtMs - endedAt);
   }, []);
 
-  const { micActive, startMic, stopMic, pauseMic, resumeMic } = useVAD({
+  const { micActive, hearing, startMic, stopMic, pauseMic, resumeMic } = useVAD({
     sendMessage: sendMessageWithFlush,
     aiSpeaking: aiSpeaking || audioPlaying,
     onSpeechSent: handleSpeechSent,
@@ -236,6 +236,19 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
 
   // Text input fallback — collapsed by default (spec §7)
   const [showTextInput, setShowTextInput] = useState(false);
+
+  // FQ-41: if voice detection is not listening 10 s after this view opens, for any reason (failed
+  // or hung load, blocked worklet, no gesture after a reload), say so and open typing. A late
+  // start that becomes ready clears the message.
+  const [hearingDeadlinePassed, setHearingDeadlinePassed] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setHearingDeadlinePassed(true), HEARING_DEADLINE_MS);
+    return () => clearTimeout(t);
+  }, []);
+  const cannotHear = hearingUnavailable(hearing, hearingDeadlinePassed);
+  useEffect(() => {
+    if (cannotHear) setShowTextInput(true);
+  }, [cannotHear]);
   const [textInput, setTextInput] = useState("");
 
   const handleTextSend = useCallback(() => {
@@ -480,7 +493,8 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
           }}
         >
           <AgentPanel
-            orbState={shownOrbState}
+            orbState={panelState(shownOrbState, hearing, hearingDeadlinePassed)}
+            hearing={hearing}
             displayName={interviewer.displayName}
             purpose={interviewer.purpose}
             paused={isPaused}
@@ -514,6 +528,11 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
       {sttError && <SttToast />}
 
       {/* Text input fallback — fixed bar above footer, hidden by default (spec §7) */}
+      {cannotHear && (
+        <p role="alert" className="session-hearing-alert">
+          <strong>We can&apos;t hear you in this browser.</strong> Voice detection didn&apos;t start. You can type your answers instead.
+        </p>
+      )}
       {showTextInput && <TextInputBar value={textInput} onChange={setTextInput} onSend={handleTextSend} />}
 
       <SessionFooter

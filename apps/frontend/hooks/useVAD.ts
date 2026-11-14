@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MicVAD } from "@ricky0123/vad-web";
-import type { ClientMessage } from "../app/types";
+import type { ClientMessage, Hearing } from "../app/types";
 
 interface UseVADOptions {
   sendMessage: (msg: ClientMessage) => void;
@@ -28,6 +28,8 @@ interface UseVADOptions {
 
 interface UseVADReturn {
   micActive: boolean;
+  /** Whether voice detection is really listening; the page must not say "Listening" otherwise. */
+  hearing: Hearing;
   startMic: () => Promise<void>;
   stopMic: () => void;
   pauseMic: () => void;
@@ -36,6 +38,7 @@ interface UseVADReturn {
 
 export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, getResponseGapMs }: UseVADOptions): UseVADReturn {
   const [micActive, setMicActive] = useState(false);
+  const [hearing, setHearing] = useState<Hearing>("off");
   const vadRef = useRef<Awaited<ReturnType<typeof MicVAD.new>> | null>(null);
   // Start generation: each startMic takes a new one, and stopMic/unmount bump it. A VAD whose
   // generation is no longer current is stale: its callbacks do nothing, and if it finishes
@@ -75,13 +78,16 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
     if (unmountedRef.current) return;
     let opened: MediaStream | null = null;
     const stopOpened = () => opened?.getTracks().forEach((t) => t.stop());
-    const vad = await MicVAD.new({
+    let vad: Awaited<ReturnType<typeof MicVAD.new>>;
+    try {
+      vad = await MicVAD.new({
       // Worklet bundle + ONNX model served from public/ (copied by next.config.mjs)
       baseAssetPath: "/",
-      // WASM binaries from CDN — avoids shipping large .wasm files in the bundle
+      // ONNX Runtime loader (.mjs) and WASM served from public/ too, copied by next.config.mjs from
+      // the onnxruntime-web this package resolves, so their version always matches the JS runtime
+      // and no third-party host is contacted (FQ-41).
       ortConfig: (ort) => {
-        ort.env.wasm.wasmPaths =
-          "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.24.3/dist/";
+        ort.env.wasm.wasmPaths = "/";
       },
 
       // Echo/noise suppression — prevents AI audio from triggering VAD
@@ -144,7 +150,15 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
         speechStartedAtRef.current = null;
         startedDuringAiSpeechRef.current = false;
       },
-    });
+      });
+    } catch (err) {
+      // The runtime or model could not load (blocked or missing file, unsupported browser). ONNX
+      // Runtime keeps that failure for the page, so a retry would fail the same way.
+      if (gen !== genRef.current) return;
+      console.warn("Voice detection failed to load:", err instanceof Error ? err.name : "unknown");
+      setHearing("failed");
+      return;
+    }
 
     // With startOnLoad false, MicVAD.new opens no microphone; start() does (getUserMedia).
     // vad-web's destroy() throws until start() has finished, so a stale VAD is only marked
@@ -160,8 +174,9 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
     } catch (err) {
       stopOpened(); // e.g. the worklet failed after the microphone opened
       if (gen !== genRef.current) return; // stale: stopMic/unmount already moved on
-      // Log the name only (e.g. NotAllowedError); startMic never rejects.
+      // Log the name only (e.g. NotAllowedError or a blocked worklet); startMic never rejects.
       console.warn("Microphone start failed:", err instanceof Error ? err.name : "unknown");
+      setHearing("failed");
       return;
     }
     // Stopped (or unmounted) while the microphone was opening: close it now.
@@ -174,6 +189,7 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
     // A pause requested while opening: keep the VAD but do not leave the mic live.
     if (pausedRef.current) vad.pause().catch(() => {});
     setMicActive(true);
+    setHearing("ready");
   }, []);
 
   const startMic = useCallback(async (): Promise<void> => {
@@ -181,6 +197,7 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
     if (vadRef.current) return; // already initialised
     if (startingRef.current) return startingRef.current; // a start is already in progress
     const gen = ++genRef.current;
+    setHearing("starting");
     const starting = loadVad(gen);
     startingRef.current = starting;
     try {
@@ -198,6 +215,7 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
     vadRef.current = null;
     pausedRef.current = false;
     setMicActive(false);
+    setHearing("off");
   }, []);
 
   const pauseMic = useCallback(() => {
@@ -224,5 +242,5 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
     };
   }, []);
 
-  return { micActive, startMic, stopMic, pauseMic, resumeMic };
+  return { micActive, hearing, startMic, stopMic, pauseMic, resumeMic };
 }
