@@ -68,7 +68,7 @@ test.describe("what the voice session depends on", () => {
 });
 
 test.describe("a live mock conversation", () => {
-  test("connects, streams the greeting and reaches the listening state", async ({ page }) => {
+  test("connects, streams the greeting and waits for the person", async ({ page }) => {
     const errors = collectErrors(page);
     const frames: string[] = [];
     page.on("websocket", (ws) =>
@@ -83,7 +83,10 @@ test.describe("a live mock conversation", () => {
     await page.goto("/session?interviewerId=explain-an-idea&demo=true");
 
     await expect(page.getByText("This is a mock reply.").first()).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText(/Listening/).first()).toBeVisible({ timeout: 20_000 });
+    // Voice detection does not start here (no autoplay flag), so the panel must not claim "Listening"
+    // (FQ-41); hearing.spec.ts covers real listening. Here: the reply has finished playing.
+    await expect(page.locator(".interviewer-panel")).toHaveAttribute("data-hearing", /.+/, { timeout: 20_000 });
+    await expect(page.locator(".interviewer-panel").getByRole("status")).not.toHaveText("Speaking", { timeout: 20_000 });
     expect(await page.evaluate(() => window.crossOriginIsolated)).toBe(true);
 
     const types = frames.map((f) => (JSON.parse(f) as { type: string }).type);

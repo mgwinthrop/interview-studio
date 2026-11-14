@@ -6,6 +6,10 @@ import type { InterviewerInput } from "./lib/interviewers";
 // Orb state — drives AgentPanel visual (spec §7 Agent Panel)
 export type OrbState = "listening" | "thinking" | "speaking" | "interrupted";
 
+// Whether voice detection is actually listening (useVAD): "off" before any start or after a
+// stop, "starting" while it loads, "ready" once listening, "failed" if it could not start.
+export type Hearing = "off" | "starting" | "ready" | "failed";
+
 export interface TranscriptEntry {
   id: string;
   role: "user" | "assistant";

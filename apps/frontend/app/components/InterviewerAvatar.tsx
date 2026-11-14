@@ -2,11 +2,13 @@
 
 import type { OrbState } from "../types";
 
-export type AvatarState = OrbState | "connecting" | "disconnected" | "error" | "paused";
+// "starting" and "unavailable" stand in for listening until voice detection is really listening (FQ-41).
+export type AvatarState = OrbState | "connecting" | "disconnected" | "error" | "paused" | "starting" | "unavailable";
 export const AVATAR_LABELS: Record<AvatarState, string> = {
   listening: "Listening", thinking: "Thinking", speaking: "Speaking",
   interrupted: "Go ahead", connecting: "Connecting", disconnected: "Disconnected",
   error: "Connection error", paused: "Paused",
+  starting: "Getting ready…", unavailable: "Can't hear you",
 };
 
 /** Local SVG character: state-driven animation, no avatar API or tracking. */
