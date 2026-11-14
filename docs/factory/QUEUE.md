@@ -24,18 +24,244 @@ The corresponding live labels use the `factory:` prefix, for example
 
 ---
 
-## Example entry (delete this)
+Snapshot from triage run `2026-11-14T131849Z-triage-run`. 20 of 22 untriaged issues covered; #40 and #41 were skipped by the 20-item cap and go to the next run.
 
-## FQ-142: Expired tokens return 500 instead of 401
+## FQ-42: Align the thinking watchdog with its 10-second comment
 - disposition: ready-to-implement
-- source: https://github.com/owner/repo/issues/142
-- last_triaged: 2026-08-16
-- repro: confirmed
-- files_expected: src/auth/verify.ts, src/auth/verify.test.ts
+- source: https://github.com/mgwinthrop/interview-studio/issues/42
+- last_triaged: 2026-11-14
+- repro: confirmed (code inspection: session/page.tsx:132 is 6000 while the comment at :104 says 10s)
+- files_expected: apps/frontend/app/session/page.tsx, apps/frontend/app/session/timing.ts, apps/frontend/tests/unit/sessionTiming.test.ts
+- load_bearing: false
+- gate_level: full
+- done_when: apps/frontend/tests/unit/sessionTiming.test.ts asserts the exported thinking-watchdog timeout is 10000 ms and fails on main (no such export); session/page.tsx uses the constant and contains no literal 6000; gates.sh full reports status=GREEN
+- confidence: medium
+- notes: Charter AUTOMATABLE: single-file bug fix with a reproducible failing test. Confidence medium because the test pins a value; if the owner prefers 6 s, fix the comment instead.
+
+## FQ-44: Label transcript speakers "You" and the interviewer's name
+- disposition: ready-to-implement
+- source: https://github.com/mgwinthrop/interview-studio/issues/44
+- last_triaged: 2026-11-14
+- repro: confirmed (code inspection: LiveTranscript.tsx:29 renders "M"/"U", :168 renders "Participant")
+- files_expected: apps/frontend/app/components/LiveTranscript.tsx, apps/frontend/app/session/page.tsx, apps/frontend/app/lib/transcriptLabels.ts, apps/frontend/tests/unit/transcriptLabels.test.ts
+- load_bearing: false
+- gate_level: full
+- done_when: apps/frontend/tests/unit/transcriptLabels.test.ts covers a helper returning "You" for the user, the interviewer's name for the interviewer, and the name's first letter as the badge with a fallback for an empty name, and fails on main (no helper); LiveTranscript.tsx uses it and no longer contains "Participant" or the literal "M" badge; gates.sh full reports status=GREEN
+- confidence: medium
+- notes: Charter AUTOMATABLE: copy and label change in two components (LiveTranscript, session page). No existing unit or e2e test asserts these labels, so no test file changes.
+
+## FQ-43: Stop dimming the live transcript while the interviewer speaks
+- disposition: ready-to-spec
+- source: https://github.com/mgwinthrop/interview-studio/issues/43
+- last_triaged: 2026-11-14
+- repro: confirmed (LiveTranscript.tsx:75 sets opacity 0.4 while aiSpeaking)
+- files_expected: apps/frontend/app/components/LiveTranscript.tsx
+- load_bearing: false
+- gate_level: full
+- done_when: Decided in spec
+- confidence: high
+- notes: Charter NEEDS_SPEC: changes an existing interaction (visual focus while the interviewer speaks). One-file change; a short spec suffices.
+
+## FQ-45: Use one vocabulary: interviewer, not persona
+- disposition: ready-to-spec
+- source: https://github.com/mgwinthrop/interview-studio/issues/45
+- last_triaged: 2026-11-14
+- repro: confirmed (FlowStepper.tsx:7, dashboard/page.tsx:501, AgentPanel.tsx:20)
+- files_expected: FlowStepper.tsx, dashboard/page.tsx, AgentPanel.tsx, session/page.tsx
+- load_bearing: false
+- gate_level: full
+- done_when: Decided in spec
+- confidence: high
+- notes: Touches 4 components; the charter's copy entry allows one or two. Splitting the FlowStepper and History renames into their own issue would make that part ready-to-implement.
+
+## FQ-46: Show latency and session ID in the live panel only in debug mode
+- disposition: ready-to-spec
+- source: https://github.com/mgwinthrop/interview-studio/issues/46
+- last_triaged: 2026-11-14
+- repro: confirmed (AgentPanel.tsx:25-26)
+- files_expected: AgentPanel.tsx, session/page.tsx, app/lib/debug.ts
+- load_bearing: false
+- gate_level: full
+- done_when: Decided in spec
+- confidence: high
+- notes: Charter NEEDS_SPEC: removes visible elements and adds a debug flag, which changes an existing interaction.
+
+## FQ-47: Confirm before ending a session
+- disposition: ready-to-spec
+- source: https://github.com/mgwinthrop/interview-studio/issues/47
+- last_triaged: 2026-11-14
+- repro: not-attempted (interaction design, nothing to reproduce)
+- files_expected: session/ModeParts.tsx, session/page.tsx
+- load_bearing: false
+- gate_level: full
+- done_when: Decided in spec
+- confidence: high
+- notes: Charter NEEDS_SPEC: new interaction. Spec chooses confirm dialog versus undo.
+
+## FQ-48: Let the speaker control turn-taking
+- disposition: ready-to-spec
+- source: https://github.com/mgwinthrop/interview-studio/issues/48
+- last_triaged: 2026-11-14
+- repro: not-attempted (needs real microphone speech)
+- files_expected: hooks/useVAD.ts, app/session/*, backend interviewer/schema.ts
 - load_bearing: true
 - gate_level: deep
-- done_when: `verify.test.ts` has a case for an expired token asserting a 401 response, it fails on `main`, and it passes after the change
+- done_when: Decided in spec
 - confidence: high
-- notes: `src/auth/**` is load-bearing, so this cannot be auto-implemented despite being simple. Route through factory-spec or implement with a forced human read.
+- notes: Touches load-bearing useVAD.ts and interviewer/schema.ts. Adopting Smart Turn is a dependency choice (NEVER_AUTOMATE), so the owner decides it inside the spec.
 
----
+## FQ-49: Show that the mic is hearing you during the session
+- disposition: ready-to-spec
+- source: https://github.com/mgwinthrop/interview-studio/issues/49
+- last_triaged: 2026-11-14
+- repro: confirmed (useVAD.ts:113 onSpeechStart is a no-op when the interviewer is silent)
+- files_expected: hooks/useVAD.ts, AgentPanel.tsx, InterviewerAvatar.tsx, globals.css
+- load_bearing: true
+- gate_level: deep
+- done_when: Decided in spec
+- confidence: high
+- notes: Touches load-bearing useVAD.ts; new avatar state must follow the avatar contract in CLAUDE.md.
+
+## FQ-50: Render the transcript inside the report
+- disposition: ready-to-spec
+- source: https://github.com/mgwinthrop/interview-studio/issues/50
+- last_triaged: 2026-11-14
+- repro: confirmed (ReportView.tsx:300 is a download link; transcript route is text/plain)
+- files_expected: ReportView.tsx, components/report/*, backend reportRoutes.ts
+- load_bearing: false
+- gate_level: full
+- done_when: Decided in spec
+- confidence: high
+- notes: Charter NEEDS_SPEC: user-visible feature and a REST route change. #51 depends on its answer cards.
+
+## FQ-52: Show delivery progress across sessions, without scores
+- disposition: ready-to-spec
+- source: https://github.com/mgwinthrop/interview-studio/issues/52
+- last_triaged: 2026-11-14
+- repro: not-attempted (feature request)
+- files_expected: dashboard/page.tsx, new backend route
+- load_bearing: false
+- gate_level: full
+- done_when: Decided in spec
+- confidence: high
+- notes: Charter NEEDS_SPEC: user-visible feature and a new REST route.
+
+## FQ-55: Make the mic check a one-time step, not a gate
+- disposition: ready-to-spec
+- source: https://github.com/mgwinthrop/interview-studio/issues/55
+- last_triaged: 2026-11-14
+- repro: confirmed (page.tsx:22-26 redirects when the sessionStorage flag is missing)
+- files_expected: app/page.tsx, mic-check/page.tsx, hooks/useVAD.ts
+- load_bearing: true
+- gate_level: deep
+- done_when: Decided in spec
+- confidence: high
+- notes: Touches load-bearing useVAD.ts and changes the start flow. Pairs with #40 and #54.
+
+## FQ-56: Move Usage and Settings out of the main navigation
+- disposition: ready-to-spec
+- source: https://github.com/mgwinthrop/interview-studio/issues/56
+- last_triaged: 2026-11-14
+- repro: confirmed (Nav.tsx lists Usage and Settings)
+- files_expected: components/Nav.tsx, docs/usage.md
+- load_bearing: false
+- gate_level: full
+- done_when: Decided in spec
+- confidence: high
+- notes: Charter NEEDS_SPEC: information-architecture change. #57 waits on it.
+
+## FQ-58: Give each interviewer its own avatar variant and voice
+- disposition: ready-to-spec
+- source: https://github.com/mgwinthrop/interview-studio/issues/58
+- last_triaged: 2026-11-14
+- repro: not-attempted (feature request)
+- files_expected: InterviewerAvatar.tsx, backend providers/cloud.ts
+- load_bearing: true
+- gate_level: deep
+- done_when: Decided in spec
+- confidence: high
+- notes: Touches load-bearing providers/**.
+
+## FQ-59: Remove the second sidebar from the report when embedded in History
+- disposition: ready-to-spec
+- source: https://github.com/mgwinthrop/interview-studio/issues/59
+- last_triaged: 2026-11-14
+- repro: confirmed (dashboard/page.tsx:298 list plus ReportView.tsx:119 sidebar)
+- files_expected: ReportView.tsx, dashboard/page.tsx
+- load_bearing: false
+- gate_level: full
+- done_when: Decided in spec
+- confidence: medium
+- notes: Charter NEEDS_SPEC: user-visible layout change. Charter gap: no AUTOMATABLE entry covers layout-only changes.
+
+## FQ-51: Turn report feedback into a next practice rep
+- disposition: wait-to-implement
+- source: https://github.com/mgwinthrop/interview-studio/issues/51
+- last_triaged: 2026-11-14
+- repro: not-attempted (feature request)
+- files_expected: components/report/*, backend interviewer/prompt.ts, docs/websocket-protocol.md
+- load_bearing: true
+- gate_level: deep
+- done_when: Decided in spec
+- confidence: high
+- notes: Blocked on #50: Redo this answer needs #50's answer cards. Re-triage to ready-to-spec once #50's spec is approved.
+
+## FQ-57: Add navigation on phones
+- disposition: wait-to-implement
+- source: https://github.com/mgwinthrop/interview-studio/issues/57
+- last_triaged: 2026-11-14
+- repro: confirmed (globals.css:228 hides nav links below 768px)
+- files_expected: components/Nav.tsx, globals.css
+- load_bearing: false
+- gate_level: full
+- done_when: Decided in spec
+- confidence: high
+- notes: Blocked on #56: the phone menu should carry the items #56 settles.
+
+## FQ-61: PhaseStrip: use studio tokens and remove the off-palette purple glow
+- disposition: wait-to-implement
+- source: https://github.com/mgwinthrop/interview-studio/issues/61
+- last_triaged: 2026-11-14
+- repro: confirmed (PhaseStrip.tsx:63 rgba(68,66,227,0.18))
+- files_expected: components/PhaseStrip.tsx, globals.css
+- load_bearing: false
+- gate_level: full
+- done_when: Decided after #60
+- confidence: medium
+- notes: Blocked on #60's styling decision. The purple-to-teal glow is a visible change, so it does not fit the charter's no-visual-change colour entry.
+
+## FQ-53: Decide on opt-in replay kept only in the browser
+- disposition: needs-info
+- source: https://github.com/mgwinthrop/interview-studio/issues/53
+- last_triaged: 2026-11-14
+- repro: not-attempted (decision request)
+- files_expected: depends on the decision
+- load_bearing: true
+- gate_level: deep
+- done_when: Owner decision recorded in docs/factory/DECISIONS.md
+- confidence: high
+- notes: Charter NEVER_AUTOMATE: anything that would store audio. Question: Does opt-in, device-only recording (IndexedDB, never sent to the backend, deleted with the session) fit the promise that audio is never stored?
+
+## FQ-54: Add a short pre-session brief with optional context
+- disposition: needs-info
+- source: https://github.com/mgwinthrop/interview-studio/issues/54
+- last_triaged: 2026-11-14
+- repro: not-attempted (decision request)
+- files_expected: app/page.tsx, SessionLoader.tsx, backend interviewer/prompt.ts, docs/websocket-protocol.md
+- load_bearing: true
+- gate_level: deep
+- done_when: Owner answers the question, then re-triage to ready-to-spec
+- confidence: medium
+- notes: Charter NEVER_AUTOMATE: sending new data to a third-party provider. Charter gap: "new data" is undefined. Question: Does text the user types into the brief (role, pasted job description) count as new data sent to Anthropic, given spoken answers already go there?
+
+## FQ-60: Consolidate inline colours into the --studio-* tokens
+- disposition: needs-info
+- source: https://github.com/mgwinthrop/interview-studio/issues/60
+- last_triaged: 2026-11-14
+- repro: confirmed (39 component files use inline style objects)
+- files_expected: docs/factory/DECISIONS.md
+- load_bearing: false
+- gate_level: fast
+- done_when: Approach recorded in docs/factory/DECISIONS.md; per-component issues filed
+- confidence: high
+- notes: Charter NEVER_AUTOMATE: architectural direction. Question: Which styling approach: a Tailwind theme mapped to the --studio-* tokens, or CSS variables inside the existing inline styles?
