@@ -29,6 +29,7 @@ import {
 import { LoadingScreen, SessionPageInner, type SessionViewProps } from "./SessionLoader";
 import { headerBarStyle, interviewerNameStyle, sessionIdStyle, sessionRootStyle, timerStyle } from "./styles";
 import { THINKING_WATCHDOG_MS } from "./timing";
+import { micFallbackMessage } from "../lib/micDevice";
 import { HEARING_DEADLINE_MS, displayedOrbState, hearingUnavailable, panelState } from "../lib/sessionDisplay";
 
 // The live conversation. Mounted only after the interviewer has loaded.
@@ -172,7 +173,7 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
     return Math.max(0, speechStartedAtMs - endedAt);
   }, []);
 
-  const { micActive, hearing, startMic, stopMic, pauseMic, resumeMic } = useVAD({
+  const { micActive, hearing, micFallback, startMic, stopMic, pauseMic, resumeMic } = useVAD({
     sendMessage: sendMessageWithFlush,
     aiSpeaking: aiSpeaking || audioPlaying,
     onSpeechSent: handleSpeechSent,
@@ -513,6 +514,9 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
             overflow: "hidden",
           }}
         >
+          {micFallback && (
+            <p role="status" className="session-mic-notice">{micFallbackMessage(micFallback)}</p>
+          )}
           <LiveTranscript
             entries={transcript}
             aiSpeaking={aiSpeaking}

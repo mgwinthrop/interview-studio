@@ -96,6 +96,8 @@ body {
 .session-text-input-bar {
   /* desktop: bottom 53px set inline */
 }
+/* FQ-40: the remembered microphone is missing; shown above the transcript */
+.session-mic-notice { margin:12px 28px 0; padding:8px 12px; background:#EEF6FB; color:#1F4E6B; border:1px solid #BBD7EA; border-radius:6px; font-size:13px; line-height:1.5; }
 /* FQ-41: "can't hear you" notice, sitting just above the text input bar */
 .session-hearing-alert { position:fixed; left:32px; right:32px; bottom:124px; margin:0; padding:10px 14px; background:#FFF4E5; color:#8A4B00; border:1px solid #F3C98B; border-radius:6px; font-size:14px; line-height:1.5; z-index:5; }
 .session-footer {

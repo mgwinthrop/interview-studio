@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MicVAD } from "@ricky0123/vad-web";
 import type { ClientMessage, Hearing } from "../app/types";
+import { audioConstraints, findByLabel, isMissingDevice, readMicChoice, saveMicChoice, type MicFallback } from "../app/lib/micDevice";
 
 interface UseVADOptions {
   sendMessage: (msg: ClientMessage) => void;
@@ -30,6 +31,8 @@ interface UseVADReturn {
   micActive: boolean;
   /** Whether voice detection is really listening; the page must not say "Listening" otherwise. */
   hearing: Hearing;
+  /** Set when the remembered microphone was missing and another one opened instead (FQ-40). */
+  micFallback: MicFallback | null;
   startMic: () => Promise<void>;
   stopMic: () => void;
   pauseMic: () => void;
@@ -39,6 +42,7 @@ interface UseVADReturn {
 export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, getResponseGapMs }: UseVADOptions): UseVADReturn {
   const [micActive, setMicActive] = useState(false);
   const [hearing, setHearing] = useState<Hearing>("off");
+  const [micFallback, setMicFallback] = useState<MicFallback | null>(null);
   const vadRef = useRef<Awaited<ReturnType<typeof MicVAD.new>> | null>(null);
   // Start generation: each startMic takes a new one, and stopMic/unmount bump it. A VAD whose
   // generation is no longer current is stale: its callbacks do nothing, and if it finishes
@@ -78,6 +82,37 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
     if (unmountedRef.current) return;
     let opened: MediaStream | null = null;
     const stopOpened = () => opened?.getTracks().forEach((t) => t.stop());
+    // Opens the microphone for this start (first open and every reopen after a pause): the one
+    // chosen in the mic check, found by id and then by name (ids can change between page loads),
+    // or else the default with a notice (FQ-40). A stream that arrives after this start went
+    // stale is stopped, so a stop during a reopen never leaves a microphone live.
+    const openMic = async (): Promise<MediaStream> => {
+      const choice = readMicChoice();
+      let stream: MediaStream;
+      let fallback: MicFallback | null = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints(choice) });
+      } catch (err) {
+        if (!choice || !isMissingDevice(err)) throw err;
+        const renamed = findByLabel(await navigator.mediaDevices.enumerateDevices(), choice.label);
+        const found = renamed
+          ? await navigator.mediaDevices.getUserMedia({ audio: audioConstraints({ ...choice, deviceId: renamed }) }).catch(() => null)
+          : null;
+        if (found) {
+          stream = found;
+          saveMicChoice({ deviceId: renamed!, label: choice.label });
+        } else {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints(null) });
+          fallback = { label: choice.label, using: stream.getAudioTracks()[0]?.label ?? "" };
+        }
+      }
+      if (gen !== genRef.current) {
+        stream.getTracks().forEach((t) => t.stop());
+        throw new Error("stale microphone open");
+      }
+      setMicFallback(fallback);
+      return stream;
+    };
     let vad: Awaited<ReturnType<typeof MicVAD.new>>;
     try {
       vad = await MicVAD.new({
@@ -90,18 +125,15 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
         ort.env.wasm.wasmPaths = "/";
       },
 
-      // Echo/noise suppression — prevents AI audio from triggering VAD
+      // Echo/noise suppression — prevents AI audio from triggering VAD. The settings live in
+      // audioConstraints (app/lib/micDevice.ts), unchanged; only the chosen deviceId is added.
       getStream: async () => {
-        opened = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            sampleRate: 16000,
-            channelCount: 1,
-          },
-        });
+        opened = await openMic();
         return opened;
       },
+      // Reopen after a pause: same device and settings (vad-web's default reopens the browser
+      // default with its own settings).
+      resumeStream: () => openMic(),
 
       // Locked thresholds — do not change (AGENTS.md)
       positiveSpeechThreshold: 0.8,
@@ -198,6 +230,7 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
     if (startingRef.current) return startingRef.current; // a start is already in progress
     const gen = ++genRef.current;
     setHearing("starting");
+    setMicFallback(null);
     const starting = loadVad(gen);
     startingRef.current = starting;
     try {
@@ -216,6 +249,7 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
     pausedRef.current = false;
     setMicActive(false);
     setHearing("off");
+    setMicFallback(null);
   }, []);
 
   const pauseMic = useCallback(() => {
@@ -242,5 +276,5 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
     };
   }, []);
 
-  return { micActive, hearing, startMic, stopMic, pauseMic, resumeMic };
+  return { micActive, hearing, micFallback, startMic, stopMic, pauseMic, resumeMic };
 }
