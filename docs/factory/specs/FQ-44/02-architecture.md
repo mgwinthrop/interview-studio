@@ -123,7 +123,9 @@ files will pin:
 - the speaking label and badge follow `interviewerSpeaking`, including after `tts_end` while
   audio is still playing
 
-## Decisions needed at this gate
+## Decisions (owner, gate 2, 2026-11-14): A You/Y; B "Design partner"; C test edit approved; D roll-forward accepted
+
+## Decisions as asked at this gate
 
 - **A. User label.** Gate 1 said the person's turns "stay You", but today they are
   "Participant"/"U". Proposed: change to "You"/"Y", as the approved mockup shows.
