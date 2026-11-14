@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { ZodError } from "zod";
 import type { Config } from "../config";
 import type { UsageMeta, UsageRecord } from "../usage";
 import type { ChatMessage, LlmProvider, Providers, SttProvider, TtsProvider, Word } from "./types";
@@ -6,6 +7,8 @@ import type { ChatMessage, LlmProvider, Providers, SttProvider, TtsProvider, Wor
 const STT_ENDPOINT = "https://api.elevenlabs.io/v1/speech-to-text";
 const TTS_ENDPOINT = "https://api.elevenlabs.io/v1/text-to-speech";
 const CARTESIA_ENDPOINT = "https://api.cartesia.ai/tts/bytes";
+/** Calls made for one structured request: the first, then up to two corrected retries. */
+const STRUCTURED_ATTEMPTS = 3;
 // Fallbacks, used when settings supply nothing.
 export const FALLBACK_LLM_MODEL = "claude-sonnet-4-6";
 export const FALLBACK_STT_MODEL = "scribe_v2";
@@ -180,6 +183,23 @@ function tokens(v: unknown): number | null {
   return typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : null;
 }
 
+/** What the model is told when its structured output did not parse or did not match the schema. */
+function correctionMessage(err: unknown): string {
+  let problem: string;
+  if (err instanceof ZodError) {
+    problem = err.issues
+      .slice(0, 5)
+      .map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`)
+      .join("; ");
+  } else {
+    problem = err instanceof Error ? err.message : "unknown error";
+  }
+  return (
+    `Your previous reply could not be used: ${problem.slice(0, 400)}. ` +
+    "Reply again with only the corrected JSON object, in exactly the shape described, with every object and array closed."
+  );
+}
+
 function createLlm(
   config: Config,
   client: Pick<Anthropic, "messages">,
@@ -243,7 +263,10 @@ function createLlm(
 
     async structured(req, signal) {
       let lastError: unknown;
-      for (let attempt = 0; attempt < 2; attempt++) {
+      // A retry sends the same request plus the model's latest invalid output and what was wrong
+      // with it. Resending the request unchanged tends to repeat the same mistake.
+      let messages = toParams(req.messages);
+      for (let attempt = 0; attempt < STRUCTURED_ATTEMPTS; attempt++) {
         throwIfAborted(signal);
         let response;
         try {
@@ -252,7 +275,7 @@ function createLlm(
               model: req.model ?? FALLBACK_LLM_MODEL,
               max_tokens: req.maxTokens,
               system: req.system,
-              messages: toParams(req.messages),
+              messages,
             },
             { signal },
           );
@@ -267,6 +290,13 @@ function createLlm(
           return req.schema.parse(extractJson(block.text));
         } catch (err) {
           lastError = err;
+          if (block?.type === "text" && block.text.trim() !== "") {
+            messages = [
+              ...toParams(req.messages),
+              { role: "assistant", content: block.text },
+              { role: "user", content: correctionMessage(err) },
+            ];
+          }
         }
       }
       throw lastError instanceof Error ? lastError : new Error("Structured output failed");

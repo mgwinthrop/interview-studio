@@ -80,7 +80,7 @@ function pick(obj: Record<string, unknown>, keys: readonly string[]): Record<str
  * The structured-call schema. Keeps only the known input fields (so ids, owner, source, version
  * and voice the model adds are dropped, not rejected) and validates them with the same rules as
  * saving. Issues carry paths and fixed messages only, never the model's text. Throwing here lets
- * the cloud provider retry the call once.
+ * the cloud provider retry the call (with the problem described to the model).
  */
 const draftOutputSchema: ZodType<InterviewerInput, unknown> = z.unknown().transform((raw, ctx) => {
   if (!isPlainObject(raw)) {
