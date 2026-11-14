@@ -24,14 +24,12 @@ jobs:
       - run: npm --prefix apps/frontend ci
       - run: npx prisma generate
         working-directory: apps/backend
-      - name: Backend tests (mock providers, no keys)
+      - name: Unit tests, backend then frontend (mock providers, no keys)
         run: npm test
       - name: Backend build
         run: npm --prefix apps/backend run build
       - name: Frontend lint
         run: npm --prefix apps/frontend run lint
-      - name: Frontend unit tests
-        run: npm --prefix apps/frontend test
       - name: Frontend build
         run: npm --prefix apps/frontend run build
       - name: Install the Playwright browser

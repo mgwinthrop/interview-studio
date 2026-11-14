@@ -2,7 +2,13 @@
   "name": "interview-studio",
   "private": true,
   "scripts": {
-    "test": "cd apps/backend && npm test"
+    "typecheck": "cd apps/backend && npx --no-install tsc --noEmit && cd ../frontend && npx --no-install tsc --noEmit",
+    "lint": "npm --prefix apps/frontend run lint",
+    "test": "npm run test:backend && npm run test:frontend",
+    "test:backend": "cd apps/backend && npm test",
+    "test:frontend": "cd apps/frontend && npm test",
+    "build": "npm --prefix apps/backend run build && npm --prefix apps/frontend run build",
+    "audit": "npm --prefix apps/backend audit --omit=dev --audit-level=high && npm --prefix apps/frontend audit --omit=dev --audit-level=high"
   },
   "description": "Guided conversations with AI interviewers to help you find your voice and get helpful feedback",
   "license": "MIT",
