@@ -100,3 +100,32 @@ PR, human read.
   state when the VAD's last reopen failed and no pause happened since. It tracks this with a
   ref, so a stray second Resume cannot flip the panel back to "Listening". The alternative
   is to rely on the UI and only test it.
+
+## Critic review and how it was resolved (2026-11-14)
+
+The owner approved this gate before the factory-critic review returned. Its verdict was
+**needs changes first**. Every finding was folded into the implementation (PR on branch
+claude/fq-79) without changing the approved product behaviour:
+
+1. **HIGH, `resumeMic` with no VAD loaded.** The VAD is missing after a failed start, with no
+   gesture, or while the first start is still loading. The design as written would have set
+   "ready" and brought back "Listening". Resolved: `resumeMic` touches `hearing` only for a
+   loaded VAD that was paused. Covered by unit tests.
+2. **HIGH, a reopen that hangs, then Pause.** The late stream was connected under the Paused
+   screen, a second Resume summed two sources, and `destroy()` could leave a track live. The
+   bug exists on main and the new message would have made it common. Resolved: a pause/resume
+   sequence number. `openMic` stops a stream whose number is stale and throws, so vad-web
+   never connects it. Covered by a unit test and by a Playwright live-track count.
+3. **MEDIUM, a stale reopen result overwriting a newer one.** Resolved by the same sequence
+   number on the result.
+4. **MEDIUM, decision A.** It is implemented with the existing `pausedRef` (Resume without a
+   pause does nothing) instead of a new ref. The owner's intent is unchanged.
+5. **MEDIUM, wrong message wording.** Resolved: the hook reports `hearingAttempt`
+   ("start" or "resume") and the page has no boolean of its own.
+6. **LOW-MEDIUM, the deadline.** The mount timer is kept, so the no-gesture path still reports
+   (FQ-41's test stays green). The deadline also restarts on the design-retry start, which is
+   harmless.
+7. **LOW, the FQ-40 notice next to the new alert.** Resolved: a failed reopen clears
+   `micFallback`.
+8. **LOW, oracle claims.** The browser recovery test now runs as a continuation of the failure
+   test, and the missing cases above were added.
