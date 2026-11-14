@@ -24,31 +24,49 @@ The corresponding live labels use the `factory:` prefix, for example
 
 ---
 
-Snapshot from triage run `2026-11-14T131849Z-triage-run`. 20 of 22 untriaged issues covered; #40 and #41 were skipped by the 20-item cap and go to the next run.
+Snapshot from triage run `2026-11-14T163251Z-triage-run`, which re-triaged #40, #41 and #45 (the only open issues untriaged or updated since `2026-11-14T131849Z-triage-run`) and carries the other 18 entries forward from that run unchanged. Live labels on 2026-11-14: ready-to-implement 1, ready-to-spec 13, needs-info 3, wait-to-implement 3, in-progress 0, awaiting-review 0.
 
-## FQ-42: Align the thinking watchdog with its 10-second comment
+## Closed since the 2026-11-14T13:18Z snapshot
+- FQ-42: merged in PR #63.
+- FQ-44: superseded by spec FQ-44 (docs/factory/specs/FQ-44, PR #69); slices #65, #66, #67, #68 merged in PRs #71, #70, #72, #73.
+
+---
+
+## FQ-45: Use one vocabulary: interviewer, not persona
 - disposition: ready-to-implement
-- source: https://github.com/mgwinthrop/interview-studio/issues/42
+- source: https://github.com/mgwinthrop/interview-studio/issues/45
 - last_triaged: 2026-11-14
-- repro: confirmed (code inspection: session/page.tsx:132 is 6000 while the comment at :104 says 10s)
-- files_expected: apps/frontend/app/session/page.tsx, apps/frontend/app/session/timing.ts, apps/frontend/tests/unit/sessionTiming.test.ts
+- repro: confirmed ("Persona selection" at FlowStepper.tsx:7; "persona(s) used" at dashboard/page.tsx:501)
+- files_expected: apps/frontend/app/components/FlowStepper.tsx, apps/frontend/app/dashboard/page.tsx, apps/frontend/app/lib/interviewerWording.ts, apps/frontend/tests/unit/interviewerWording.test.ts
 - load_bearing: false
 - gate_level: full
-- done_when: apps/frontend/tests/unit/sessionTiming.test.ts asserts the exported thinking-watchdog timeout is 10000 ms and fails on main (no such export); session/page.tsx uses the constant and contains no literal 6000; gates.sh full reports status=GREEN
+- done_when: new interviewerWording.test.ts fails on main and passes (FLOW_STEPS step 2 is "Choose an interviewer"; interviewersUsedLabel gives "1 interviewer used" / "N interviewers used"); both files render them and contain no "persona" (case-insensitive); gates full GREEN
 - confidence: medium
-- notes: Charter AUTOMATABLE: single-file bug fix with a reproducible failing test. Confidence medium because the test pins a value; if the owner prefers 6 s, fix the comment instead.
+- notes: Narrowed after FQ-44 shipped the panel heading. "Persona" in the calls feature is deliberate (field and feature name) and out of scope; renaming it is an open product question.
 
-## FQ-44: Label transcript speakers "You" and the interviewer's name
-- disposition: ready-to-implement
-- source: https://github.com/mgwinthrop/interview-studio/issues/44
+## FQ-40: Use the microphone chosen on the mic check in the session
+- disposition: ready-to-spec
+- source: https://github.com/mgwinthrop/interview-studio/issues/40
 - last_triaged: 2026-11-14
-- repro: confirmed (code inspection: LiveTranscript.tsx:29 renders "M"/"U", :168 renders "Participant")
-- files_expected: apps/frontend/app/components/LiveTranscript.tsx, apps/frontend/app/session/page.tsx, apps/frontend/app/lib/transcriptLabels.ts, apps/frontend/tests/unit/transcriptLabels.test.ts
-- load_bearing: false
-- gate_level: full
-- done_when: apps/frontend/tests/unit/transcriptLabels.test.ts covers a helper returning "You" for the user, the interviewer's name for the interviewer, and the name's first letter as the badge with a fallback for an empty name, and fails on main (no helper); LiveTranscript.tsx uses it and no longer contains "Participant" or the literal "M" badge; gates.sh full reports status=GREEN
-- confidence: medium
-- notes: Charter AUTOMATABLE: copy and label change in two components (LiveTranscript, session page). No existing unit or e2e test asserts these labels, so no test file changes.
+- repro: confirmed (useVAD.ts getStream calls getUserMedia without deviceId; only the mic-check page reads one, and nothing stores it)
+- files_expected: apps/frontend/hooks/useVAD.ts, apps/frontend/app/mic-check/page.tsx, apps/frontend/app/lib/micDevice.ts, apps/frontend/tests/unit/micDevice.test.ts
+- load_bearing: true
+- gate_level: deep
+- done_when: decided at spec
+- confidence: high
+- notes: Load-bearing (useVAD.ts) and changes an existing interaction. Spec must settle persistence, the missing-device fallback and the auto-select behaviour.
+
+## FQ-41: Serve ONNX Runtime WASM from the app instead of a CDN pinned to 1.24.3
+- disposition: ready-to-spec
+- source: https://github.com/mgwinthrop/interview-studio/issues/41
+- last_triaged: 2026-11-14
+- repro: confirmed (installed onnxruntime-web 1.31.1; wasmPaths pinned to the jsDelivr 1.24.3 build). One unexplained runtime fetch failure was also seen in FQ-65 mock checks.
+- files_expected: apps/frontend/hooks/useVAD.ts, apps/frontend/next.config.mjs
+- load_bearing: true
+- gate_level: deep
+- done_when: decided at spec
+- confidence: high
+- notes: Suggested priority high. It is the only reliability defect seen in testing, and it means a third-party request on every session.
 
 ## FQ-43: Stop dimming the live transcript while the interviewer speaks
 - disposition: ready-to-spec
@@ -61,18 +79,6 @@ Snapshot from triage run `2026-11-14T131849Z-triage-run`. 20 of 22 untriaged iss
 - done_when: Decided in spec
 - confidence: high
 - notes: Charter NEEDS_SPEC: changes an existing interaction (visual focus while the interviewer speaks). One-file change; a short spec suffices.
-
-## FQ-45: Use one vocabulary: interviewer, not persona
-- disposition: ready-to-spec
-- source: https://github.com/mgwinthrop/interview-studio/issues/45
-- last_triaged: 2026-11-14
-- repro: confirmed (FlowStepper.tsx:7, dashboard/page.tsx:501, AgentPanel.tsx:20)
-- files_expected: FlowStepper.tsx, dashboard/page.tsx, AgentPanel.tsx, session/page.tsx
-- load_bearing: false
-- gate_level: full
-- done_when: Decided in spec
-- confidence: high
-- notes: Touches 4 components; the charter's copy entry allows one or two. Splitting the FlowStepper and History renames into their own issue would make that part ready-to-implement.
 
 ## FQ-46: Show latency and session ID in the live panel only in debug mode
 - disposition: ready-to-spec
