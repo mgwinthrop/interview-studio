@@ -29,6 +29,7 @@ import {
 import { LoadingScreen, SessionPageInner, type SessionViewProps } from "./SessionLoader";
 import { headerBarStyle, interviewerNameStyle, sessionIdStyle, sessionRootStyle, timerStyle } from "./styles";
 import { THINKING_WATCHDOG_MS } from "./timing";
+import { displayedOrbState } from "../lib/sessionDisplay";
 
 // The live conversation. Mounted only after the interviewer has loaded.
 function SessionView({ interviewer, demo, mode = null, start, returnTo }: SessionViewProps) {
@@ -415,6 +416,12 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
 
   if (makingDraft) return <MakingDraftOverlay headingRef={makingDraftHeadingRef} />;
 
+  // One answer to "is the interviewer speaking?" for the panel and the transcript. It counts
+  // buffered playback after tts_end, and is false whenever the panel shows paused or a
+  // connection state instead of the orb.
+  const shownOrbState = displayedOrbState(orbState, audioPlaying);
+  const interviewerSpeaking = !isPaused && connectionState === "connected" && shownOrbState === "speaking";
+
   return (
     <div className="session-root" style={sessionRootStyle}>
       {/* Nav */}
@@ -473,7 +480,9 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
           }}
         >
           <AgentPanel
-            orbState={audioPlaying && orbState !== "interrupted" ? "speaking" : orbState}
+            orbState={shownOrbState}
+            displayName={interviewer.displayName}
+            purpose={interviewer.purpose}
             paused={isPaused}
             connectionState={connectionState}
             lastLatencyMs={lastLatencyMs}
@@ -490,7 +499,12 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
             overflow: "hidden",
           }}
         >
-          <LiveTranscript entries={transcript} aiSpeaking={aiSpeaking} />
+          <LiveTranscript
+            entries={transcript}
+            aiSpeaking={aiSpeaking}
+            interviewerSpeaking={interviewerSpeaking}
+            interviewerName={interviewer.displayName}
+          />
         </section>
       </main>
 
