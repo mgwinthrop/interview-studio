@@ -6,6 +6,10 @@ import { Nav } from "../components/Nav";
 import { FlowStepper } from "../components/FlowStepper";
 import { safeSessionNext } from "../lib/voiceSession";
 import { FIELD_BORDER } from "../lib/ui";
+import { clearMicChoice, findByLabel, isMissingDevice, micCheckMissingMessage, readMicChoice, saveMicChoice, type MicFallback } from "../lib/micDevice";
+
+// "System default" in the picker: no particular device, and no remembered choice (FQ-40).
+const SYSTEM_DEFAULT = "";
 
 type PermissionState = "pending" | "granted" | "denied";
 type RecordState = "idle" | "recording" | "playing";
@@ -26,7 +30,9 @@ export default function MicCheckPage() {
   const [permission, setPermission] = useState<PermissionState>("pending");
   const [started, setStarted] = useState(false);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
-  const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>(SYSTEM_DEFAULT);
+  // The remembered microphone was missing when this check started (FQ-40).
+  const [savedMissing, setSavedMissing] = useState<MicFallback | null>(null);
   const [waveform, setWaveform] = useState<number[]>(new Array(BAR_COUNT).fill(0));
   const [recordState, setRecordState] = useState<RecordState>("idle");
 
@@ -61,8 +67,10 @@ export default function MicCheckPage() {
   }, []);
 
   // ── Start audio stream ─────────────────────────────────────────────────────
+  // `requested`: undefined on Start (open the remembered microphone, if any); SYSTEM_DEFAULT or
+  // Chrome's "default" entry to forget the choice; otherwise a device the person picked.
   const startStream = useCallback(
-    async (deviceId?: string) => {
+    async (requested?: string) => {
       if (streamRef.current) streamRef.current.getTracks().forEach((t) => t.stop());
       if (animFrameRef.current !== null) {
         cancelAnimationFrame(animFrameRef.current);
@@ -73,23 +81,55 @@ export default function MicCheckPage() {
         audioCtxRef.current = null;
       }
 
+      const saved = requested === undefined ? readMicChoice() : null;
+      const forget = requested === SYSTEM_DEFAULT || requested === "default";
+      const deviceId = requested === undefined ? saved?.deviceId : forget ? undefined : requested;
       let stream: MediaStream;
+      let missing = false;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           audio: deviceId ? { deviceId: { exact: deviceId } } : true,
         });
-      } catch {
-        setPermission("denied");
-        return;
+      } catch (err) {
+        // A remembered or chosen microphone that is gone is not a permission problem: use the
+        // default and say so (only for the remembered one; a pick from the list is present).
+        if (!(saved && isMissingDevice(err))) {
+          setPermission("denied");
+          return;
+        }
+        // Its id may have changed: look for the same name before falling back to the default.
+        const renamed = findByLabel(await navigator.mediaDevices.enumerateDevices(), saved.label);
+        const found = renamed
+          ? await navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: renamed } } }).catch(() => null)
+          : null;
+        if (found) {
+          stream = found;
+          saveMicChoice({ deviceId: renamed!, label: saved.label });
+        } else {
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          } catch {
+            setPermission("denied");
+            return;
+          }
+          missing = true;
+        }
       }
+      // Show, test and remember the microphone that actually opened, not the first in the list.
+      const track = stream.getAudioTracks()[0];
+      const openedId = track?.getSettings().deviceId ?? "";
+      setSavedMissing(missing && saved ? { label: saved.label, using: track?.label ?? "" } : null);
+      if (forget) clearMicChoice();
+      else if (requested !== undefined && openedId) saveMicChoice({ deviceId: openedId, label: track?.label ?? "" });
+      setSelectedDeviceId(deviceId && !missing ? openedId || deviceId : SYSTEM_DEFAULT);
 
       streamRef.current = stream;
       setPermission("granted");
 
       const allDevices = await navigator.mediaDevices.enumerateDevices();
       const inputs = allDevices.filter((d) => d.kind === "audioinput");
-      setDevices(inputs);
-      if (!deviceId && inputs.length > 0) setSelectedDeviceId(inputs[0].deviceId);
+      // Chrome's "default" entry is covered by "System default".
+      setDevices(inputs.filter((d) => d.deviceId !== "default"));
 
       const ctx = new AudioContext();
       const source = ctx.createMediaStreamSource(stream);
@@ -326,12 +366,21 @@ export default function MicCheckPage() {
                     appearance: "auto",
                   }}
                 >
+                  <option value={SYSTEM_DEFAULT}>System default</option>
                   {devices.map((d) => (
                     <option key={d.deviceId} value={d.deviceId}>
                       {d.label || `Microphone ${d.deviceId.slice(0, 8)}`}
                     </option>
                   ))}
                 </select>
+                <p style={{ fontSize: 12, color: "#4B5563", margin: "6px 0 0" }}>
+                  Your sessions will use this microphone until you choose another.
+                </p>
+                {savedMissing && (
+                  <p role="status" style={{ fontSize: 13, color: "#1F4E6B", background: "#EEF6FB", border: "1px solid #BBD7EA", borderRadius: 6, padding: "8px 10px", margin: "8px 0 0" }}>
+                    {micCheckMissingMessage(savedMissing)}
+                  </p>
+                )}
               </div>
             )}
 
