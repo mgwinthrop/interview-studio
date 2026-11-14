@@ -418,6 +418,7 @@ describe("exported limits and input schema", () => {
   it("pins the limits the frontend copies", () => {
     expect(INTERVIEWER_LIMITS).toEqual({
       name: 60,
+      displayName: 40,
       purpose: 200,
       persona: 1500,
       style: 600,

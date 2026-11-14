@@ -44,6 +44,7 @@ function toResponse(def: InterviewerDefinition) {
   return {
     id: def.id,
     name: def.name,
+    ...(def.displayName !== undefined ? { displayName: def.displayName } : {}),
     purpose: def.purpose,
     source: def.source,
     persona: def.persona,

@@ -11,6 +11,8 @@ export interface PhaseDefinition {
 
 export interface InterviewerInput {
   name: string;
+  /** Who the person talks to ("Practice interviewer"), shown during a session; `name` is the activity. */
+  displayName?: string;
   purpose: string;
   persona: string;
   style: string;
@@ -54,6 +56,7 @@ export const ID_SHAPE = /^[A-Za-z0-9_-]{1,64}$/;
 
 export const INTERVIEWER_LIMITS = {
   name: 60,
+  displayName: 40,
   purpose: 200,
   persona: 1500,
   style: 600,
@@ -119,6 +122,7 @@ const phaseSchema = z
 
 const inputShape = {
   name: text(INTERVIEWER_LIMITS.name),
+  displayName: text(INTERVIEWER_LIMITS.displayName).optional(),
   purpose: text(INTERVIEWER_LIMITS.purpose),
   persona: text(INTERVIEWER_LIMITS.persona),
   style: text(INTERVIEWER_LIMITS.style),
