@@ -24,7 +24,7 @@ Server tests share one harness: see "Adding a server test" in `docs/contributing
 
 Before publishing, run all of: `npm test`, frontend `npm test`, frontend lint, frontend build, `npm run test:e2e`, backend build.
 
-Factory gates: `./.claude/scripts/gates.sh fast|full|deep` gives the deterministic verdict. The root `package.json` fans each gate out to both apps (`typecheck`, `lint`, `test` = backend then frontend unit tests, `build`, `audit`). Playwright e2e is not a gate; CI runs it on every pull request. The gates need `npx prisma generate` to have run, which downloads engines from `binaries.prisma.sh`.
+Factory gates: `./.claude/scripts/gates.sh fast|full|deep` gives the deterministic verdict. The root `package.json` fans each gate out to both apps (`typecheck`, `lint`, `test` = backend then frontend unit tests, `build`, `e2e` = the Playwright suite, `audit`). `e2e` is required at `full` and `deep`; it needs the Chromium build the pinned `@playwright/test` expects and free ports 3000 and 3001, and without them the verdict is MISCONFIGURED. CI also runs it on every pull request. The gates need `npx prisma generate` to have run, which downloads engines from `binaries.prisma.sh`.
 
 `http://localhost:3000/avatar` previews every avatar state with no backend, keys or microphone. Use it to check UI states and reduced motion.
 
