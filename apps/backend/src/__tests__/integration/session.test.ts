@@ -268,8 +268,11 @@ describe.skipIf(!RUN)(
 
       const res = await fetch(`${HTTP_URL}/api/session/${sessionId}/report`, { headers: AUTH_HEADERS });
       expect(res.status).toBe(200);
-      const report = (await res.json()) as { summary?: unknown };
-      expect(typeof report.summary).toBe("string");
+      // Report v2 (see docs/reports.md): next steps are always present; content and delivery
+      // depend on the interviewer's feedback switches.
+      const report = (await res.json()) as { format?: unknown; nextSteps?: unknown };
+      expect(report.format).toBe(2);
+      expect(Array.isArray(report.nextSteps) && report.nextSteps.length > 0).toBe(true);
     });
 
     it("no stt_error events were emitted", () => {
