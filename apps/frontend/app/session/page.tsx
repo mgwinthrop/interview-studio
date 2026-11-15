@@ -17,6 +17,7 @@ import {
   DesignFailedOverlay,
   DraftNotKeptOverlay,
   DraftRejectedOverlay,
+  EndConfirmDialog,
   MakingDraftOverlay,
   PausedOverlay,
   SessionFailedOverlay,
@@ -208,7 +209,12 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
   // Focus management for paused overlay
   const pauseOverlayButtonRef = useRef<HTMLButtonElement>(null);
   const prePauseFocusRef = useRef<HTMLElement | null>(null);
+  // FQ-47: true from the moment the end dialog opens until its flow has settled. While it is
+  // true the dialog owns focus, so this effect neither records nor restores focus for the
+  // pause and resume the dialog makes.
+  const endFlowOwnsFocusRef = useRef(false);
   useEffect(() => {
+    if (endFlowOwnsFocusRef.current) return;
     if (isPaused) {
       prePauseFocusRef.current = document.activeElement as HTMLElement;
       pauseOverlayButtonRef.current?.focus();
@@ -230,6 +236,32 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
     resumeMic();
     setIsPaused(false);
   }, [resumeMic]);
+
+  // FQ-47: confirm before ending a normal interview. Opening the dialog pauses the session with
+  // the existing Pause (unless it is already paused), so nothing said reaches the interviewer.
+  // `confirmingEnd` stays true until the end flow has settled: through the resume of a pause the
+  // dialog made, and for good once the end is confirmed. The pause screen is hidden while it is
+  // true, so it never flashes. When the flow settles without ending, this effect sets focus
+  // explicitly: the pause screen's Resume session if the session stays paused, otherwise End
+  // Session (where the browser's own dialog focus restore has usually put it already).
+  const endDialogRef = useRef<HTMLDialogElement>(null);
+  const endButtonRef = useRef<HTMLButtonElement>(null);
+  const [confirmingEnd, setConfirmingEnd] = useState(false);
+  const pausedByEndDialogRef = useRef(false);
+  // The pause the dialog started. Closing waits for it, so a quick Escape cannot resume before
+  // the pause has finished (which would leave the session Paused with the mic live).
+  const endDialogPauseRef = useRef<Promise<void> | null>(null);
+  const endConfirmedRef = useRef(false);
+  useEffect(() => {
+    const dialog = endDialogRef.current;
+    if (confirmingEnd && dialog && !dialog.open) dialog.showModal();
+  }, [confirmingEnd]);
+  useEffect(() => {
+    if (confirmingEnd || !endFlowOwnsFocusRef.current) return;
+    endFlowOwnsFocusRef.current = false;
+    if (isPaused) pauseOverlayButtonRef.current?.focus();
+    else endButtonRef.current?.focus();
+  }, [confirmingEnd, isPaused]);
 
   // Session timer — counts up from 00:00
   const [elapsed, setElapsed] = useState(0);
@@ -364,6 +396,44 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
     audioQueueRef.current?.flush();
     sendMessage({ type: "session_end" });
     goToReportOrHome();
+  }
+
+  // End Session: design and try modes end straight away as before; a normal interview asks first.
+  function handleEndClick() {
+    if (mode !== null) {
+      handleEndSession();
+      return;
+    }
+    endConfirmedRef.current = false;
+    endFlowOwnsFocusRef.current = true;
+    pausedByEndDialogRef.current = !isPaused;
+    // A pause that fails (the audio already shut down) is treated as no pause: it never rejects.
+    endDialogPauseRef.current = isPaused ? null : handlePause().catch(() => undefined);
+    setConfirmingEnd(true);
+  }
+
+  async function handleEndDialogClose() {
+    // Confirmed: the page is leaving; stay in the end flow so the pause screen never returns.
+    if (endConfirmedRef.current) return;
+    try {
+      if (pausedByEndDialogRef.current) {
+        pausedByEndDialogRef.current = false;
+        await endDialogPauseRef.current;
+        endDialogPauseRef.current = null;
+        // Even if the pause failed, the mic was paused first, so resuming is still right.
+        await handleResume();
+      }
+    } catch {
+      // A resume that fails must not leave the end flow stuck; the session controls stay usable.
+    } finally {
+      setConfirmingEnd(false);
+    }
+  }
+
+  function handleEndConfirmed() {
+    endConfirmedRef.current = true;
+    endDialogRef.current?.close();
+    handleEndSession();
   }
 
   // Design mode failure: start a new designer session; the typed text stays in the input.
@@ -537,7 +607,9 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
         </section>
       </main>
 
-      {isPaused && <PausedOverlay resumeRef={pauseOverlayButtonRef} onResume={handleResume} />}
+      {isPaused && !confirmingEnd && (
+        <PausedOverlay resumeRef={pauseOverlayButtonRef} onResume={handleResume} onEnd={mode === null ? handleEndClick : undefined} />
+      )}
 
       {/* STT error banner — non-blocking, auto-dismisses after 3s */}
       {sttError && <SttToast />}
@@ -562,8 +634,18 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
         onPause={handlePause}
         onResume={handleResume}
         designNotReady={designNotReady}
-        onEnd={handleEndSession}
+        onEnd={handleEndClick}
+        endButtonRef={endButtonRef}
       />
+
+      {mode === null && (
+        <EndConfirmDialog
+          dialogRef={endDialogRef}
+          onKeepTalking={() => endDialogRef.current?.close()}
+          onConfirm={handleEndConfirmed}
+          onClose={handleEndDialogClose}
+        />
+      )}
     </div>
   );
 }
