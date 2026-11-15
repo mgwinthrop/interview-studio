@@ -209,7 +209,12 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
   // Focus management for paused overlay
   const pauseOverlayButtonRef = useRef<HTMLButtonElement>(null);
   const prePauseFocusRef = useRef<HTMLElement | null>(null);
+  // FQ-47: true from the moment the end dialog opens until its flow has settled. While it is
+  // true the dialog owns focus, so this effect neither records nor restores focus for the
+  // pause and resume the dialog makes.
+  const endFlowOwnsFocusRef = useRef(false);
   useEffect(() => {
+    if (endFlowOwnsFocusRef.current) return;
     if (isPaused) {
       prePauseFocusRef.current = document.activeElement as HTMLElement;
       pauseOverlayButtonRef.current?.focus();
@@ -234,26 +239,23 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
 
   // FQ-47: confirm before ending a normal interview. Opening the dialog pauses the session with
   // the existing Pause (unless it is already paused), so nothing said reaches the interviewer.
-  // Closing it without ending resumes only a pause the dialog made, then focus returns to
-  // End Session, or to the pause screen's Resume button if the session stays paused. The
-  // refocus effect is declared after the pause-overlay focus effect above, so when both run
-  // in one commit, it decides focus last.
+  // `confirmingEnd` stays true until the end flow has settled: through the resume of a pause the
+  // dialog made, and for good once the end is confirmed. The pause screen is hidden while it is
+  // true, so it never flashes. When the flow settles without ending, this effect sets focus
+  // explicitly: the pause screen's Resume session if the session stays paused, otherwise End
+  // Session (where the browser's own dialog focus restore has usually put it already).
   const endDialogRef = useRef<HTMLDialogElement>(null);
   const endButtonRef = useRef<HTMLButtonElement>(null);
   const [confirmingEnd, setConfirmingEnd] = useState(false);
   const pausedByEndDialogRef = useRef(false);
   const endConfirmedRef = useRef(false);
-  const refocusEndRef = useRef<"now" | "after-resume" | null>(null);
   useEffect(() => {
     const dialog = endDialogRef.current;
     if (confirmingEnd && dialog && !dialog.open) dialog.showModal();
   }, [confirmingEnd]);
   useEffect(() => {
-    const when = refocusEndRef.current;
-    if (confirmingEnd || when === null || (when === "after-resume" && isPaused)) return;
-    refocusEndRef.current = null;
-    // Still paused (the person had paused before): the pause screen is back, so its Resume
-    // button gets focus rather than End Session underneath it.
+    if (confirmingEnd || !endFlowOwnsFocusRef.current) return;
+    endFlowOwnsFocusRef.current = false;
     if (isPaused) pauseOverlayButtonRef.current?.focus();
     else endButtonRef.current?.focus();
   }, [confirmingEnd, isPaused]);
@@ -400,21 +402,20 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
       return;
     }
     endConfirmedRef.current = false;
+    endFlowOwnsFocusRef.current = true;
     pausedByEndDialogRef.current = !isPaused;
     if (!isPaused) void handlePause();
     setConfirmingEnd(true);
   }
 
-  function handleEndDialogClose() {
-    setConfirmingEnd(false);
+  async function handleEndDialogClose() {
+    // Confirmed: the page is leaving; stay in the end flow so the pause screen never returns.
     if (endConfirmedRef.current) return;
     if (pausedByEndDialogRef.current) {
       pausedByEndDialogRef.current = false;
-      refocusEndRef.current = "after-resume";
-      void handleResume();
-    } else {
-      refocusEndRef.current = "now";
+      await handleResume();
     }
+    setConfirmingEnd(false);
   }
 
   function handleEndConfirmed() {

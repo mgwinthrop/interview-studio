@@ -15,6 +15,23 @@ test.use({
   },
 });
 
+// Counts every time the pause screen is added to the page, so even a one-frame flash shows up.
+// Kept in sessionStorage so the count survives the navigation to the report page.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    new MutationObserver((records) => {
+      for (const r of records) {
+        for (const node of Array.from(r.addedNodes)) {
+          if (node instanceof Element && node.matches('[aria-labelledby="paused-title"]')) {
+            sessionStorage.setItem("pause_screen_shows", String(Number(sessionStorage.getItem("pause_screen_shows") ?? 0) + 1));
+          }
+        }
+      }
+    }).observe(document, { subtree: true, childList: true });
+  });
+});
+const pauseScreenShows = (page: Page) => page.evaluate(() => Number(sessionStorage.getItem("pause_screen_shows") ?? 0));
+
 type Sent = { binary: boolean; type: string | null };
 
 function recordSentFrames(page: Page): Sent[] {
@@ -71,6 +88,7 @@ test.describe("confirm before ending a session", () => {
       expect(sent.slice(sentAtOpen).filter((s) => s.binary)).toEqual([]);
 
       // (3)/(4) Dismissing ends nothing and resumes the session.
+      const showsBeforeDismiss = await pauseScreenShows(page);
       if (dismiss === "Escape") await page.keyboard.press("Escape");
       else await endDialog(page).getByRole("button", { name: "Keep talking" }).click();
       await expect(endDialog(page)).toHaveCount(0);
@@ -78,6 +96,9 @@ test.describe("confirm before ending a session", () => {
       expect(page.url()).toBe(sessionUrl);
       await expect(endButton(page)).toBeFocused();
       await expect(panelStatus(page)).not.toHaveText("Paused");
+      // (7) The pause the dialog made ends without the pause screen ever appearing.
+      await page.waitForTimeout(300);
+      expect.soft(await pauseScreenShows(page)).toBe(showsBeforeDismiss);
     }
   });
 
@@ -109,8 +130,26 @@ test.describe("confirm before ending a session", () => {
     expect(sessionEnds(sent)).toBe(0);
     await endDialog(page).getByRole("button", { name: "End and see report" }).click();
 
-    // (6) Today's end path: session_end is sent and the report page opens.
+    // (6) Today's end path: session_end is sent and the report page opens, and the pause the
+    // dialog made never shows the pause screen on the way.
     await expect(page).toHaveURL(/\/report\//, { timeout: 20_000 });
     expect(sessionEnds(sent)).toBe(1);
+    expect(await pauseScreenShows(page)).toBe(0);
+  });
+
+  test("confirming while paused goes to the report without the pause screen coming back", async ({ page }) => {
+    const sent = recordSentFrames(page);
+    await openReadySession(page);
+    await page.getByRole("button", { name: "Pause session" }).click();
+    await expect(pauseScreen(page)).toBeVisible();
+    const showsWhilePaused = await pauseScreenShows(page);
+
+    // (8) End session on the pause screen, then confirm.
+    await pauseScreen(page).getByRole("button", { name: "End session" }).click();
+    await expect(endDialog(page)).toBeVisible();
+    await endDialog(page).getByRole("button", { name: "End and see report" }).click();
+    await expect(page).toHaveURL(/\/report\//, { timeout: 20_000 });
+    expect(sessionEnds(sent)).toBe(1);
+    expect(await pauseScreenShows(page)).toBe(showsWhilePaused);
   });
 });
