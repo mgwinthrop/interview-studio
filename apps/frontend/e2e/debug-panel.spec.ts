@@ -32,8 +32,10 @@ test.describe("operator details on the live session", () => {
     await openSessionAndAnswer(page, "");
     // Give the page time to render the response time it has just received.
     await page.waitForTimeout(500);
-    await expect(page.getByText(/Last response:/)).toHaveCount(0);
-    await expect(page.getByText(/interview_/)).toHaveCount(0);
+    // Soft assertions so each detail is checked on its own: a failure of the first must not
+    // hide the result of the second.
+    await expect.soft(page.getByText(/Last response:/)).toHaveCount(0);
+    await expect.soft(page.getByText(/interview_/)).toHaveCount(0);
   });
 
   test("show with ?debug=1, in the panel and the header", async ({ page }) => {
