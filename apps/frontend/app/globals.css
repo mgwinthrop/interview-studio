@@ -111,6 +111,14 @@ body {
 .nav-links-group {
   /* desktop: visible */
 }
+/* FQ-56: gear disclosure holding Usage and Settings */
+.nav-admin { position: relative; margin-left: 4px; }
+.nav-admin-button { display: grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: #8896A8; cursor: pointer; transition: color 0.15s; }
+.nav-admin-button:hover, .nav-admin-button[aria-expanded="true"] { color: var(--studio-white); }
+.nav-admin-panel { position: absolute; top: calc(100% + 8px); right: 0; z-index: 20; min-width: 160px; margin: 0; padding: 6px; list-style: none; background: var(--studio-white); border: 1px solid var(--studio-border); border-radius: 8px; box-shadow: 0 8px 24px rgba(16, 43, 51, 0.16); }
+.nav-admin-panel[hidden] { display: none; }
+.nav-admin-link { display: block; padding: 8px 12px; border-radius: 6px; font-size: 13px; font-weight: 500; color: var(--studio-dark-blue); text-decoration: none; }
+.nav-admin-link:hover { background: var(--studio-light-grey); }
 
 /* Agent panel — orb content hidden on mobile, compact bar shown */
 .agent-panel-orb-content {

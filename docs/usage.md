@@ -6,7 +6,7 @@ The Usage page shows what the app has spent on model calls, day by day. It reads
 
 ## Where to find it
 
-- The **Usage** link in the main navigation (between Dashboard and Settings), or open `/usage`.
+- The gear button at the right of the main navigation (labelled "Usage and settings"): it opens a short list with **Usage** and **Settings**. Or open `/usage`.
 - The line under the **Dashboard** heading: "Last 30 days: ... · See usage →".
 - The "See all usage →" link on the usage line of a report page.
 
@@ -60,7 +60,7 @@ Each day also has a spoken label with the same numbers. **View as table** is a t
 
 ## Owner acceptance checklist
 
-1. Open `/usage` from the main menu. The link sits between Dashboard and Settings, and there is no "More options" button.
+1. Open `/usage` from the gear button at the right of the main navigation. The main links are Home, Interviewers and Dashboard; the gear opens a list with Usage and Settings, Escape closes it and returns focus to the gear, and a click outside closes it.
 2. Switch the range between 7, 14, 30 and 90 days and the measure between Tokens and Cost. The tiles, chart and tables follow.
 3. Hover and use the keyboard (arrow keys, Home, End, Escape) through the columns; the tooltip shows the date, total and each feature.
 4. Press "View as table" and check it shows the same numbers.

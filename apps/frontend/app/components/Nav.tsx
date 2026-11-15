@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useId, useRef, useState } from "react";
 import { DemoBadge } from "./DemoBadge";
 
 interface NavProps {
@@ -55,14 +56,75 @@ export function Nav({ demo }: NavProps) {
         <Link href="/dashboard" style={navLinkStyle}>
           Dashboard
         </Link>
-        <Link href="/usage" style={navLinkStyle}>
-          Usage
-        </Link>
-        <Link href="/settings" style={navLinkStyle}>
-          Settings
-        </Link>
+        <AdminMenu />
       </div>
     </nav>
+  );
+}
+
+/**
+ * Usage and Settings are operator tools, so they sit behind a gear rather than in the main
+ * links. A disclosure (button + list of links), not an ARIA menu: Tab moves through the links,
+ * Escape closes it and returns focus to the gear, and a click outside closes it.
+ */
+function AdminMenu() {
+  const [open, setOpen] = useState(false);
+  const panelId = useId();
+  const rootRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setOpen(false);
+      buttonRef.current?.focus();
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="nav-admin">
+      <button
+        ref={buttonRef}
+        type="button"
+        className="nav-admin-button"
+        aria-label="Usage and settings"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">
+          <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.8" />
+          <path
+            d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+      <ul id={panelId} className="nav-admin-panel" hidden={!open}>
+        <li>
+          <Link href="/usage" className="nav-admin-link" onClick={() => setOpen(false)}>
+            Usage
+          </Link>
+        </li>
+        <li>
+          <Link href="/settings" className="nav-admin-link" onClick={() => setOpen(false)}>
+            Settings
+          </Link>
+        </li>
+      </ul>
+    </div>
   );
 }
 
