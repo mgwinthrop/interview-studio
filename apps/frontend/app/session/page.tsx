@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useWebSocket } from "../hooks/useWebSocket";
 import { useVAD } from "../../hooks/useVAD";
 import { AudioQueue } from "../../lib/audioQueue";
@@ -30,11 +30,14 @@ import { LoadingScreen, SessionPageInner, type SessionViewProps } from "./Sessio
 import { headerBarStyle, interviewerNameStyle, sessionIdStyle, sessionRootStyle, timerStyle } from "./styles";
 import { THINKING_WATCHDOG_MS } from "./timing";
 import { micFallbackMessage } from "../lib/micDevice";
+import { isDebug } from "../lib/debug";
 import { HEARING_DEADLINE_MS, displayedOrbState, hearingUnavailable, panelState } from "../lib/sessionDisplay";
 
 // The live conversation. Mounted only after the interviewer has loaded.
 function SessionView({ interviewer, demo, mode = null, start, returnTo }: SessionViewProps) {
   const router = useRouter();
+  // FQ-46: the response time and the session id are operator details, shown only with ?debug=1.
+  const debug = isDebug(useSearchParams());
   const interviewerId = interviewer.id;
   // Design and try sessions store nothing: they never lead to a report page.
   const leaveTo = mode === "try" ? returnTo ?? DEFAULT_RETURN_TO : "/interviewers";
@@ -461,7 +464,7 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
 
         {/* Session ID — hidden on mobile */}
         <span className="session-id-label" style={sessionIdStyle}>
-          {sessionId ? `interview_${sessionId.slice(0, 11)}` : ""}
+          {debug && sessionId ? `interview_${sessionId.slice(0, 11)}` : ""}
         </span>
 
         {/* Right cluster: signal + timer + demo badge */}
@@ -508,8 +511,8 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
             purpose={interviewer.purpose}
             paused={isPaused}
             connectionState={connectionState}
-            lastLatencyMs={lastLatencyMs}
-            sessionId={sessionId}
+            lastLatencyMs={debug ? lastLatencyMs : null}
+            sessionId={debug ? sessionId : ""}
           />
         </aside>
 
