@@ -137,6 +137,32 @@ test.describe("confirm before ending a session", () => {
     expect(await pauseScreenShows(page)).toBe(0);
   });
 
+  test("Escape straight after opening does not race the pause", async ({ page }) => {
+    // (9) Slow the audio pause down so Escape lands while the dialog's pause is still running.
+    await page.addInitScript(() => {
+      const original = AudioContext.prototype.suspend;
+      AudioContext.prototype.suspend = function (this: AudioContext) {
+        return new Promise<void>((resolve) => setTimeout(resolve, 800)).then(() => original.call(this));
+      };
+    });
+    const sent = recordSentFrames(page);
+    await openReadySession(page);
+    await expect(page.locator(".interviewer-panel")).toHaveAttribute("data-hearing", "ready");
+    const showsBefore = await pauseScreenShows(page);
+
+    await endButton(page).click();
+    await expect(endDialog(page)).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(endDialog(page)).toHaveCount(0);
+
+    // Let the slowed pause finish, then check the session ended up running, not stuck paused.
+    await page.waitForTimeout(1500);
+    await expect(panelStatus(page)).not.toHaveText("Paused");
+    expect(await pauseScreenShows(page)).toBe(showsBefore);
+    await expect(endButton(page)).toBeFocused();
+    expect(sessionEnds(sent)).toBe(0);
+  });
+
   test("confirming while paused goes to the report without the pause screen coming back", async ({ page }) => {
     const sent = recordSentFrames(page);
     await openReadySession(page);

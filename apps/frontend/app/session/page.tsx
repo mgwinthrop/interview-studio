@@ -248,6 +248,9 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
   const endButtonRef = useRef<HTMLButtonElement>(null);
   const [confirmingEnd, setConfirmingEnd] = useState(false);
   const pausedByEndDialogRef = useRef(false);
+  // The pause the dialog started. Closing waits for it, so a quick Escape cannot resume before
+  // the pause has finished (which would leave the session Paused with the mic live).
+  const endDialogPauseRef = useRef<Promise<void> | null>(null);
   const endConfirmedRef = useRef(false);
   useEffect(() => {
     const dialog = endDialogRef.current;
@@ -404,7 +407,7 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
     endConfirmedRef.current = false;
     endFlowOwnsFocusRef.current = true;
     pausedByEndDialogRef.current = !isPaused;
-    if (!isPaused) void handlePause();
+    endDialogPauseRef.current = isPaused ? null : handlePause();
     setConfirmingEnd(true);
   }
 
@@ -413,6 +416,8 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
     if (endConfirmedRef.current) return;
     if (pausedByEndDialogRef.current) {
       pausedByEndDialogRef.current = false;
+      await endDialogPauseRef.current;
+      endDialogPauseRef.current = null;
       await handleResume();
     }
     setConfirmingEnd(false);
