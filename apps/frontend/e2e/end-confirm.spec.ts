@@ -163,6 +163,35 @@ test.describe("confirm before ending a session", () => {
     expect(sessionEnds(sent)).toBe(0);
   });
 
+  test("a pause that fails does not leave the end dialog stuck", async ({ page }) => {
+    // (10) Make the audio pause fail, as it would if the audio had already been shut down.
+    await page.addInitScript(() => {
+      AudioContext.prototype.suspend = function () {
+        return Promise.reject(new DOMException("closed", "InvalidStateError"));
+      };
+    });
+    const pageErrors: string[] = [];
+    page.on("pageerror", (e) => pageErrors.push(e.message));
+    const sent = recordSentFrames(page);
+    await openReadySession(page);
+
+    await endButton(page).click();
+    await expect(endDialog(page)).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(endDialog(page)).toHaveCount(0);
+
+    // The page is not stuck: the session runs, End Session has focus and opens the dialog again.
+    await page.waitForTimeout(500);
+    await expect(panelStatus(page)).not.toHaveText("Paused");
+    await expect(endButton(page)).toBeFocused();
+    await endButton(page).click();
+    await expect(endDialog(page)).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(endDialog(page)).toHaveCount(0);
+    expect(sessionEnds(sent)).toBe(0);
+    expect(pageErrors).toEqual([]);
+  });
+
   test("confirming while paused goes to the report without the pause screen coming back", async ({ page }) => {
     const sent = recordSentFrames(page);
     await openReadySession(page);

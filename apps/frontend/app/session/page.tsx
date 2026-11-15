@@ -407,20 +407,27 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
     endConfirmedRef.current = false;
     endFlowOwnsFocusRef.current = true;
     pausedByEndDialogRef.current = !isPaused;
-    endDialogPauseRef.current = isPaused ? null : handlePause();
+    // A pause that fails (the audio already shut down) is treated as no pause: it never rejects.
+    endDialogPauseRef.current = isPaused ? null : handlePause().catch(() => undefined);
     setConfirmingEnd(true);
   }
 
   async function handleEndDialogClose() {
     // Confirmed: the page is leaving; stay in the end flow so the pause screen never returns.
     if (endConfirmedRef.current) return;
-    if (pausedByEndDialogRef.current) {
-      pausedByEndDialogRef.current = false;
-      await endDialogPauseRef.current;
-      endDialogPauseRef.current = null;
-      await handleResume();
+    try {
+      if (pausedByEndDialogRef.current) {
+        pausedByEndDialogRef.current = false;
+        await endDialogPauseRef.current;
+        endDialogPauseRef.current = null;
+        // Even if the pause failed, the mic was paused first, so resuming is still right.
+        await handleResume();
+      }
+    } catch {
+      // A resume that fails must not leave the end flow stuck; the session controls stay usable.
+    } finally {
+      setConfirmingEnd(false);
     }
-    setConfirmingEnd(false);
   }
 
   function handleEndConfirmed() {
