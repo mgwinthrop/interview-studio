@@ -113,6 +113,9 @@ body {
 .end-confirm-keep { border: none; background: var(--studio-blue); color: var(--studio-white); }
 .end-confirm-end { border: 1px solid #B03E14; background: transparent; color: #B03E14; }
 .end-confirm-end:hover { background: #B03E14; color: var(--studio-white); }
+/* FQ-47: End session on the pause screen, which covers the footer's End Session */
+.paused-end-button { padding: 10px 24px; border: 1px solid #FFCEB9; border-radius: 8px; background: transparent; color: #FFCEB9; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.paused-end-button:hover { background: rgba(255, 206, 185, 0.12); }
 
 /* Nav */
 .nav-root {

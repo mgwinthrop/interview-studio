@@ -178,7 +178,16 @@ export function TrialBanner() {
 }
 
 // Full-screen dim so presenter and audience see the paused state clearly.
-export function PausedOverlay({ resumeRef, onResume }: { resumeRef: RefObject<HTMLButtonElement | null>; onResume: () => void }) {
+export function PausedOverlay({
+  resumeRef,
+  onResume,
+  onEnd,
+}: {
+  resumeRef: RefObject<HTMLButtonElement | null>;
+  onResume: () => void;
+  /** FQ-47: this screen covers the footer, so it offers End session itself. */
+  onEnd?: () => void;
+}) {
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="paused-title" style={pausedBackdropStyle}>
       <div style={{ fontSize: 48, lineHeight: 1 }} aria-hidden="true">⏸</div>
@@ -188,6 +197,11 @@ export function PausedOverlay({ resumeRef, onResume }: { resumeRef: RefObject<HT
       <button ref={resumeRef} onClick={onResume} style={pausedResumeStyle}>
         ▶ Resume session
       </button>
+      {onEnd && (
+        <button type="button" onClick={onEnd} className="paused-end-button">
+          End session
+        </button>
+      )}
     </div>
   );
 }

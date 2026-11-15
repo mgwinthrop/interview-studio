@@ -235,8 +235,9 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
   // FQ-47: confirm before ending a normal interview. Opening the dialog pauses the session with
   // the existing Pause (unless it is already paused), so nothing said reaches the interviewer.
   // Closing it without ending resumes only a pause the dialog made, then focus returns to
-  // End Session. This effect is declared after the pause-overlay focus effect above, so when
-  // both run in one commit, End Session gets focus last.
+  // End Session, or to the pause screen's Resume button if the session stays paused. The
+  // refocus effect is declared after the pause-overlay focus effect above, so when both run
+  // in one commit, it decides focus last.
   const endDialogRef = useRef<HTMLDialogElement>(null);
   const endButtonRef = useRef<HTMLButtonElement>(null);
   const [confirmingEnd, setConfirmingEnd] = useState(false);
@@ -251,7 +252,10 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
     const when = refocusEndRef.current;
     if (confirmingEnd || when === null || (when === "after-resume" && isPaused)) return;
     refocusEndRef.current = null;
-    endButtonRef.current?.focus();
+    // Still paused (the person had paused before): the pause screen is back, so its Resume
+    // button gets focus rather than End Session underneath it.
+    if (isPaused) pauseOverlayButtonRef.current?.focus();
+    else endButtonRef.current?.focus();
   }, [confirmingEnd, isPaused]);
 
   // Session timer — counts up from 00:00
@@ -590,7 +594,9 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
         </section>
       </main>
 
-      {isPaused && !confirmingEnd && <PausedOverlay resumeRef={pauseOverlayButtonRef} onResume={handleResume} />}
+      {isPaused && !confirmingEnd && (
+        <PausedOverlay resumeRef={pauseOverlayButtonRef} onResume={handleResume} onEnd={mode === null ? handleEndClick : undefined} />
+      )}
 
       {/* STT error banner — non-blocking, auto-dismisses after 3s */}
       {sttError && <SttToast />}

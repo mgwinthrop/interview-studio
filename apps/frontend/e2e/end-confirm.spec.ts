@@ -32,7 +32,9 @@ function recordSentFrames(page: Page): Sent[] {
 }
 
 const panelStatus = (page: Page) => page.locator(".interviewer-panel .interviewer-status");
-const endButton = (page: Page) => page.getByRole("button", { name: "End Session" });
+// The footer's button. exact: the pause screen has its own "End session" button.
+const endButton = (page: Page) => page.getByRole("button", { name: "End Session", exact: true });
+const pauseScreen = (page: Page) => page.getByRole("dialog", { name: "Session paused" });
 const endDialog = (page: Page) => page.getByRole("dialog", { name: "End this interview?" });
 const sessionEnds = (sent: Sent[]) => sent.filter((s) => s.type === "session_end").length;
 
@@ -85,14 +87,17 @@ test.describe("confirm before ending a session", () => {
     await page.getByRole("button", { name: "Pause session" }).click();
     await expect(panelStatus(page)).toHaveText("Paused");
 
-    // (5) The pause overlay covers the footer, so End Session is reached with the keyboard.
-    await endButton(page).focus();
-    await page.keyboard.press("Enter");
+    // (5) The pause screen covers the footer, so it offers its own End session button (a click,
+    // no keyboard). Dismissing keeps the session paused and focus goes to Resume session.
+    await expect(pauseScreen(page).getByRole("button", { name: "End session" })).toBeVisible();
+    await pauseScreen(page).getByRole("button", { name: "End session" }).click();
     await expect(endDialog(page)).toBeVisible();
+    await expect(pauseScreen(page)).toHaveCount(0);
     await page.keyboard.press("Escape");
     await expect(endDialog(page)).toHaveCount(0);
     await expect(panelStatus(page)).toHaveText("Paused");
-    await expect(page.getByText("Session paused")).toBeVisible();
+    await expect(pauseScreen(page)).toBeVisible();
+    await expect(pauseScreen(page).getByRole("button", { name: "Resume session" })).toBeFocused();
     expect(sessionEnds(sent)).toBe(0);
   });
 
