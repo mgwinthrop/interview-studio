@@ -192,6 +192,41 @@ export function PausedOverlay({ resumeRef, onResume }: { resumeRef: RefObject<HT
   );
 }
 
+// FQ-47: confirm before ending a normal interview. A native <dialog> opened with showModal(),
+// so the browser traps focus, makes the page behind it inert and turns Escape into a close.
+// The page decides what closing means (resume or end); this component only renders.
+export function EndConfirmDialog({
+  dialogRef,
+  onKeepTalking,
+  onConfirm,
+  onClose,
+}: {
+  dialogRef: RefObject<HTMLDialogElement | null>;
+  onKeepTalking: () => void;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <dialog ref={dialogRef} className="end-confirm-dialog" aria-labelledby="end-confirm-title" onClose={onClose}>
+      <h2 id="end-confirm-title" className="end-confirm-title">
+        End this interview?
+      </h2>
+      <p className="end-confirm-body">
+        The conversation stops and your report is written. You can&apos;t continue this interview afterwards.
+      </p>
+      <div className="end-confirm-actions">
+        {/* autoFocus: showModal() puts focus here, the safe choice. */}
+        <button type="button" autoFocus onClick={onKeepTalking} className="end-confirm-keep">
+          Keep talking
+        </button>
+        <button type="button" onClick={onConfirm} className="end-confirm-end">
+          End and see report
+        </button>
+      </div>
+    </dialog>
+  );
+}
+
 // Non-blocking; the page clears it after 3s.
 export function SttToast() {
   return (
@@ -240,6 +275,7 @@ export function SessionFooter({
   onResume,
   designNotReady,
   onEnd,
+  endButtonRef,
 }: {
   mode: SessionMode;
   showTextInput: boolean;
@@ -249,6 +285,8 @@ export function SessionFooter({
   onResume: () => void;
   designNotReady: boolean;
   onEnd: () => void;
+  /** Lets the page return focus here after the end confirmation closes (FQ-47). */
+  endButtonRef?: RefObject<HTMLButtonElement | null>;
 }) {
   return (
     <footer className="session-footer" style={footerStyle}>
@@ -273,6 +311,7 @@ export function SessionFooter({
 
       {/* End Session */}
       <button
+        ref={endButtonRef}
         onClick={onEnd}
         // Design mode only: disabled until the designer session has started.
         disabled={designNotReady}

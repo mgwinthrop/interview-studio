@@ -17,6 +17,7 @@ import {
   DesignFailedOverlay,
   DraftNotKeptOverlay,
   DraftRejectedOverlay,
+  EndConfirmDialog,
   MakingDraftOverlay,
   PausedOverlay,
   SessionFailedOverlay,
@@ -231,6 +232,28 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
     setIsPaused(false);
   }, [resumeMic]);
 
+  // FQ-47: confirm before ending a normal interview. Opening the dialog pauses the session with
+  // the existing Pause (unless it is already paused), so nothing said reaches the interviewer.
+  // Closing it without ending resumes only a pause the dialog made, then focus returns to
+  // End Session. This effect is declared after the pause-overlay focus effect above, so when
+  // both run in one commit, End Session gets focus last.
+  const endDialogRef = useRef<HTMLDialogElement>(null);
+  const endButtonRef = useRef<HTMLButtonElement>(null);
+  const [confirmingEnd, setConfirmingEnd] = useState(false);
+  const pausedByEndDialogRef = useRef(false);
+  const endConfirmedRef = useRef(false);
+  const refocusEndRef = useRef<"now" | "after-resume" | null>(null);
+  useEffect(() => {
+    const dialog = endDialogRef.current;
+    if (confirmingEnd && dialog && !dialog.open) dialog.showModal();
+  }, [confirmingEnd]);
+  useEffect(() => {
+    const when = refocusEndRef.current;
+    if (confirmingEnd || when === null || (when === "after-resume" && isPaused)) return;
+    refocusEndRef.current = null;
+    endButtonRef.current?.focus();
+  }, [confirmingEnd, isPaused]);
+
   // Session timer — counts up from 00:00
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
@@ -364,6 +387,36 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
     audioQueueRef.current?.flush();
     sendMessage({ type: "session_end" });
     goToReportOrHome();
+  }
+
+  // End Session: design and try modes end straight away as before; a normal interview asks first.
+  function handleEndClick() {
+    if (mode !== null) {
+      handleEndSession();
+      return;
+    }
+    endConfirmedRef.current = false;
+    pausedByEndDialogRef.current = !isPaused;
+    if (!isPaused) void handlePause();
+    setConfirmingEnd(true);
+  }
+
+  function handleEndDialogClose() {
+    setConfirmingEnd(false);
+    if (endConfirmedRef.current) return;
+    if (pausedByEndDialogRef.current) {
+      pausedByEndDialogRef.current = false;
+      refocusEndRef.current = "after-resume";
+      void handleResume();
+    } else {
+      refocusEndRef.current = "now";
+    }
+  }
+
+  function handleEndConfirmed() {
+    endConfirmedRef.current = true;
+    endDialogRef.current?.close();
+    handleEndSession();
   }
 
   // Design mode failure: start a new designer session; the typed text stays in the input.
@@ -537,7 +590,7 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
         </section>
       </main>
 
-      {isPaused && <PausedOverlay resumeRef={pauseOverlayButtonRef} onResume={handleResume} />}
+      {isPaused && !confirmingEnd && <PausedOverlay resumeRef={pauseOverlayButtonRef} onResume={handleResume} />}
 
       {/* STT error banner — non-blocking, auto-dismisses after 3s */}
       {sttError && <SttToast />}
@@ -562,8 +615,18 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
         onPause={handlePause}
         onResume={handleResume}
         designNotReady={designNotReady}
-        onEnd={handleEndSession}
+        onEnd={handleEndClick}
+        endButtonRef={endButtonRef}
       />
+
+      {mode === null && (
+        <EndConfirmDialog
+          dialogRef={endDialogRef}
+          onKeepTalking={() => endDialogRef.current?.close()}
+          onConfirm={handleEndConfirmed}
+          onClose={handleEndDialogClose}
+        />
+      )}
     </div>
   );
 }

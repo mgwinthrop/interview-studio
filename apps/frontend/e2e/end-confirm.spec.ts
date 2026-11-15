@@ -1,0 +1,111 @@
+import { expect, test, type Page } from "@playwright/test";
+
+// FQ-47: End Session asks for confirmation before ending a normal interview. The dialog pauses
+// the session with the existing Pause (so nothing the person says reaches the interviewer),
+// Escape or "Keep talking" resumes it only if the dialog paused it, and focus returns to
+// End Session. As in resume.spec.ts, the autoplay flag lets voice detection start without a
+// click and test.use repeats the fake-device flags, so the fake microphone is running.
+test.use({
+  launchOptions: {
+    args: [
+      "--use-fake-device-for-media-stream",
+      "--use-fake-ui-for-media-stream",
+      "--autoplay-policy=no-user-gesture-required",
+    ],
+  },
+});
+
+type Sent = { binary: boolean; type: string | null };
+
+function recordSentFrames(page: Page): Sent[] {
+  const sent: Sent[] = [];
+  page.on("websocket", (ws) =>
+    ws.on("framesent", (f) => {
+      if (typeof f.payload === "string") {
+        sent.push({ binary: false, type: (JSON.parse(f.payload) as { type: string }).type });
+      } else {
+        sent.push({ binary: true, type: null });
+      }
+    }),
+  );
+  return sent;
+}
+
+const panelStatus = (page: Page) => page.locator(".interviewer-panel .interviewer-status");
+const endButton = (page: Page) => page.getByRole("button", { name: "End Session" });
+const endDialog = (page: Page) => page.getByRole("dialog", { name: "End this interview?" });
+const sessionEnds = (sent: Sent[]) => sent.filter((s) => s.type === "session_end").length;
+
+async function openReadySession(page: Page) {
+  await page.goto("/mic-check");
+  await page.evaluate(() => sessionStorage.setItem("mic_gesture_granted", "1"));
+  await page.goto("/session?interviewerId=tell-a-story&demo=true");
+  await expect(page.locator(".interviewer-panel")).toHaveAttribute("data-hearing", "ready", { timeout: 20_000 });
+  await expect(panelStatus(page)).not.toHaveText("Speaking", { timeout: 20_000 });
+}
+
+test.describe("confirm before ending a session", () => {
+  test("the dialog pauses the session, and Escape or Keep talking goes back to it", async ({ page }) => {
+    const sent = recordSentFrames(page);
+    await openReadySession(page);
+    const sessionUrl = page.url();
+
+    for (const dismiss of ["Escape", "Keep talking"] as const) {
+      await endButton(page).click();
+
+      // (1) A named dialog with the agreed wording; focus starts on Keep talking.
+      await expect(endDialog(page)).toBeVisible();
+      await expect(endDialog(page)).toContainText(
+        "The conversation stops and your report is written. You can't continue this interview afterwards.",
+      );
+      await expect(endDialog(page).getByRole("button", { name: "Keep talking" })).toBeFocused();
+      await expect(endDialog(page).getByRole("button", { name: "End and see report" })).toBeVisible();
+
+      // (2) The session is paused behind the dialog: no audio leaves while it is open.
+      await expect(panelStatus(page)).toHaveText("Paused");
+      await expect(page.getByText("Session paused")).toHaveCount(0);
+      const sentAtOpen = sent.length;
+      await page.waitForTimeout(1500);
+      expect(sent.slice(sentAtOpen).filter((s) => s.binary)).toEqual([]);
+
+      // (3)/(4) Dismissing ends nothing and resumes the session.
+      if (dismiss === "Escape") await page.keyboard.press("Escape");
+      else await endDialog(page).getByRole("button", { name: "Keep talking" }).click();
+      await expect(endDialog(page)).toHaveCount(0);
+      expect(sessionEnds(sent)).toBe(0);
+      expect(page.url()).toBe(sessionUrl);
+      await expect(endButton(page)).toBeFocused();
+      await expect(panelStatus(page)).not.toHaveText("Paused");
+    }
+  });
+
+  test("a session the person had paused stays paused after the dialog is dismissed", async ({ page }) => {
+    const sent = recordSentFrames(page);
+    await openReadySession(page);
+    await page.getByRole("button", { name: "Pause session" }).click();
+    await expect(panelStatus(page)).toHaveText("Paused");
+
+    // (5) The pause overlay covers the footer, so End Session is reached with the keyboard.
+    await endButton(page).focus();
+    await page.keyboard.press("Enter");
+    await expect(endDialog(page)).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(endDialog(page)).toHaveCount(0);
+    await expect(panelStatus(page)).toHaveText("Paused");
+    await expect(page.getByText("Session paused")).toBeVisible();
+    expect(sessionEnds(sent)).toBe(0);
+  });
+
+  test("confirming ends the session and opens the report", async ({ page }) => {
+    const sent = recordSentFrames(page);
+    await openReadySession(page);
+    await endButton(page).click();
+    await expect(endDialog(page)).toBeVisible();
+    expect(sessionEnds(sent)).toBe(0);
+    await endDialog(page).getByRole("button", { name: "End and see report" }).click();
+
+    // (6) Today's end path: session_end is sent and the report page opens.
+    await expect(page).toHaveURL(/\/report\//, { timeout: 20_000 });
+    expect(sessionEnds(sent)).toBe(1);
+  });
+});
