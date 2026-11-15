@@ -404,6 +404,9 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
       handleEndSession();
       return;
     }
+    // FQ-98: while the end flow is still settling (closing waits for the dialog's pause), End
+    // Session does nothing; starting another pause here would outlive the close.
+    if (confirmingEnd) return;
     endConfirmedRef.current = false;
     endFlowOwnsFocusRef.current = true;
     pausedByEndDialogRef.current = !isPaused;
