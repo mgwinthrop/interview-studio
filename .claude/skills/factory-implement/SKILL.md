@@ -121,6 +121,7 @@ PR body template. Fill every field. Empty fields are how unreviewed work gets me
 
 ## Queue item
 FQ-<n> - <link to issue>
+Closes #<n>
 done_when: <copied verbatim from the queue>
 
 ## Why this is safe
@@ -140,6 +141,10 @@ Verifier verdict: accepted
 ## Not done
 <anything in scope you deliberately left out, or "nothing">
 ```
+
+Keep `Closes #<n>` on its own line in the PR body, with the source issue's number. GitHub
+closes the issue when a human merges the PR; without it the issue stays open and
+`factory:awaiting-review` after the work has landed, and the queue drifts.
 
 Mark the PR as **draft** if any of these hold:
 
