@@ -77,9 +77,7 @@ export function LiveTranscript({ entries, aiSpeaking, interviewerSpeaking, inter
         flexDirection: "column",
         overflow: "hidden",
         background: "#FFFFFF",
-        // Fade transcript when AI is speaking (spec §7)
-        opacity: aiSpeaking ? 0.4 : 1,
-        transition: "opacity 0.2s ease",
+        // FQ-43: no dimming while the interviewer speaks; captions matter most then.
       }}
     >
       {/* ── Header ── */}
