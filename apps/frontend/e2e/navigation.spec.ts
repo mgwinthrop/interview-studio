@@ -21,6 +21,7 @@ test.describe("main navigation", () => {
 
   test("the gear opens a disclosure; Escape closes it and returns focus", async ({ page }) => {
     await page.goto("/dashboard");
+    await expect(gear(page)).toBeVisible();
     await gear(page).click();
     await expect(gear(page)).toHaveAttribute("aria-expanded", "true");
     const panelId = await gear(page).getAttribute("aria-controls");
@@ -38,6 +39,7 @@ test.describe("main navigation", () => {
 
   test("an outside click closes the disclosure", async ({ page }) => {
     await page.goto("/dashboard");
+    await expect(gear(page)).toBeVisible();
     await gear(page).click();
     await expect(gear(page)).toHaveAttribute("aria-expanded", "true");
     await page.locator("body").click({ position: { x: 5, y: 400 } });
@@ -46,6 +48,7 @@ test.describe("main navigation", () => {
 
   test("navigates to Usage from the disclosure", async ({ page }) => {
     await page.goto("/dashboard");
+    await expect(gear(page)).toBeVisible();
     await gear(page).click();
     await mainNav(page).getByRole("link", { name: "Usage" }).click();
     await expect(page).toHaveURL(/\/usage$/);
