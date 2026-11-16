@@ -2,13 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
-import { DemoBadge } from "./DemoBadge";
 
-interface NavProps {
-  demo?: boolean;
-}
-
-export function Nav({ demo }: NavProps) {
+export function Nav() {
   return (
     <nav
       aria-label="Main"
@@ -43,12 +38,8 @@ export function Nav({ demo }: NavProps) {
         </span>
       </div>
 
-      {/* Right: nav links + demo badge */}
+      {/* Right: nav links */}
       <div className="nav-links-group" style={{ display: "flex", alignItems: "center", gap: 4 }}>
-        {demo && (
-          <DemoBadge style={{ marginRight: 8 }}>Demo Mode</DemoBadge>
-        )}
-
         <Link href="/" style={navLinkStyle}>
           Home
         </Link>
