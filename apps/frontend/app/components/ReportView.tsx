@@ -18,9 +18,15 @@ interface ReportViewProps {
   onNewSession: () => void;
   /** Moves focus to the report heading on mount, e.g. after the report was regenerated. */
   focusHeading?: boolean;
+  /**
+   * FQ-59: set when shown inside the Dashboard, which already lists the sessions. The
+   * "Sessions" sidebar is left out, and a format-1 report's highlights (otherwise only in the
+   * sidebar) appear at the end of the report instead.
+   */
+  embedded?: boolean;
 }
 
-export function ReportView({ report, interviewerName, sessionId, onNewSession, focusHeading }: ReportViewProps) {
+export function ReportView({ report, interviewerName, sessionId, onNewSession, focusHeading, embedded = false }: ReportViewProps) {
   const [activeTab, setActiveTab] = useState<Tab>("report");
   const headingRef = useRef<HTMLHeadingElement>(null);
   const tabRefs = useRef<Record<Tab, HTMLButtonElement | null>>({ report: null, transcript: null });
@@ -61,6 +67,46 @@ export function ReportView({ report, interviewerName, sessionId, onNewSession, f
     : null;
 
   const interviewerLabel = interviewerName ?? EARLIER_INTERVIEW_LABEL;
+
+  // Format-1 highlights ("Identified outcomes"): in the sidebar, or at the end of the report when
+  // embedded in the Dashboard, where the sidebar is left out (FQ-59).
+  const highlights = report.format === 1 && report.highlights.length > 0 && (
+    <div style={{ marginTop: 20 }}>
+      <div
+        style={{
+          fontSize: 10,
+          fontWeight: 700,
+          letterSpacing: "0.08em",
+          textTransform: "uppercase",
+          color: "#566475",
+          marginBottom: 10,
+          display: "flex",
+          alignItems: "center",
+          gap: 5,
+        }}
+      >
+        <span>☆</span> Identified outcomes
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {report.highlights.map((h, i) => (
+          <span
+            key={i}
+            style={{
+              fontSize: 11,
+              fontWeight: 500,
+              background: "#D8F0EC",
+              color: "#066C77",
+              padding: "4px 10px",
+              borderRadius: 999,
+              display: "inline-block",
+            }}
+          >
+            {h}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
 
   return (
     <div style={{ fontFamily: "var(--font-manrope), sans-serif", background: "#F4F5F1", minHeight: "calc(100vh - 94px)" }}>
@@ -114,7 +160,8 @@ export function ReportView({ report, interviewerName, sessionId, onNewSession, f
 
       {/* ── Two-column layout ── */}
       <div className="report-layout" style={{ display: "flex", minHeight: "calc(100vh - 150px)" }}>
-        {/* Left sidebar */}
+        {/* Left sidebar (not when embedded in the Dashboard, which lists the sessions itself) */}
+        {!embedded && (
         <div
           className="report-sidebar"
           style={{
@@ -183,45 +230,9 @@ export function ReportView({ report, interviewerName, sessionId, onNewSession, f
             )}
           </div>
 
-          {/* Identified outcomes */}
-          {report.format === 1 && report.highlights.length > 0 && (
-            <div style={{ marginTop: 20 }}>
-              <div
-                style={{
-                  fontSize: 10,
-                  fontWeight: 700,
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                  color: "#566475",
-                  marginBottom: 10,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 5,
-                }}
-              >
-                <span>☆</span> Identified outcomes
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {report.highlights.map((h, i) => (
-                  <span
-                    key={i}
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 500,
-                      background: "#D8F0EC",
-                      color: "#066C77",
-                      padding: "4px 10px",
-                      borderRadius: 999,
-                      display: "inline-block",
-                    }}
-                  >
-                    {h}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
+          {highlights}
         </div>
+        )}
 
         {/* Right panel */}
         <div className="report-content-panel" style={{ flex: 1, padding: "24px 32px", overflowY: "auto" }}>
@@ -273,6 +284,7 @@ export function ReportView({ report, interviewerName, sessionId, onNewSession, f
             {/* ── Report tab ── */}
             {activeTab === "report" && report.format === 2 && <ReportV2Body report={report} />}
             {activeTab === "report" && report.format === 1 && <ReportV1Body report={report} />}
+            {activeTab === "report" && embedded && highlights}
 
             {/* ── Transcript tab ── */}
             {activeTab === "transcript" && (
