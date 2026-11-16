@@ -471,6 +471,7 @@ export default function DashboardPage() {
                 interviewerName={selectedInterviewerName ?? report.interviewerName}
                 sessionId={selectedId}
                 onNewSession={() => router.push("/")}
+                embedded
               />
             ) : (
               <CenteredMessage>No report available for this session.</CenteredMessage>
