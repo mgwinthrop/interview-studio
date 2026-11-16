@@ -10,7 +10,7 @@ The Usage page shows what the app has spent on model calls, day by day. It reads
 - The line under the **Dashboard** heading: "Last 30 days: ... · See usage →".
 - The "See all usage →" link on the usage line of a report page.
 
-The main navigation is hidden on screens narrower than 768px. On a phone, use the Dashboard line or open `/usage` directly.
+On screens narrower than 768px the main navigation stays as one compact row (the product name is hidden to make room), so the gear and its Usage link work on a phone too.
 
 ## What the page shows
 

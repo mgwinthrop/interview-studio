@@ -247,12 +247,28 @@ body {
     flex-wrap: wrap;
   }
 
-  /* Nav: reduce padding, hide links */
+  /* Nav (FQ-57): one compact row on phones. The wordmark is hidden, the logo stays, and the
+     three links and the gear keep 44px tap targets. Measured: about 309px, so it fits 320px. */
   .nav-root {
     padding: 0 12px !important;
   }
+  .nav-wordmark {
+    display: none;
+  }
   .nav-links-group {
-    display: none !important;
+    gap: 0 !important;
+  }
+  .nav-links-group > a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    font-size: 12px !important;
+    padding: 0 6px !important;
+    white-space: nowrap;
+  }
+  .nav-admin-button {
+    width: 44px;
+    height: 44px;
   }
 
   /* Home page: stack persona cards and reduce hero padding */

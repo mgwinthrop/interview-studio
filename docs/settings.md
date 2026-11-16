@@ -6,7 +6,7 @@ The Settings page chooses which models the app uses, how long spoken replies can
 
 ## Where to find it
 
-Use the gear button at the right of the main navigation (labelled "Usage and settings"), which opens a short list with **Usage** and **Settings**, or open `/settings`. The main navigation is hidden on screens narrower than 768px (this was already the case for every link). On a phone, open `/settings` directly, or use the "Set prices in Settings to see costs" link on the [Usage](usage.md) page when no prices are set.
+Use the gear button at the right of the main navigation (labelled "Usage and settings"), which opens a short list with **Usage** and **Settings**, or open `/settings`. On screens narrower than 768px the main navigation stays as one compact row (the product name is hidden to make room), so the gear works on a phone too.
 
 The page reads and writes through `GET /api/settings`, `PUT /api/settings` and `POST /api/settings/reset`. They sit behind the same authentication as the other routes and are scoped to the owner. Settings are stored in the `AppSettings` and `ModelPrice` tables (migration `20261108130000_app_settings`).
 
