@@ -271,3 +271,15 @@ Snapshot from triage run `2026-11-14T163251Z-triage-run`, which re-triaged #40, 
 - done_when: Approach recorded in docs/factory/DECISIONS.md; per-component issues filed
 - confidence: high
 - notes: Charter NEVER_AUTOMATE: architectural direction. Question: Which styling approach: a Tailwind theme mapped to the --studio-* tokens, or CSS variables inside the existing inline styles?
+
+## FQ-101: Remove the unused demo badge from the main navigation
+- disposition: ready-to-spec
+- source: https://github.com/mgwinthrop/interview-studio/issues/101
+- last_triaged: 2026-11-16
+- repro: confirmed (Nav declares demo?: boolean; 7 files import Nav, none passes demo)
+- files_expected: apps/frontend/app/components/Nav.tsx
+- load_bearing: false
+- gate_level: full
+- done_when: (proposed, for the owner) Nav no longer declares demo or imports DemoBadge; DemoBadge stays for the session header; pages render unchanged; gates.sh full GREEN
+- confidence: high
+- notes: Charter NEEDS_SPEC: changes the props of an exported component. Charter gap: unused-code removal has no AUTOMATABLE entry and cannot meet DONE's failing-test rule; the proposed proof is compile-time (tsc and build fail if a caller still passes demo), which needs owner acceptance.
