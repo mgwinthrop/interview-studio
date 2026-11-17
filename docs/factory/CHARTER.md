@@ -66,6 +66,13 @@ LOAD_BEARING:
   - "apps/backend/src/callsRoutes.ts"
   - "apps/backend/src/providers/**"
   - "apps/frontend/hooks/useVAD.ts"
+  # FQ-108 (owner, 2026-11-17): the client session rebuild's core decides every session state
+  # change; the session history is a privacy surface (must never record words); the mic and
+  # socket adapters are the hardware and protocol boundaries once code moves into them.
+  - "apps/frontend/app/session/core/**"
+  - "apps/frontend/app/session/history/**"
+  - "apps/frontend/app/session/adapters/mic*"
+  - "apps/frontend/app/session/adapters/socket*"
   - "package.json"
   - ".github/workflows/**"
   - ".factory/**"
