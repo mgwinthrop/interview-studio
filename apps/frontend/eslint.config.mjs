@@ -13,7 +13,8 @@ const eslintConfig = [
       "react-hooks/preserve-manual-memoization": "warn",
     },
   },
-  { ignores: [".next/**", "node_modules/**", "public/**", "next-env.d.ts"] },
+  // .next-e2e is the Playwright build's output (FQ-108 S0), generated like .next.
+  { ignores: [".next/**", ".next-e2e/**", "node_modules/**", "public/**", "next-env.d.ts"] },
 ];
 
 export default eslintConfig;
