@@ -72,12 +72,9 @@ export function useWebSocket(
   // Reconnect: trigger re-run of the WS setup effect. The server does not resume sessions,
   // so a reconnect starts a new conversation with a new server-issued id.
   const [reconnectTrigger, setReconnectTrigger] = useState(0);
-  // Prevents the onclose handler from setting "disconnected" during deliberate closes
-  // (reconnect and unmount) — avoids a brief flash of the error overlay.
-  const deliberateCloseRef = useRef(false);
 
   const reconnect = useCallback(() => {
-    deliberateCloseRef.current = true;
+    // The effect cleanup marks the old socket as closed by us, so its close event is ignored.
     setConnectionState("connecting"); // snap immediately so overlay disappears
     setReconnectTrigger((t) => t + 1);
   }, []);
@@ -127,6 +124,9 @@ export function useWebSocket(
     const ws = new WebSocket(wsUrl);
     ws.binaryType = "arraybuffer"; // ensures binary frames arrive as ArrayBuffer, not Blob
     wsRef.current = ws;
+    // Set only by this effect's cleanup (reconnect or unmount), and read only by this socket's
+    // onclose. Per socket, so closing one socket can never hide a later socket's close (FQ-110).
+    let closedByUs = false;
     setConnectionState("connecting");
 
     ws.onopen = () => {
@@ -251,16 +251,15 @@ export function useWebSocket(
     ws.onclose = (event) => {
       // Suppress "disconnected" during deliberate closes (reconnect, unmount) to
       // avoid a flash of the error overlay between cleanup and the new WS opening.
-      if (!deliberateCloseRef.current) {
+      if (!closedByUs) {
         setCloseReason(CLOSE_REASONS[event.code] ?? null);
         setCloseInfo({ code: event.code, reason: event.reason });
         setConnectionState("disconnected");
       }
-      deliberateCloseRef.current = false;
     };
 
     return () => {
-      deliberateCloseRef.current = true; // suppress onclose on cleanup
+      closedByUs = true; // suppress this socket's onclose
       ws.close();
       wsRef.current = null;
     };
