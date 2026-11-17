@@ -11,7 +11,7 @@ const badgeStyle: CSSProperties = {
   borderRadius: 999,
 };
 
-/** The "demo mode" pill. `style` adds to the base look (the nav bar adds a right margin). */
+/** The "demo mode" pill shown in the session header. `style` adds to the base look. */
 export function DemoBadge({ children, style }: { children: ReactNode; style?: CSSProperties }) {
   return <span style={style ? { ...badgeStyle, ...style } : badgeStyle}>{children}</span>;
 }
