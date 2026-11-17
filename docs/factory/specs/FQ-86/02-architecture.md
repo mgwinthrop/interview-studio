@@ -2,6 +2,20 @@
 
 Frontend only. No backend, protocol, database, dependency or wording change.
 
+> **Amended 2026-11-17 during gate 3 (owner).** The hearing state moves into one value
+> managed by a pure transition function (`useReducer`) instead of three parallel
+> `useState` values and two refs. Reason: with the state split, the rules about which
+> combinations are allowed are spread across about eight call sites and a ref mirror, so a
+> bad combination shows up as a hard-to-trace symptom. Consequences:
+> - `loadVad` and `stopMic` get mechanical setter-to-dispatch swaps, which this document
+>   first promised to leave alone.
+> - The pending-reopen ref and the `hearing` mirror ref are no longer needed. The
+>   pre-reopen value lives in the state, and the reducer's invariant replaces the
+>   generation and sequence check in `pauseMic`.
+> - How a microphone is opened, paused or stopped is still not changed.
+> Changed sections: modules, data shapes, the defect 2 flow, external dependencies and
+> load-bearing paths.
+
 ## Root cause (two defects, one shared mechanism)
 
 The session page decides "we can't hear you" from two values that are updated in
@@ -35,7 +49,8 @@ an effect. The fix makes the attempt an explicit value that changes in the same 
 
 | Module | Load-bearing | Change |
 |---|---|---|
-| `apps/frontend/hooks/useVAD.ts` | **yes** | (a) Expose an attempt identity that changes in the same state update as every move into `"starting"` (start or reopen). (b) When `pauseMic` cancels a reopen that is still current, put `hearing` back to the value it had before that reopen. "Still current" is the existing guard: same generation and same resume sequence. |
+| New `apps/frontend/app/lib/hearingState.ts` | no | Pure transition function for the hearing state: `hearing`, `attempt`, `attemptId` and `beforeReopen`, with events for start, loaded, start failed, reopen, reopened, reopen failed, cancel reopen and stop. No React, no I/O. |
+| `apps/frontend/hooks/useVAD.ts` | **yes** | Holds the hearing state with `useReducer(hearingTransition)`. Each existing `setHearing`/`setHearingAttempt` call becomes one `dispatch`, in place and under the same guards. `pauseMic` dispatches "cancel reopen". The return value gains `hearingAttemptId`; existing fields are read from the state. |
 | New `apps/frontend/hooks/useHearingDeadline.ts` | no | Owns the 10 s deadline, keyed to the attempt identity, so "deadline passed" is false in the first render of a new attempt. Pure React state plus one timer. |
 | `apps/frontend/app/session/page.tsx` | no | Replaces the epoch and deadline effects (about 12 lines) with one call to the new hook. The alert, typing-bar and panel logic stay as they are. |
 | `apps/frontend/app/lib/sessionDisplay.ts` | no | **Unchanged.** `hearingUnavailable` and `panelState` keep their signatures, so `hearingDisplay.test.ts` is untouched. |
@@ -50,8 +65,16 @@ No endpoint, message, storage or exported API type outside the frontend changes.
 hearingAttemptId: number   // changes whenever hearing moves into "starting"; 0 before any attempt
 ```
 
-It is added alongside the existing `hearing` and `hearingAttempt` and set in the same
-batched update. Existing fields keep their meaning. `hearingAttempt` ("start" | "resume")
+All three come from one state value, so they always change together. Existing fields keep
+their meaning.
+
+Hearing state (internal to the frontend; signatures are gate 3):
+
+```
+{ hearing: Hearing, attempt: "start" | "resume", attemptId: number, beforeReopen: Hearing | null }
+invariant: beforeReopen !== null  ⇔  a reopen is in flight and still current
+invariant: attemptId changes only on the transitions into "starting" (start, reopen)
+``` `hearingAttempt` ("start" | "resume")
 is unchanged, so the alert wording logic does not move.
 
 New hook contract (shape only; signatures are gate 3):
@@ -74,16 +97,20 @@ useHearingDeadline(attemptId: number) -> deadlinePassed: boolean
 4. The new attempt's 10 s timer starts. `vad.start()` resolves → `hearing="ready"`.
 
 **Pause during a pending reopen (defect 2):**
-1. Resume as above; `vad.start()` stays pending. `resumeMic` records, in a ref, the
-   pending reopen's generation, its resume sequence number and the `hearing` value before
-   it (normally `"ready"`, `"failed"` if a previous reopen failed). It is a ref because
-   `pauseMic` and `resumeMic` are stable callbacks and cannot read `hearing` state.
-2. User clicks Pause → `pauseMic()` checks that the recorded reopen is still current
-   (`gen === genRef.current && seq === resumeSeqRef.current`, the same test as the
-   reopen's own `current()`). Only then does it set `hearing` back to the recorded value.
-   It then bumps `resumeSeqRef` as today and clears the record. The reopen's own settle
-   callbacks also clear it. A `stopMic` bumps the generation, so a record left over from
-   before a stop can never match. `stopMic` itself is not changed.
+1. Resume as above; `vad.start()` stays pending. The "reopen" transition stores the
+   current `hearing` in `beforeReopen` (normally `"ready"`, `"failed"` if a previous reopen
+   failed). It is read inside the transition from the current state, so no ref is needed.
+2. User clicks Pause → `pauseMic()` dispatches "cancel reopen". If `beforeReopen` is set,
+   `hearing` goes back to it and `beforeReopen` is cleared. Otherwise nothing changes. It
+   then bumps `resumeSeqRef` as today.
+   - Why no generation or sequence check is needed: every path that makes a reopen stale
+     also clears `beforeReopen`.
+     - Pause dispatches "cancel reopen".
+     - `stopMic` dispatches "stop".
+     - Settling dispatches "reopened" or "reopen failed", and only while `current()` holds.
+     - A newer Resume needs a Pause first.
+   - So after `stopMic` → `startMic`, a Pause finds nothing to restore. That is factory-critic
+     objection 1, now enforced by the state instead of by a check at the call site.
 3. During the pause the deadline may pass, but `hearing` is `"ready"` → no alert. If it was
    `"failed"`, the alert stays as it does today (gate 1 decision 1).
 4. The stale `vad.start()` settles later → the existing `current()` guard ignores it, and
@@ -92,18 +119,20 @@ useHearingDeadline(attemptId: number) -> deadlinePassed: boolean
 
 ## External dependencies
 
-None added. `@ricky0123/vad-web` behaviour is relied on as today (no new calls). React 18
-batching of `setState` calls inside one event handler is relied on for step 2 of the
-ordinary flow. [Likely] This holds for both event handlers and promise callbacks in React
-18's automatic batching. Gate 3 will make it independent of batching by holding `hearing`
-and the attempt in one state value if that is no larger.
+None added. `@ricky0123/vad-web` behaviour is relied on as today (no new calls). Nothing
+relies on React batching: each transition is one `dispatch` of one state value.
 
 ## Load-bearing paths involved
 
 - `apps/frontend/hooks/useVAD.ts`. The charter forces `deep` gates and a human read.
-  The change is confined to `pauseMic`, `resumeMic`, `startMic` and the return value.
-  `openMic`, `loadVad`, `stopMic`, the generation and sequence guards, the VAD callbacks,
-  and anything that opens, pauses or stops a microphone track are not touched.
+  - Changed: the hearing state declaration, `startMic`, `resumeMic`, `pauseMic` and the
+    return value. Also the one-line setter-to-dispatch swaps in `loadVad` (three calls) and
+    `stopMic` (one call), each in place and under its existing guard.
+  - Not touched: `openMic`, the generation and sequence guards, the VAD callbacks,
+    `micActive`, `micFallback`, and anything that opens, pauses or stops a microphone
+    track.
+  - The existing `useVAD*` unit tests and the FQ-41 and FQ-79 e2e suites are the oracle
+    that the swaps preserve behaviour. None of them is edited.
 
 No backend load-bearing path is involved.
 
@@ -115,12 +144,12 @@ No backend load-bearing path is involved.
 | FQ-79 hang warning stops firing | A reopen that really hangs must still warn after 10 s | Existing `e2e/resume.spec.ts` "hangs is reported after 10 s" must stay green |
 | Restoring `"ready"` during a pause claims a microphone is live when it is not | `"ready"` while paused already means "voice detection loaded, paused" in today's normal pause; the panel shows paused, not listening | No new meaning; the panel's paused state wins over hearing |
 | A stale reopen that resolves later overwrites the restored value | Must stay ignored | Existing `current()` guard; new unit test |
-| A restore after `stopMic` → `startMic` brings back a stale `"ready"` over a first start that is still loading, hiding FQ-41's warning (found by factory-critic) | The pending-reopen record could outlive the reopen | The restore runs only when the record's generation and sequence are still current; `stopMic` bumps the generation. New unit test: hanging reopen → `stopMic` → `startMic` → Pause → `hearing` stays `"starting"` |
+| A restore after `stopMic` → `startMic` brings back a stale `"ready"` over a first start that is still loading, hiding FQ-41's warning (found by factory-critic) | The pre-reopen value could outlive the reopen | `beforeReopen` is cleared by every transition that ends or abandons a reopen ("stop" included), so after `stopMic` there is nothing to restore. Reducer unit test, plus hook test: hanging reopen → `stopMic` → `startMic` → Pause → `hearing` stays `"starting"` |
 | Brief "Listening" while pausing a pending reopen | `handlePause` calls `pauseMic()` and awaits `suspend()` before `setIsPaused(true)` (page.tsx:226-232). The panel shows "Listening" for that window instead of "Getting ready…". | Accepted. This is what an ordinary pause already shows today in the same window. Fixing the order in `handlePause` is out of scope. |
 | Reconnect and design retry (`stopMic` then `startMic`) get the same fix (found by factory-critic) | `off` → `"starting"` had the same stale-deadline flash after 10 s | Intended side effect of the attempt id. Covered by a `useHearingDeadline` unit test (a new id after an expired deadline is not passed), so a later change cannot quietly undo it. |
 | Existing unit tests assert the exact return shape of `useVAD` | Adding a field could break a `toEqual` | Checked: the three `useVAD*.test.ts` files assert individual fields, not the whole object. No existing test file is edited. |
 | Typing bar already opened by an earlier real failure | Out of scope: nothing closes it today, and that is intended (the person may want it) | Unchanged |
-| Diff size | Charter limit 400 changed lines | Estimate: about 40 production lines and 150 to 250 test lines |
+| Diff size | Charter limit 400 changed lines | Revised at gate 3: about 720 lines in total, so it ships as three slices, each under 400 (see 03-design.md) |
 
 ## Alternatives considered
 
@@ -131,7 +160,7 @@ No backend load-bearing path is involved.
 | **Chosen:** explicit attempt id from `useVAD`, deadline derived from it; `pauseMic` restores a still-current cancelled reopen | yes | yes | yes (small, guarded) | The knowledge of what counts as an attempt stays in the one module that makes attempts |
 
 The load-bearing file is worth touching because only it knows when an attempt starts and
-when one was cancelled. The change adds state and one guarded restore. It does not touch
+when one was cancelled. The change moves the hearing state into one reducer value and adds one restore transition. It does not touch
 how a microphone is opened, paused or stopped.
 
 ## Open question for the owner
@@ -173,15 +202,15 @@ Verdict: the root cause is confirmed (the intermediate render commits, and the t
 effect fires in the same flush). The direction is sound. Not ready as first written. All
 five objections are addressed above:
 
-1. Stale restore after `stopMic` → restore keyed to generation and sequence (data flow
+1. Stale restore after `stopMic` → `beforeReopen` cleared by "stop" (amendment; data flow
    step 2, risk table).
 2. Hung-then-reported reopen → raised as the open question above.
 3. Alternatives not weighed → "Alternatives considered".
 4. Brief "Listening" while pausing → risk table, accepted.
 5. Reconnect and retry also fixed → risk table and test plan.
 
-Gate 3 is asked to merge `hearing`, `hearingAttempt` and the attempt id into one state
-value, so the three cannot drift apart.
+Gate 3 was asked to merge `hearing`, `hearingAttempt` and the attempt id into one state
+value. Done: see the amendment at the top (reducer).
 
 ## Rollback
 
