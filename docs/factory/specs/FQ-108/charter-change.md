@@ -47,3 +47,16 @@ there is a wrong session. The history must never record words (privacy).
 verification with no escaped defect. Then consider `full` gates for core changes that add a
 region transition with an exhaustive table test.
 ```
+
+## 3. Addition approved 2026-11-17 (gate 3): protect the test-seam check
+
+Insert in `LOAD_BEARING` after `  - "apps/frontend/app/session/runtime/**"`:
+
+```yaml
+  # FQ-108 gate 3: fails every normal frontend build that contains the e2e-only speech seam.
+  - "apps/frontend/scripts/check-no-test-seams.mjs"
+```
+
+The `build` line in `apps/frontend/package.json` that calls it stays unprotected on purpose:
+dependency bumps touch that file. An edit to that line is caught by the verifier's scope
+check and the owner's PR read.

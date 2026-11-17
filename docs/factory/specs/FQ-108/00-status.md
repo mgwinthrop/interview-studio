@@ -3,8 +3,8 @@ scope: architecture review of the client session runtime (app/session/, hooks/us
 kind: architecture review leading to a migration plan (spec skill migration rule applies: name the oracle first)
 gate_1_product: approved 2026-11-17 (owner, interactive)
 gate_2_architecture: approved 2026-11-17 (owner, interactive; revision 2 after factory-critic)
-gate_3_design: pending (phases 0-1 file level; phases 2-5 contract level)
-gate_4_slices: not-started
+gate_3_design: approved 2026-11-17 (owner, interactive; phases 0-1 file level, phases 2-5 contract level, re-opened at the phase 1 checkpoint)
+gate_4_slices: pending (phases 0-1)
 slices_completed: 0 / ?
 evidence:
   - evidence/state-inventory.md - state inventory, sync effects, control flows, implicit state machines, defect-to-mechanism map, test coverage (delegated read-only agent, 2026-11-17; spot-checked)
@@ -20,6 +20,8 @@ decisions:
   - Test policy - replace hook-internal assertions only after an equivalent test exists at the new boundary; draft + human read (owner, gate 2)
   - Charter - make the session core and session history load-bearing (owner, gate 2); the CHARTER.md edit itself waits for an explicit owner instruction with exact paths (gate 3)
   - Hand-written core, no XState (owner, gate 2)
+  - Test-seam guard enforced inside the frontend build script (build always checks; build:e2e for Playwright); no gates.conf or CI change (owner, gate 3)
+  - Protect apps/frontend/scripts/check-no-test-seams.mjs (owner, gate 3); charter edit for the owner in charter-change.md section 3
 candidate_absorbs: "#86, #48, #49"
 latent_defects_found_by_inventory:
   - "#110: after Start over, the next clean server close is swallowed (confirmed by reading useWebSocket.ts and page.tsx; every Start over is affected)"
@@ -29,5 +31,5 @@ latent_defects_found_by_inventory:
   - CLAUDE.md said Next.js 14 while package.json is Next 16 / React 19 (corrected by the owner in #111)
   - Charter change applied by the owner on main (2026-11-17, merged with #112): core, runtime, history, adapters/mic*, adapters/socket* are LOAD_BEARING; runtime added from gate 3 §8 Q3; DECISIONS.md entry recorded
 open_questions:
-  - Wire check:no-test-seams into gates.conf build or a CI step (protected files; owner; gate 3 §8 Q1)
-  - Gate 3 approval
+  - Owner to add check-no-test-seams.mjs to LOAD_BEARING (charter-change.md section 3)
+  - Gate 4 slice approval before queue entries are written

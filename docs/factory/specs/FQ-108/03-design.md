@@ -50,14 +50,22 @@ export function registerVadSeam(seam: VadSeam | null): void;
   `onSpeechEnd` and `onVADMisfire` functions passed to vad-web. The seam is unregistered on
   stop or unmount, keyed by generation. Default `samples` is 0.5 s of silence at 16 kHz.
   No other change.
-- **`playwright.config.ts`**: the frontend web server's `env` gains
-  `NEXT_PUBLIC_TEST_SEAMS: "1"`.
-- **Production guard:** a new frontend script `check:no-test-seams` scans `.next/static`
-  after a normal build (flag unset) and fails if the string `__testSeams` appears.
-  - Wiring it into enforcement needs a change to a protected file, which is an **owner
-    decision**: either the `build` step in `.factory/gates.conf` or a CI step in
-    `.github/workflows/`.
-  - Until then it is a manual check listed in the phase 0 PR (see §8 Q1).
+- **Production guard (owner decision, 2026-11-17): enforced inside the frontend's own build.**
+  - `apps/frontend/scripts/check-no-test-seams.mjs` (new, **load-bearing** per the charter
+    addition) scans `.next/` (excluding `cache/`) and exits non-zero if the string
+    `__testSeams` appears.
+  - `apps/frontend/package.json`:
+    - `"build": "next build && node scripts/check-no-test-seams.mjs"` always enforces and
+      never skips.
+    - `"build:e2e": "next build"` is new. It is the same build without the check.
+  - `playwright.config.ts`: the frontend web server command becomes
+    `npm run build:e2e && npm run start`, and its existing `env` block gains
+    `NEXT_PUBLIC_TEST_SEAMS: "1"`. The flag is set by Playwright, not by a shell prefix in an
+    npm script, so it works on Windows shells too and needs no `cross-env` dependency.
+  - Coverage: CI (`ci.yml` runs the frontend `build`), every factory gate (the root `build`
+    calls it) and every local or self-hosted build. Setting the flag on a normal build fails
+    it rather than shipping the seam (fail-closed).
+  - No change to `.factory/gates.conf` or `.github/workflows/`.
 
 ### 2.2 E2E support module (new, shared by the new specs)
 
