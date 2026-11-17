@@ -19,8 +19,8 @@ unless stated.
 | `app/session/core/regions/{mic,pause,endFlow,connection,conversation,playback,overlays}.ts` | One pure reducer per region | yes | 2-4 |
 | `app/session/history/labels.ts` | `eventLabel(event)`: allow-listed, word-free labels | yes | 1 |
 | `app/session/history/history.ts` | `SessionHistory` ring buffer, `toText()` | yes | 1 |
-| `app/session/runtime/store.ts` | `createSessionStore(adapters, config)`: synchronous, run-to-completion, FIFO | no (see §8 Q1) | 2 |
-| `app/session/runtime/useSession.ts` | `useSyncExternalStore` binding | no | 2 |
+| `app/session/runtime/store.ts` | `createSessionStore(adapters, config)`: synchronous, run-to-completion, FIFO | yes (charter, 2026-11-17) | 2 |
+| `app/session/runtime/useSession.ts` | `useSyncExternalStore` binding | yes (charter, 2026-11-17) | 2 |
 | `app/session/adapters/micAdapter.ts` | Today's `useVAD.ts` I/O: VAD, devices, PCM16, generation guard | yes | 2 |
 | `app/session/adapters/socketAdapter.ts` | Connect, send, close, per-socket id, parse | yes | 3 |
 | `app/session/adapters/audioAdapter.ts` | Wraps `lib/audioQueue.ts`; timestamps events | no | 4 |
@@ -304,12 +304,10 @@ Golden traces (`e2e/golden/*.json`) are treated as existing test files
    - If a browser rejects it, the person sees "didn't start" and can type, which is no worse
      than today's carried-over state, but it is new.
    - P2 checks it in Chromium only.
-3. **The store is not load-bearing, though it executes every command.**
-   - My reasoning: all decisions are in the core, and the store is a thin loop.
-   - Against: the ordering guarantees (synchronous run, FIFO) are exactly what fixed FQ-47
-     and FQ-98, and they live in the store.
-   - If you want it protected, add `apps/frontend/app/session/runtime/**` to the charter
-     change. I lean towards adding it. The cost is about two more deep slices.
+3. **~~The store is not load-bearing, though it executes every command.~~ Resolved
+   2026-11-17:** the owner added `apps/frontend/app/session/runtime/**` to the charter. Its
+   ordering guarantees (synchronous run, FIFO) are what fixed FQ-47 and FQ-98. The cost is
+   about two more deep slices (DECISIONS.md, 2026-11-17).
 
 ## 9. Open for the checkpoint after phase 1
 

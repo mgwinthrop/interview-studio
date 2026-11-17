@@ -26,9 +26,8 @@ latent_defects_found_by_inventory:
   - reconnect ("Start over") resets only the WebSocket hook; page state, VAD/hearing and the audio queue are not reset [inference]
   - end dialog unmounted by a disconnect leaves confirmingEnd true, so End session does nothing after Start over [inference]
   - no tests for interrupt, turn_timing, AudioQueue, useWebSocket, disconnect/reconnect, session_failed, stt_error, design and try modes
-  - CLAUDE.md says Next.js 14; package.json is Next 16 / React 19 (owner to correct; agents do not edit CLAUDE.md)
-  - Apply the charter change now (owner, 2026-11-17); the agent's edit was refused by session permission settings, so the owner applies charter-change.md by hand
+  - CLAUDE.md said Next.js 14 while package.json is Next 16 / React 19 (corrected by the owner in #111)
+  - Charter change applied by the owner on main (2026-11-17, merged with #112): core, runtime, history, adapters/mic*, adapters/socket* are LOAD_BEARING; runtime added from gate 3 §8 Q3; DECISIONS.md entry recorded
 open_questions:
-  - Owner to apply charter-change.md to CHARTER.md (and the DECISIONS.md entry)
-  - Add app/session/runtime/** to the charter change as well? (gate 3 §8 Q3; agent leans yes)
-  - Wire check:no-test-seams into gates.conf build or a CI step (protected files; owner)
+  - Wire check:no-test-seams into gates.conf build or a CI step (protected files; owner; gate 3 §8 Q1)
+  - Gate 3 approval
