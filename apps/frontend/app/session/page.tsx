@@ -279,16 +279,22 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
   // FQ-79: the 10 s also restarts with every new attempt (a start, or a reopen after a pause),
   // so a reopen that hangs is reported too. The first timer still runs from mount, so a start
   // that never begins (no gesture) is reported as before.
+  // FQ-107: while hearing is ready there is no deadline: it is cleared and no timer runs. Otherwise
+  // the first start's expired deadline would still be set when a Resume moves hearing back to
+  // "starting", and that render would flash the alert and open typing before the epoch effect
+  // restarted the timer. Interim fix; the client session runtime review (#108) may replace it.
   const [hearingDeadlinePassed, setHearingDeadlinePassed] = useState(false);
   const [hearingEpoch, setHearingEpoch] = useState(0);
+  const hearingReady = hearing === "ready";
   useEffect(() => {
     if (hearing === "starting") setHearingEpoch((e) => e + 1);
   }, [hearing]);
   useEffect(() => {
     setHearingDeadlinePassed(false);
+    if (hearingReady) return;
     const t = setTimeout(() => setHearingDeadlinePassed(true), HEARING_DEADLINE_MS);
     return () => clearTimeout(t);
-  }, [hearingEpoch]);
+  }, [hearingEpoch, hearingReady]);
   const cannotHear = hearingUnavailable(hearing, hearingDeadlinePassed);
   useEffect(() => {
     if (cannotHear) setShowTextInput(true);
