@@ -31,3 +31,4 @@ latent_defects_found_by_inventory:
 open_questions:
   - Owner to apply charter-change.md to CHARTER.md (and the DECISIONS.md entry)
   - Add app/session/runtime/** to the charter change as well? (gate 3 §8 Q3; agent leans yes)
+  - Wire check:no-test-seams into gates.conf build or a CI step (protected files; owner)

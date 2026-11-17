@@ -52,9 +52,12 @@ export function registerVadSeam(seam: VadSeam | null): void;
   No other change.
 - **`playwright.config.ts`**: the frontend web server's `env` gains
   `NEXT_PUBLIC_TEST_SEAMS: "1"`.
-- **Production guard:** a new unit test builds nothing itself. The `build` gate runs
-  without the flag, and a new script check in the e2e-free `build` gate asserts that
-  `.next/static` contains no `__testSeams` string (see §8 Q2).
+- **Production guard:** a new frontend script `check:no-test-seams` scans `.next/static`
+  after a normal build (flag unset) and fails if the string `__testSeams` appears.
+  - Wiring it into enforcement needs a change to a protected file, which is an **owner
+    decision**: either the `build` step in `.factory/gates.conf` or a CI step in
+    `.github/workflows/`.
+  - Until then it is a manual check listed in the phase 0 PR (see §8 Q1).
 
 ### 2.2 E2E support module (new, shared by the new specs)
 
