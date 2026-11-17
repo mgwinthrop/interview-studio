@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { MicVAD } from "@ricky0123/vad-web";
 import type { ClientMessage, Hearing } from "../app/types";
 import { audioConstraints, findByLabel, isMissingDevice, readMicChoice, saveMicChoice, type MicFallback } from "../app/lib/micDevice";
+import { TEST_SEAMS_ENABLED, registerVadSeam } from "../app/session/testSeams";
 
 interface UseVADOptions {
   sendMessage: (msg: ClientMessage) => void;
@@ -225,6 +226,8 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
       return;
     }
     vadRef.current = vad;
+    // e2e builds only (FQ-108 S0): expose this VAD's own callbacks, which keep their generation check.
+    if (TEST_SEAMS_ENABLED) registerVadSeam(vad.options);
     // A pause requested while opening: keep the VAD but do not leave the mic live.
     if (pausedRef.current) vad.pause().catch(() => {});
     setMicActive(true);
@@ -254,6 +257,7 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
     startingRef.current = null; // a start after this stop makes a new VAD, never reuses the stale one
     vadRef.current?.destroy().catch(() => {});
     vadRef.current = null;
+    if (TEST_SEAMS_ENABLED) registerVadSeam(null);
     pausedRef.current = false;
     setMicActive(false);
     setHearing("off");
@@ -301,6 +305,7 @@ export function useVAD({ sendMessage, aiSpeaking, onSpeechSent, onInterrupt, get
       startingRef.current = null;
       vadRef.current?.destroy().catch(() => {});
       vadRef.current = null;
+      if (TEST_SEAMS_ENABLED) registerVadSeam(null);
     };
   }, []);
 
