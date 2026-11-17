@@ -91,6 +91,30 @@ never be used as the handoff between routines.
 6. **Claim one live issue per run.** Win the deterministic remote-branch claim described in
    the contract, then replace `factory:ready-to-implement` with `factory:in-progress`.
 
+## Working with the shell hook
+
+`.claude/hooks/block-merge.sh` (wired for Claude and Codex) checks the whole text of every
+shell command, including quoted arguments and heredoc bodies. It blocks a command when that
+text contains merge words (`gh pr merge`, `git merge `, `git push --force`,
+`mergePullRequest`), or names a protected path (`docs/factory/CHARTER.md`,
+`.factory/gates.conf`, `.claude/`, `.agents/`, `.codex/`) anywhere alongside `sed`, `tee`,
+`rm`, `mv`, `cp`, `truncate` or a `>` redirect. When the match is only in text, avoid it
+with these habits. Never reword a command to slip past the check.
+
+- Read files with your file-read tool, not `sed -n`, `cat` or `awk`.
+- Write PR bodies, issue bodies and commit messages to a file outside the repo (the
+  session scratchpad or `$TMPDIR`) with your file-write tool. Then pass the file:
+  `gh pr create --body-file <file>`, `gh pr edit <n> --body-file <file>`,
+  `git commit -F <file>`.
+- Don't redirect `git show <rev>:<protected path>` to a file. Read its output directly,
+  or pipe it to the next command.
+- Give commands that name a protected path (`git add`, `git diff`, `git show`) their own
+  shell call. Don't chain them with `sed`, `tee`, `rm`, `mv`, `cp` or a redirect.
+
+Shell-parsing exceptions in the hook were tried and rejected on 2026-11-17: two
+independent verifications found commands the old hook blocked that got through. Keep the
+hook a plain substring check.
+
 ## Stopping conditions
 
 Stop and hand back to a human when any of these is true:
