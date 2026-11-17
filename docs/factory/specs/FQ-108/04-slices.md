@@ -184,8 +184,9 @@ at once.
 
 - **What:** Gate 3 §3.1 in `SessionLoader.tsx` and `page.tsx`, P2
   `e2e/start-over-clean.spec.ts`, and golden updates for D3, D4 and D7 in
-  `connection-lost-start-over.json` (S7) and T5/T8 expectations. Those are the only golden or
-  test edits in phase 0-1, approved as D items at gate 2.
+  `connection-lost-start-over.json` (S7) and T5's (`connection.spec.ts`) post-Start-over
+  expectations. Those are the only golden or test edits in phases 0-1, approved as D items
+  at gate 2. T8 (D5) is not touched; D5 belongs to phase 3.
 - **done_when:**
   - P2 passes 3 runs.
   - The changed golden entries are exactly the D3/D4/D7 rows and are listed in the PR body.
