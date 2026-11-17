@@ -90,7 +90,7 @@ FQ-47 and FQ-98.
 **Risk accepted:** Every later change to session behaviour, including #48 and #49, is a
 `deep` slice with a human read. Throughput in this area is capped by owner review time
 (about 11 to 13 deep slices for the rebuild itself, including about two for the runtime
-store). 
+store).
 
 **Revisit if:** after the rebuild, 10 consecutive core changes pass deep gates and
 verification with no escaped defect. Then consider `full` gates for core changes that add a
