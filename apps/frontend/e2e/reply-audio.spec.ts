@@ -71,6 +71,23 @@ test("a second answer with no playback since the first sends no turn_timing", as
   expect(proxy.clientFrames().slice(before)).toEqual(["turn_timing", "audio", "audio"]);
 });
 
+test("holding tts_end keeps the reply unplayed until release, then it plays", async ({ page }) => {
+  const proxy = await proxySession(page);
+  proxy.hold("tts_end");
+  const probes = await installProbes(page);
+  await openSession(page);
+  const status = page.locator(".interviewer-panel .interviewer-status");
+
+  // The client decodes a reply only on tts_end, so while it is held nothing plays.
+  await expect(status).toHaveText("Speaking", { timeout: 20_000 });
+  await page.waitForTimeout(500);
+  expect(await probes.playbackStarts()).toBe(0);
+
+  proxy.release();
+  await playbackFinished(probes, 1);
+  await expect(status).toHaveText("Listening");
+});
+
 test("without the proxy's MP3, the mock's audio never plays and no turn_timing is sent", async ({ page }) => {
   const proxy = await proxySession(page, { replaceAudio: false });
   const probes = await installProbes(page);

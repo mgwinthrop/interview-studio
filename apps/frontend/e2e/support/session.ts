@@ -5,8 +5,10 @@ import type { Page, WebSocketRoute } from "@playwright/test";
 // Shared e2e harness for the client session rebuild's oracle (FQ-108 phase 0, design §2.2).
 // - proxySession: a Playwright routeWebSocket proxy between the page and the mock backend. The
 //   mock's TTS sends two 4-byte frames per sentence, which the client drops (< 512 bytes), so
-//   nothing ever plays. The proxy replaces each sentence's audio with a real silent MP3 so
-//   playback, turn_timing and barge-in can be tested. It can also hold a server frame type,
+//   nothing ever plays. The server sends tts_start once per reply and the client buffers every
+//   chunk until tts_end, then decodes once; so the proxy sends one real silent MP3 per reply
+//   (in place of that reply's first audio frame) and drops the reply's other mock frames.
+//   That makes playback, turn_timing and barge-in testable. It can also hold a server frame type,
 //   inject frames the mock never sends, and records the client→server frame order (O3).
 // - installProbes: live microphone tracks, playback starts, focus target, insertion counters.
 // - speech: drives the voice detector through the e2e build's test seam (app/session/testSeams.ts).
@@ -16,7 +18,8 @@ const SILENCE_MP3 = fs.readFileSync(path.join(__dirname, "../fixtures/silence-25
 type HeldType = "tts_end" | "tts_start" | "session_complete" | "session_failed";
 
 export interface ProxyControl {
-  /** Holds the next server frame of this type (and everything after it) until release(). */
+  /** Holds the next server frame of this type (and everything after it on that socket) until
+   *  release(). Held frames are delivered to the socket they came from, never to a later one. */
   hold(type: HeldType): void;
   release(): void;
   /** Sends a frame the mock never produces, or closes the page's socket with a code. */
@@ -44,19 +47,20 @@ export async function proxySession(page: Page, options: ProxyOptions = {}): Prom
   const replaceAudio = options.replaceAudio ?? true;
   const frames: string[] = [];
   let current: WebSocketRoute | null = null;
+  // Armed by hold(); the first socket that then sees that frame type starts holding.
   let holdType: HeldType | null = null;
-  let holding = false;
-  const held: (string | Buffer)[] = [];
+  const holding = new Set<WebSocketRoute>();
+  const held: { ws: WebSocketRoute; message: string | Buffer }[] = [];
 
   await page.routeWebSocket(/localhost:3001/, (ws) => {
     current = ws;
     const server = ws.connectToServer();
-    // True from tts_start until this sentence's audio has been replaced.
+    // True from tts_start until this reply's audio has been replaced.
     let replaceNext = false;
 
     const deliver = (message: string | Buffer) => {
-      if (holding) {
-        held.push(message);
+      if (holding.has(ws)) {
+        held.push({ ws, message });
         return;
       }
       ws.send(message);
@@ -69,13 +73,13 @@ export async function proxySession(page: Page, options: ProxyOptions = {}): Prom
 
     server.onMessage((message) => {
       const type = frameType(message);
-      if (type !== null && type === holdType && !holding) {
+      if (type !== null && type === holdType) {
         holdType = null;
-        holding = true;
+        holding.add(ws);
       }
       if (type === "tts_start") replaceNext = true;
       if (typeof message !== "string" && replaceAudio) {
-        if (!replaceNext) return; // the rest of this sentence's mock frames
+        if (!replaceNext) return; // the rest of this reply's mock frames
         replaceNext = false;
         deliver(SILENCE_MP3);
         return;
@@ -89,8 +93,8 @@ export async function proxySession(page: Page, options: ProxyOptions = {}): Prom
       holdType = type;
     },
     release() {
-      holding = false;
-      for (const m of held.splice(0)) current?.send(m);
+      holding.clear();
+      for (const { ws, message } of held.splice(0)) ws.send(message);
     },
     inject(frame) {
       if (!current) throw new Error("inject: no socket is open yet");
