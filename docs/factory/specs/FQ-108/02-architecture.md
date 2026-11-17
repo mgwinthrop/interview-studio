@@ -1,265 +1,315 @@
-# FQ-108 Gate 2 - Architecture
+# FQ-108 Gate 2 - Architecture (revision 2)
 
 Scope: the client session runtime. The backend, the WebSocket protocol
 (`docs/websocket-protocol.md`) and the server's behaviour are fixed external contracts.
-Evidence: `evidence/state-inventory.md` (cited below as "inv §n").
+Evidence: `evidence/state-inventory.md` (cited as "inv §n").
+
+> **Revision 2, 2026-11-17, after factory-critic.** Revision 1's oracle could not exercise the
+> paths it claimed. The mock backend sends two 4-byte audio frames per sentence
+> (`apps/backend/src/providers/mock.ts:62-66`), and the client drops anything under 512 bytes
+> (`apps/frontend/lib/audioQueue.ts:82-85`). So against the mock, nothing plays, `turn_timing`
+> is never sent and barge-in can't happen.
+>
+> This revision:
+> - rebuilds the oracle (§0);
+> - settles the conflict with the existing hook tests (§0.3);
+> - specifies how the interpreter executes (§3.2);
+> - completes the list of intended changes (§6);
+> - fixes the migration's coupling problem (§10);
+> - prices the human-read load against a simpler alternative (§11);
+> - asks the owner for one decision (§12).
+>
+> The critic's full findings are in §13.
 
 ## 0. The oracle (answered first, per the migration rule)
 
-The rebuild must keep today's behaviour except for a written list of known defects. Green
-does not mean equivalent, so the oracle is built and merged **before** any runtime code
-moves. It has four layers:
+### 0.1 Harness (built before any runtime code moves)
 
-| Layer | What it pins | Exists today? |
+| Part | What it does | Precedent |
 |---|---|---|
-| O1. Existing tests, unedited | Hearing, microphone choice, resume, end dialog, debug panel, transcript, smoke (inv §7) | yes: 10 unit files, 9 e2e specs |
-| O2. New characterization tests for the paths with no test | Reply audio and `turn_timing`; interrupt (barge-in) incl. audio flush and the interrupted state; disconnect, Start over and End from Connection lost; `session_failed`; `stt_error` toast; draft rejected; design mode; Try it mode; footer Pause during end-dialog settling; `AudioQueue` (unit, fake AudioContext); `useWebSocket` (unit, fake WebSocket) | no (inv §7 gaps) |
-| O3. Golden-master protocol traces | For each scripted scenario against the mock backend, the ordered list of **client→server frame types** (`session_start`, `turn_timing`, binary audio, `interrupt`, `session_end`), with no payload contents | no |
-| O4. Golden-master visible-state traces | For the same scenarios, the ordered, de-duplicated sequence of visible states read from the DOM (panel `data-hearing`, panel status text, avatar state, paused screen, end dialog, warning, typing bar, overlay shown) via a MutationObserver | no |
+| H1. Protocol proxy | Playwright `routeWebSocket` sits between page and mock backend. It replaces mock audio frames with a short **generated silent MP3 fixture** (≥512 bytes, no speech) so playback really happens, and it can hold or release `tts_end` and other frames on cue. | `e2e/transcript-opacity.spec.ts:11` already holds `tts_end` this way |
+| H2. Speech injection | A test-only seam, compiled only when the e2e build sets `NEXT_PUBLIC_TEST_SEAMS=1` and absent from normal builds. It fires the voice detector's `speechStart`/`speechEnd(pcm)` on command, so barge-in, `turn_timing` and utterance flow are deterministic. | none. This adds a few lines to the load-bearing `useVAD.ts` in phase 0, so it is a `deep` slice. |
+| H3. Realism check | One smoke test feeds a short spoken-phrase WAV fixture as Chromium's fake microphone (`--use-file-for-fake-audio-capture`) and only checks that a reply round-trip completes. The fixture is a generated test phrase, not a real interview. | none |
+| H4. Probes | Live-track counter: a `getUserMedia` wrapper counting live microphone tracks, so "the microphone is never left live" is observable. Focus probe: records `document.activeElement` at each settled state. Alert and overlay insertion counters (MutationObserver). | `e2e/resume.spec.ts:28-39`, `e2e/end-confirm.spec.ts` |
 
-**Equivalence rule.**
-- Every migration slice must leave O1 and O2 green.
-- Every slice must reproduce O3 exactly, and O4 exactly except for entries on the
-  intended-change list (§6).
-- Each intended change is approved by the owner and has its own test showing the new
-  behaviour.
-- An O3/O4 difference that is not on the list fails the slice.
+### 0.2 Oracle layers
 
-**Credibility, and its limits** [Likely]
-- The mock backend is deterministic in content, but timing varies between runs. O3 and O4
-  therefore record order, not timestamps, and collapse repeated states.
-- Two behaviours are timing races by nature: the gap after `tts_end` (inv §4.2) and
-  frames arriving after an interrupt (inv §4.3). The oracle cannot pin those, so they are
-  covered by deterministic unit tests on the new core instead, and listed in §6.
-- Real microphone speech and real providers remain untested (unchanged from today:
-  `npm run test:integration` is opt-in).
+| Layer | What it pins |
+|---|---|
+| O1. Existing tests | Hearing, microphone choice, resume, end dialog, debug panel, transcript, smoke (inv §7). Subject to §0.3. |
+| O2. New characterization tests (H1-H4) | Reply audio and `turn_timing`; interrupt (local snap, `interrupt` frame, audio flush, queued utterances dropped); disconnect, Start over and End from Connection lost; `session_failed`; `stt_error`; draft rejected; design mode; Try it mode; footer Pause during end-dialog settling. Unit tests for `AudioQueue` (fake AudioContext) and `useWebSocket` (fake WebSocket). |
+| O3. Protocol traces | Per scenario, the ordered client→server frame types (`session_start`, `turn_timing`, audio, `interrupt`, `session_end`). Deterministic under H1/H2, because the test drives every step. |
+| O4. Visible-state traces | **Per region**, not one global sequence, because independent races such as voice-detection load and the greeting interleave differently from run to run. Each region is recorded separately: panel status, hearing, pause screen, end dialog, warning, typing bar, overlay, focus target, live-track count. Within a region, the order must match and repeated states are collapsed. Transient states that React can legitimately skip between two server frames, such as a 200 ms "interrupted", are asserted only where the test holds the frame (H1). |
 
-This answers the gate 1 kill check: the oracle can be named and built, and it ships first.
+**Equivalence rule:**
+- Every slice must leave O1 (as amended by §0.3) and O2 green.
+- O3 must match exactly.
+- O4 must match per region, except entries on the intended-change list (§6). Each of
+  those needs owner approval and its own test.
+- Known timing races (the gap after `tts_end`, inv §4.2; frames arriving after an
+  interrupt, inv §4.3) are pinned by deterministic unit tests on the core, not by O4.
+
+**Limits:**
+- Real microphones and real providers stay outside automation, as today.
+- H2 bypasses Silero itself. H3 covers that path only for "a reply happens".
+
+### 0.3 Existing hook tests (resolves the conflict with "unedited")
+
+`useVADHearing.test.ts` and `useVADResume.test.ts` assert `hearing` and `hearingAttempt` on
+the hook directly. Phase 2 moves those decisions into the core, so those assertions would
+test an interface that no longer exists. There are two choices:
+- **Proposed:** the slice that moves a behaviour first adds an equivalent test at the new
+  boundary (core unit test plus O2/O4). Only then does it replace the old hook assertions.
+  That slice is draft, flagged for human read, and needs the owner's explicit approval of
+  the test change (CLAUDE.md rule 3). Mic-safety assertions (no live track after
+  stop/pause, device choice, thresholds) stay on the adapter and are not edited.
+- Alternative: keep a compatibility `hearing`/`hearingAttempt` on the hook. That is dead
+  code kept only for the tests, and it leaves two sources of truth.
 
 ## 1. What is load-bearing in scope today, and why
 
 | Path | Why protected | Verdict |
 |---|---|---|
-| `apps/frontend/hooks/useVAD.ts` | It is the only code that opens, pauses and stops the microphone, so it enforces "the microphone is never left live" (generation and sequence guards). It holds the voice-detection thresholds AGENTS.md locks and the 16 kHz PCM16 conversion the server depends on. | Correctly protected. The safety boundary is real. Session *decisions* (attempt, deadline, "is the person heard") should leave it, so that the protected part shrinks to the hardware boundary. |
-| `docs/websocket-protocol.md` | Client and server must agree on it | Unchanged. No protocol change. |
-| `apps/frontend/app/session/page.tsx` | **Not protected** | This is where the defects are (inv §6: FQ-42, 47, 65, 79, 98, #86, the Resume flash). It holds 13 `useState`, 21 `useEffect` and 24 `useRef`, and it makes the session's real decisions. The code that decides the most has the least protection. |
-| `apps/frontend/app/hooks/useWebSocket.ts` | **Not protected** | It encodes frames on the client side (binary audio vs typed JSON) and owns close handling (#110). The frame encoding is part of the protocol contract. |
+| `apps/frontend/hooks/useVAD.ts` | The only code that opens, pauses and stops the microphone ("never left live"). It holds the locked voice-detection thresholds and the 16 kHz PCM16 conversion. | Correctly protected. Session decisions should leave it, so the protected part shrinks to the hardware boundary. |
+| `docs/websocket-protocol.md` | Shared contract | Unchanged |
+| `apps/frontend/app/session/page.tsx` | **Not protected** | Where the defects are (inv §6). It makes the session's real decisions with 13 `useState`, 21 `useEffect` and 24 `useRef`. |
+| `apps/frontend/app/hooks/useWebSocket.ts` | **Not protected** | Holds the client half of frame encoding and owns close handling (#110). |
 
-**Proposed charter changes** (owner decides; agents do not edit the charter):
-1. Add the new **session core** (§3): one pure module that decides every session state
-   change. A wrong transition here is a wrong session, and it is small and pure, so deep
-   gates are cheap to run on it.
-2. Add the new **session history** module (§3.4): it must never record words, so it is a
-   privacy surface, like redaction on the backend.
-3. Keep the **microphone adapter** load-bearing: today's `useVAD.ts`, under its new path
-   if it moves.
-4. Add the **socket adapter's frame encoding** (the client half of the protocol).
-5. Leave the view (components, selectors, styles) unprotected. That is where #48 and #49
-   mostly land.
+Proposed charter changes (the owner decides; agents do not edit the charter):
+1. The new session core (§3.1) becomes load-bearing.
+2. The session history (§3.4) becomes load-bearing, as a privacy surface.
+3. The microphone adapter stays load-bearing (`useVAD.ts`, under its new path if it moves).
+4. The socket adapter's frame encoding becomes load-bearing.
+5. View, selectors and styles stay unprotected.
+
+**Cost, stated plainly.** After the rebuild, any change to session *behaviour* is a `deep`
+slice with a human read. That includes #48 and #49, which add to the core and the mic
+adapter. That is the intended trade: fewer, read changes in the place that has broken most
+often. The binding constraint is your review time, not gate runtime (§11).
 
 ## 2. Root cause, stated once
 
-Session state is split across about 40 independent values in four modules (inv §1).
-Fourteen effects keep them in step after the fact (inv §3: E2, E9-E11, V1, W1 and others).
-Six timers and async handlers write state without checking what it is now (inv §5.3).
-Every defect in inv §6 is one of three things:
-- a render in which two values disagree (E9-E11, E2, V1);
-- an async handler with no shared ordering (FQ-47, FQ-98);
-- a writer that overwrites a real state (inv §5.3).
+Session state is split across about 40 values in four modules (inv §1). Fourteen effects
+keep them in step after the fact (inv §3), and timers and async handlers write state without
+checking what it currently is (inv §5.3). Every defect in inv §6 is one of three things:
+1. a render in which two values disagree;
+2. async handlers with no shared ordering;
+3. a writer that overwrites a real state.
 
-The design below removes all three mechanisms, not just the instances found so far.
-
-## 3. Target architecture
-
-Functional core, imperative shell.
+## 3. Target architecture: functional core, imperative shell
 
 ```
- UI events ─┐        ┌──────────────── session core (pure) ────────────────┐
- socket ────┤ event  │ transition(state, event) → { state, commands[] }    │
- mic/VAD ───┼──────▶ │ one state value; regions: connection · conversation │
- audio ─────┤        │ · mic · pause · end flow · playback · overlays      │
- timers ────┘        └───────────────┬─────────────────────────────────────┘
-                                     │ commands (send frame, pause mic, flush audio,
-                                     ▼ start/cancel timer, navigate, focus…)
-                     interpreter (one React hook): runs commands against adapters,
-                     appends to the session history, publishes state to the view
-                                     │
-        ┌────────────────┬───────────┴───────┬───────────────┐
-   mic adapter      socket adapter     audio adapter    timer adapter
- (VAD, devices,   (connect, send,     (AudioQueue,     (setTimeout keyed
-  generation      per-socket close    playing/stopped   by id; expiry is
-  guards)         identity)           events)           an event)
+ UI events ─┐        ┌──────────── session core (pure) ────────────┐
+ socket ────┤ event  │ transition(state, event) → {state, commands} │
+ mic/VAD ───┼──────▶ │ regions: connection · conversation · mic ·   │
+ audio ─────┤        │ pause · end flow · playback · overlays       │
+ timers ────┘        └──────────────────┬───────────────────────────┘
+                                        ▼ commands
+                interpreter: synchronous store, run-to-completion, FIFO
+                                        │
+        mic adapter · socket adapter · audio adapter · timer adapter
 ```
 
-### 3.1 Session core (new, pure TypeScript, no React, no I/O)
-- **One state value** made of the regions above. Every region is a discriminated union, so
-  contradictory combinations cannot be represented. For example, the mic region is one of
-  `off`, `starting{attempt}`, `ready`, `paused{before}`, `reopening{attempt, before}` or
-  `failed{kind}`. "Paused with a reopen pending" is a state, not an accident (this absorbs
-  #86).
-- **Every input is an event.** That includes timer expiry: the hearing deadline is a
-  `timer.expired{id}` event for a specific attempt, so a stale timer cannot affect a new
-  attempt (this absorbs the Resume flash). The thinking watchdog and the interrupt
-  settle-time become timer events that the core accepts only in the state that started
-  them (this absorbs inv §5.3).
-- **Output is the next state plus a list of commands.** The core never touches the
-  microphone, socket, audio or clock. It asks for those things, so every decision is
-  unit-testable without mocks.
-- **Ordering is explicit.** Pause and Resume, and the end dialog's pause and resume,
-  become states with a single in-flight operation. An operation that arrives while another
-  is in flight is queued or ignored by rule, not by luck (this absorbs FQ-47, FQ-98 and
-  the unguarded footer Pause).
+### 3.1 Session core (new, pure TypeScript)
+- **One state value.** Each region is a discriminated union, so contradictions can't be
+  represented. Example: the mic region is `off | starting{attempt} | ready | paused{before} |
+  reopening{attempt, before} | failed{kind, attempt}`.
+- **Every input is an event, including timer expiry.** Events that answer a request carry
+  that request's id: `timer.expired{id}`, `mic.reopened{attempt}`, `mic.reopenFailed{attempt}`,
+  `ws.closed{socketId}`, `audio.suspended{op}`. The core decides staleness by comparing ids.
+  The mic adapter keeps its own generation guard only as a second safety layer for
+  "never left live".
+- **Adapters timestamp events.** The core has no clock, and response-gap numbers come from
+  those timestamps, so queueing cannot shift them.
+- **Output is the next state plus commands.** The core does no I/O.
 
-### 3.2 Interpreter (new, one hook)
-- Holds the core state.
-- Feeds each event through `transition` and runs the commands.
-- Records the history.
-- Exposes `state` and `send(uiEvent)` to the view.
-- The only place where React meets the core. **No other effect may set session state.**
-  Effects that remain are view-only (focus, scroll, `showModal`).
+### 3.2 Interpreter: execution model (new)
+- **A synchronous external store**, read by React through `useSyncExternalStore`. It is not
+  `useReducer`, because `useReducer` would run commands after render, and the interrupt
+  contract needs `ws.send{interrupt}` and `audio.flush` to happen synchronously inside the
+  voice detector's callback, as they do today (`useVAD.ts:160`, `page.tsx:156-165`).
+- **Run to completion.** `send(event)` runs `transition`, then runs the returned commands in
+  order, synchronously.
+- **FIFO for re-entrant events.** An event raised while commands are running is queued and
+  processed after the current one. For example, `audio.flush` reports `stopped`
+  synchronously (`audioQueue.ts:108`). This keeps today's ordering (`page.tsx:161-163`)
+  explicit instead of accidental.
+- **The only writer of session state.** Effects that remain are view-only: focus, scroll,
+  `showModal`.
 
 ### 3.3 Adapters (existing code, reduced to I/O)
-- **Mic adapter** (from `useVAD.ts`, load-bearing). Keeps the VAD lifecycle, device choice,
-  locked thresholds, PCM16 conversion and generation/sequence guards. It loses `hearing`,
-  `hearingAttempt` and the decisions. It reports events (`loaded`, `loadFailed`,
-  `speechStart`, `speechEnd{pcm}`, `misfire`, `reopened`, `reopenFailed`) and obeys
-  commands (`start`, `pause`, `resume`, `stop`). It also contains vad-web's hidden
-  `listening` quirk (inv §1b), which the core never sees.
-- **Socket adapter** (from `useWebSocket.ts`). Connect, send and close, with
-  **per-socket identity**: a close event names its socket, so a deliberate close of one
-  socket can never hide another's close (this is the #110 class). Incoming messages are
-  parsed into events. Transcript merging moves into the core.
-- **Audio adapter** (`AudioQueue`, largely as is). Reports `playing`/`stopped`, and obeys
-  `enqueue`, `flushBuffer`, `flush`, `suspend` and `resume`.
+- **Mic adapter** (from `useVAD.ts`, load-bearing). Holds the VAD lifecycle, device choice,
+  thresholds, PCM16 conversion, the generation guard and vad-web's hidden `listening` quirk
+  (inv §1b). It emits id-carrying events and takes `start`/`pause`/`resume`/`stop{attempt}`
+  commands.
+- **Socket adapter** (from `useWebSocket.ts`). Per-socket identity on every event and
+  command. Parses messages into events. Transcript merging moves into the core.
+- **Audio adapter** (`AudioQueue`). Emits `playing` and `stopped` with timestamps.
 - **Timer adapter.** `start(id, ms)` and `cancel(id)`; expiry is an event.
 
-### 3.4 Session history (new; owner decision gate 1 Q1)
-- The interpreter appends `{t, event label, region states after}` to an in-memory ring
-  buffer (proposed: the last 500 entries).
-- **Labels come from an allow-list function per event type**, so a transcript text,
-  draft or audio payload cannot reach the history even by mistake. A test feeds every
-  event type with sentinel text and asserts the sentinel never appears.
-- It is shown, with a copy button, only when `?debug=1` is set. It is never persisted or
-  sent anywhere.
+### 3.4 Session history (owner decision gate 1 Q1)
+- The interpreter appends `{t, event label, region states}` to an in-memory ring of 500
+  entries.
+- Labels come from an allow-list per event type. A test pushes sentinel text through every
+  event type and asserts the sentinel never appears in the history.
+- It is shown, with a copy button, only with `?debug=1`.
 
 ### 3.5 View
-- Components render from core state through pure selectors (today's `sessionDisplay.ts`
-  functions, extended). The two "is speaking" sources become one selector (inv §5.4).
-- Wording, markup, styles, the avatar, reduced motion and focus order are unchanged (gate 1
-  success criterion 1).
+- Renders from core state through pure selectors. Wording, markup, styles, avatar, reduced
+  motion and focus order are unchanged.
 
-## 4. Data shapes and contracts (detail at gate 3)
+## 4. Data shapes (detail at gate 3)
 
-- `SessionState`: the regions above, all discriminated unions. Transcript entries and
-  draft live in it. Audio does not; only the adapter's queue holds audio.
-- `SessionEvent`: `ui.*` (pause, resume, endClick, endConfirm, endDismiss, startOver,
-  sendText, toggleTyping), `ws.*` (open, message variants, closed{socketId, code}),
-  `mic.*`, `audio.*`, `timer.expired{id}`.
-- `Command`: `ws.connect`, `ws.send`, `ws.close{socketId}`; `mic.start`, `mic.pause`,
-  `mic.resume`, `mic.stop`; `audio.*`; `timer.start` and `timer.cancel`; `nav.go`;
-  `view.focus`.
-- **No new endpoint, message type, storage key or exported backend type.** `turn_timing`
-  rules are unchanged: it attaches to the next audio frame only and is never applied to
-  typed input (CLAUDE.md contract).
+`SessionState` (regions), `SessionEvent` (`ui.*`, `ws.*`, `mic.*`, `audio.*`, `timer.*`, all
+id-carrying where they answer a request) and `Command`. No new endpoint, message type, storage
+key or backend type. `turn_timing` rules unchanged.
 
 ## 5. External dependencies
 
-**None required.** The core is hand-written TypeScript. One option for the owner to decide
-(dependency choices are NEVER_AUTOMATE):
+None required. **Recommended: a hand-written core.** XState v5 is the alternative: native
+parallel states and a built-in inspector, against a new runtime dependency and a learning
+curve. Dependency choices are the owner's (NEVER_AUTOMATE).
 
-| Option | For | Against |
-|---|---|---|
-| **A. Hand-written core (recommended)** | No dependency. The domain is modest (7 regions). Tests are plain function calls. The history is trivial to build. It fits how the factory verifies work. | Parallel regions and cross-region rules are written by hand. There's no visualizer. |
-| B. XState v5 | Native parallel states and guards. Visual statecharts. Its inspection API gives a history almost for free. | A new runtime dependency (bundle size, upgrades, audit surface). The team has to learn statecharts. It's harder for the factory's verifiers to read. |
-
-## 6. Intended behaviour changes (the only allowed O4 differences)
+## 6. Intended visible changes (the only allowed O4 differences)
 
 Each needs owner approval at gate 3 and its own test.
 
 | # | Today | After | Source |
 |---|---|---|---|
-| D1 | Pause during a pending reopen leaves the warning up through the pause | Pause cancels the reopen and restores the earlier state | #86 |
-| D2 | Resume > 10 s in flashes the warning and opens typing | Fixed already by #107; the core keeps it fixed by construction | #107 |
-| D3 | Start over keeps page state (paused, thinking, end dialog, queued audio) from the dead session | Start over resets every region to the start of a new session | inv §4.8 |
-| D4 | A disconnect while the end dialog is open leaves End session dead after Start over | The end flow resets with the session | inv §5.2 |
-| D5 | Footer Pause during end-dialog settling can leave the session paused | Ordered by the pause region's single in-flight rule | inv §5.2 |
+| D1 | Pause during a pending reopen keeps the warning up through the pause | Pause cancels the reopen and restores the prior state | #86 |
+| D2 | Resume > 10 s flash | Fixed by #107; kept fixed by construction | #107 |
+| D3 | Start over keeps paused, thinking, end-dialog and queued-audio state from the dead session | Start over begins a clean session. **Visible: the microphone goes through "Getting ready…" again, with "didn't start" wording if it fails, not the after-pause wording.** | inv §4.8 |
+| D4 | A disconnect while the end dialog is open leaves End session dead after Start over | Resets with the session | inv §5.2 |
+| D5 | Footer Pause during end-dialog settling can leave the session paused | Ordered by the pause region | inv §5.2 |
 | D6 | The interrupt timer and `stt_error` can overwrite "speaking" or "thinking" with "listening" | Accepted only in the state that started them | inv §5.3 |
-| D7 | The microphone keeps listening while "Connection lost" shows | It is paused while there is no connection | inv §4.8 |
-| D8 | Panel and transcript cursor use different "is speaking" sources | One source | inv §5.4 |
-| D9 | #110: a clean close after Start over is swallowed | Fixed by #110 before migration; per-socket identity keeps it fixed | #110 |
+| D7 | The microphone keeps listening while "Connection lost" shows | It is **stopped** (not paused) on connection loss, and Start over starts it fresh (D3 wording) | inv §4.8 |
+| D9 | #110 | Fixed before migration; per-socket identity keeps it fixed | #110 |
 
-Under investigation, not yet an intended change: the gap of at least 100 ms after
-`tts_end` where speech is not treated as an interrupt (inv §4.2). It touches the interrupt
-contract and server timing, so gate 3 decides after a measurement.
+Explicitly **not** changing (revision 1 implied changes here):
+- **The thinking watchdog** still returns to "Listening" after 10 s with today's wording,
+  but only if that same turn is still thinking. No new "timeout" state or wording. The
+  tension with the CLAUDE.md avatar contract is recorded here, not changed.
+- **Two speaking sources** (revision 1 D8, dropped). The transcript cursor keeps following
+  the server's streaming flag and the label keeps following playback, as today, pinned by
+  `transcript-opacity.spec.ts`. Both become selectors over one state.
+- **Pause timing.** The screen shows "paused" only after audio has actually suspended, as
+  today (`page.tsx:226-231`). The core models it as `pausing → paused` on `audio.suspended`.
+  `end-confirm-settling.spec.ts` depends on this.
+- **The gap of at least 100 ms after `tts_end`** (inv §4.2) is under investigation, not
+  changed. It touches the interrupt contract, so gate 3 decides after a measurement under H1.
 
-## 7. How #48 and #49 fit (gate 1 success criterion 6)
+## 7. #48 and #49 fit
 
-- **#49, show that the microphone is hearing you.** The mic adapter already gets
-  `speechStart` and `speechEnd`. Add `mic.activity` events to the core's mic region and
-  one selector for the view. No other region changes.
-- **#48, let the speaker control turn-taking.** Add a turn-taking setting to the
-  conversation region and a `ui.endTurn` event. In speaker-controlled mode the core ignores
-  `mic.speechEnd` as the end of a turn and waits for `ui.endTurn` before sending the
-  utterance. The adapter would need to hand over audio on request instead of on silence.
-  - That is one new adapter command in a load-bearing file.
-  - [Guessing] This is the main open risk for #48: vad-web may not support it cleanly.
-    Gate 3 should check the library before #48 is specced.
+- **#49:** `mic.activity` events into the mic region plus one selector. It touches the core
+  and the mic adapter, so it is a deep slice.
+- **#48:** a turn-taking setting in the conversation region and a `ui.endTurn` event.
+  vad-web 0.0.31 exposes `onFrameProcessed`, `setOptions` and `submitUserSpeechOnPause`
+  (`node_modules/@ricky0123/vad-web/dist/real-time-vad.d.ts:7`), so the library is not the
+  blocker. The real question for #48's own spec: speaker-controlled turns mean audio that
+  spans several detected segments is held in the mic adapter until the person ends the turn.
+  That is a new in-memory place holding audio. It is never stored, but it needs its own
+  privacy review.
 
-Both are additions in one region plus the view, which meets criterion 6.
+## 8. Riskiest flows after the rebuild
 
-## 8. Call flows after the rebuild (the three riskiest)
-
-**Resume:**
-1. `ui.resume`.
-2. The core goes from paused to resuming and emits `audio.resume` and `mic.resume`. It
-   starts a deadline timer for attempt n.
-3. `mic.reopened` makes it ready and cancels the timer.
-4. If `timer.expired{n}` arrives while still reopening attempt n, the core marks the mic
-   unavailable. A timer for an older attempt is ignored.
-
-**Interrupt:**
-1. `mic.speechStart` while the interviewer is speaking.
-2. The core moves at once to interrupted, which keeps the "snap locally before any server
-   round-trip" contract.
-3. It emits `ws.send{interrupt}` and `audio.flush`, and drops queued utterances.
-4. A settle timer for this interrupt is started. `timer.expired` moves to listening only
-   if the state is still that interrupt.
-
-**Start over:**
-1. `ui.startOver` makes the core emit `ws.connect` (new socket id), `mic.pause`,
-   `audio.flush` and timer cancels.
-2. Every region resets to its initial value.
-3. A `ws.closed` for the old socket id is ignored by identity.
+- **Interrupt:**
+  1. `mic.speechStart{t}` arrives while playback or streaming is on.
+  2. Synchronously, in one run: state becomes interrupted, `ws.send{interrupt}`, then
+     `audio.flush`, which re-enters `audio.stopped`, queued FIFO.
+  3. Queued utterances are dropped.
+  4. A settle timer for this interrupt is started. Its expiry is accepted only if the state
+     is still that interrupt.
+- **Resume:**
+  1. `ui.resume` → resuming → `audio.resume{op}`.
+  2. `audio.resumed{op}` → `mic.resume{attempt n}` plus a deadline timer for n.
+  3. `mic.reopened{n}` → ready, and the timer is cancelled.
+  4. `timer.expired{n}` while reopening n → unavailable.
+  5. Anything carrying an older id is ignored.
+- **Start over:** `ui.startOver` → `ws.connect{new id}`, `mic.stop`, `audio.flush`, timers
+  cancelled, regions reset, then `mic.start` (D3 and D7). Events for the old socket id are
+  ignored.
 
 ## 9. What could break
 
 | Risk | Mitigation |
 |---|---|
-| Focus and accessibility flows (FQ-47 went through five rounds) | O1 `end-confirm*.spec.ts` stay unedited and green. Focus stays a view effect driven by state, not a session decision. |
-| `turn_timing` and delivery metrics (server stores response-gap numbers) | O3 pins `turn_timing` before audio. A core unit test covers the gap rules. The backend contract is unchanged. |
-| Interrupt contract (flush, abort, drop queued, snap locally) | O2 adds the first interrupt e2e. The core flow above keeps the local snap synchronous. |
-| StrictMode double invocation | The core is pure, so double invocation is harmless. The interpreter runs commands outside the reducer and keys adapters by generation (as today). |
-| Oracle flakiness from timing | O3 and O4 compare order with repeats collapsed. Known races are covered by core unit tests (§0). |
-| Size and duration | Strangler migration, one region per slice, each under 400 lines, each green against the oracle and shippable alone. If it stops part-way, the finished regions still stand. |
-| Review load (two load-bearing paths change in several slices) | Slices touching the mic adapter or core are `deep` with a human read. Charter STOP_IF limits the review queue to three items. |
-| A contract the current code already breaks: "avatar states reflect real state, not timers" (CLAUDE.md) | The watchdog stays as a timeout *event* the core accepts only in the state that started it, and it marks the state as a timeout instead of pretending it is listening. Gate 3 wording decision. |
+| Focus and accessibility (FQ-47 took five rounds) | `end-confirm*.spec.ts` stay unedited. H4 adds focus probes to O4. Focus stays a view effect. |
+| The interrupt contract | The synchronous interpreter (§3.2). O2 adds the first interrupt e2e under H1/H2. |
+| `turn_timing` and delivery metrics | O3 pins frame order. A core unit test covers gap rules with adapter timestamps. |
+| The microphone left live | The H4 live-track probe in every O2 scenario. The adapter keeps its guard as a second layer. |
+| StrictMode | The core is pure. The store and adapters are created once per mount and keyed by generation. |
+| Oracle flakiness | Per-region traces. Tests drive every step through H1/H2. Races are pinned in core unit tests. |
+| Review load | Priced in §11. STOP_IF caps the review queue at 3. |
 
-## 10. Migration outline (slices at gate 4)
+## 10. Migration (revised for coupling)
 
-| Phase | Content | Load-bearing |
+Revision 1 moved one region at a time. The critic showed that mic, pause and end flow are
+coupled (#86 needs both), and so are conversation and playback (interrupt needs both).
+Moving them apart would need bridges that sync page state into the core, which is the
+mechanism §2 removes. Revised order:
+
+| Phase | Content | Deep slices (est.) | Other slices (est.) |
+|---|---|---|---|
+| 0. Oracle | H1 proxy and MP3 fixture, H3 smoke, H4 probes, O2 tests, O3/O4 recorder and golden traces; H2 seam in `useVAD` | 1 | 4-5 |
+| 1. Cheap structural wins | Remount the session view by key on Start over (D3, D4, D7's reset half, in a few lines); allow-listed history logger called from today's handlers (gate 1 criterion 4 delivered early, later reused by the interpreter) | 1 (history) | 1 |
+| 2. Core and interpreter, with mic + pause + end flow together | Pure transitions and tests first, wiring in the next slice (no orphan longer than one slice); `useVAD` becomes the mic adapter; §0.3 test replacement | 3-4 | 0 |
+| 3. Connection | Socket adapter with per-socket identity, connection region | 2 | 0 |
+| 4. Conversation + playback together | Interrupt, watchdog guards, transcript merge | 2-3 | 0 |
+| 5. Cleanup | Remove leftover state effects; `set-state-in-effect` back to error for `app/session/` | 0 | 1 |
+
+Regions not yet moved feed the core through their **existing callbacks**, not effects. For
+example, `useWebSocket`'s message handler calls `send({ws.ttsStart})`. That is a callback,
+so it adds no render-lag mechanism.
+
+Phases 0 and 1 are worth shipping even if the rebuild stops there.
+
+## 11. Cost against the simpler alternative
+
+The critic proposed, and I agree it must be weighed: remount on Start over + the FQ-86
+hearing reducer + a token-checked `serialize()` for Pause, Resume and the end dialog +
+"still in the starting state" guards on the three timers + an allow-listed history logger
++ the same oracle.
+
+| | Full core (this spec) | Targeted hardening |
 |---|---|---|
-| 0 | #110 merged; O2 characterization tests; O3/O4 golden-master harness and recorded traces | no |
-| 1 | Core skeleton, interpreter, history (debug view), with no region moved yet | new core and history |
-| 2 | Mic region (absorbs #86 and the FQ-86 reducer design); `useVAD` becomes the mic adapter | yes |
-| 3 | Pause and end-flow regions (D5) | core |
-| 4 | Connection region and socket adapter (D3, D4, D7, D9) | core, frame encoding |
-| 5 | Conversation and playback regions (D6, D8; orb from state, not timers) | core |
-| 6 | Remove leftover state effects; the lint rule `set-state-in-effect` back to error for `app/session/` | no |
+| Slices | ~16-19 | ~10-11 (phase 0 plus about 5) |
+| Deep slices with a human read | ~9-11 | ~3 |
+| At a review queue of 3 and your pace of about 3 reads a week [Guessing] | ~5-7 weeks | ~2-3 weeks |
+| Gate 1 criteria 1-5, 7 | met | largely met |
+| Criterion 6 (#48 and #49 cheaper) | met: one region plus view each | not met: each adds to today's spread state |
+| "One traceable place" (your 2026-11-17 goal) | met | partial: history only sees what handlers log, and effects stay |
+| Future changes | deep slice each (behaviour lives in the core) | mostly full gates, but in spread state |
 
-Then #49 and #48 are specced on the new structure.
+Phases 0 and 1 are **identical in both options**. That makes a decision checkpoint possible
+after phase 1. By then the oracle exists, the cheap wins have shipped, the history is
+collecting real traces, and #49 can be sketched against both shapes.
 
-## 11. Rollback
+## 12. Decision for the owner
 
-Each slice is a normal PR, reverted on its own. Until phase 6 the old path for regions not
-yet moved stays in place, so a revert never has to undo more than one region. No data,
-storage or protocol migration is involved.
+1. **Direction (recommended: full core, with a checkpoint after phase 1).** Your stated goal
+   was a structure that is easier to extend, debug and trace, accepting bigger changes. Only
+   the full core meets criterion 6 and the one-place goal. Phases 0-1 are shared, so the
+   commitment can be confirmed with evidence before the expensive, deep part begins.
+   Alternative: targeted hardening only.
+2. **The §0.3 test policy** (replace hook-internal assertions only after an equivalent test
+   exists at the new boundary, as a draft with a human read).
+3. **The proposed charter changes in §1** (whether now or at the checkpoint).
+4. **A hand-written core versus XState** (§5).
+
+## 13. factory-critic review (2026-11-17), how each objection was handled
+
+1. **The oracle couldn't reach audio, `turn_timing` or interrupt against the mock
+   (blocking).** Confirmed by reading `mock.ts:62-66` and `audioQueue.ts:82-85`. Fixed by
+   H1/H2/H3 (§0.1).
+2. **O4 would flake and missed focus and the live mic (blocking).** Per-region traces, H4
+   focus and live-track probes (§0.2).
+3. **O1 "unedited" contradicts phase 2 (blocking).** §0.3 policy, decision 2.
+4. **Interpreter execution unstated (should-fix).** §3.2 synchronous store,
+   run-to-completion, FIFO; id-carrying mic events; adapter timestamps.
+5. **§6 missing visible changes (should-fix).** Added the D3/D7 wording. Dropped the
+   timeout state and D8. Pinned pause timing.
+6. **Phases coupled (should-fix).** Coupled regions move together, unmoved regions feed in
+   through callbacks, and the pure core lands one slice before its wiring (§10).
+7. **Human-read load not priced (should-fix).** §1 cost, §11 comparison.
+8. **#48 not a showstopper (note).** Downgraded. The real question is in-memory audio held
+   across segments (§7).

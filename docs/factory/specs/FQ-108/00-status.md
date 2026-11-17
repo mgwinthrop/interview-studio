@@ -2,7 +2,7 @@ item: FQ-108
 scope: architecture review of the client session runtime (app/session/, hooks/useVAD.ts, app/hooks/useWebSocket.ts, lib/audioQueue.ts, display helpers); backend and WebSocket protocol are fixed external contracts
 kind: architecture review leading to a migration plan (spec skill migration rule applies: name the oracle first)
 gate_1_product: approved 2026-11-17 (owner, interactive)
-gate_2_architecture: pending
+gate_2_architecture: pending (revision 2 after factory-critic)
 gate_3_design: not-started
 gate_4_slices: not-started
 slices_completed: 0 / ?
@@ -23,4 +23,8 @@ latent_defects_found_by_inventory:
   - end dialog unmounted by a disconnect leaves confirmingEnd true, so End session does nothing after Start over [inference]
   - no tests for interrupt, turn_timing, AudioQueue, useWebSocket, disconnect/reconnect, session_failed, stt_error, design and try modes
   - CLAUDE.md says Next.js 14; package.json is Next 16 / React 19 (owner to correct; agents do not edit CLAUDE.md)
-open_questions: []
+open_questions:
+  - Direction - full core with a checkpoint after phase 1 (recommended) vs targeted hardening (owner, gate 2 §12)
+  - Test policy - replace hook-internal assertions only after an equivalent test exists at the new boundary, draft + human read (owner, gate 2 §0.3)
+  - Charter changes in gate 2 §1 - now or at the checkpoint (owner)
+  - Hand-written core vs XState v5 (owner, NEVER_AUTOMATE dependency choice)
