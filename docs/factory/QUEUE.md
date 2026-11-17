@@ -283,3 +283,15 @@ Snapshot from triage run `2026-11-14T163251Z-triage-run`, which re-triaged #40, 
 - done_when: Nav no longer declares demo or imports DemoBadge; DemoBadge stays for the session header; pages render unchanged; gates.sh full GREEN (compile-time proof by owner exception)
 - confidence: high
 - notes: Charter NEEDS_SPEC: changes the props of an exported component. Charter gap: unused-code removal has no AUTOMATABLE entry and cannot meet DONE's failing-test rule; the proposed proof is compile-time (tsc and build fail if a caller still passes demo), which needs owner acceptance.
+
+## FQ-105: Correct the stale DemoBadge doc comment about the nav bar
+- disposition: ready-to-implement
+- source: https://github.com/mgwinthrop/interview-studio/issues/105
+- last_triaged: 2026-11-16
+- repro: confirmed (DemoBadge.tsx:14 mentions "the nav bar adds a right margin"; since #104 the only caller passes no style)
+- files_expected: apps/frontend/app/components/DemoBadge.tsx
+- load_bearing: false
+- gate_level: full
+- done_when: The DemoBadge doc comment no longer mentions the nav bar and describes current use; git diff shows only comment lines in that one file; grep for "nav bar" in the file finds nothing; gates.sh full GREEN
+- confidence: high
+- notes: Charter AUTOMATABLE: documentation and comment corrections. Proof is the textual check, not a failing test (charter gap, same as FQ-101). Out of scope: the now-unused style prop (exported props change, needs a spec).
