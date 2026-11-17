@@ -42,7 +42,9 @@ export default defineConfig({
     {
       command: "npm run build && npm run start",
       url: "http://localhost:3000/avatar",
-      env: { NEXT_PUBLIC_WS_URL: "ws://localhost:3001" },
+      // The e2e build compiles in the test seams (app/session/testSeams.ts) and writes to its own
+      // .next-e2e, so it never replaces the normal build in .next (FQ-108 S0).
+      env: { NEXT_PUBLIC_WS_URL: "ws://localhost:3001", NEXT_PUBLIC_TEST_SEAMS: "1", NEXT_DIST_DIR: ".next-e2e" },
       reuseExistingServer: false,
       timeout: 240_000,
     },

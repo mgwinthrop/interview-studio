@@ -13,6 +13,15 @@ const ortDist = path.dirname(
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // The Playwright build sets NEXT_DIST_DIR=.next-e2e, so its test-seam build never overwrites
+  // the normal .next (FQ-108 S0). Everything else uses the default.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
+
+  // Always defined, so Next inlines it as a literal. Left unset, Next keeps a runtime lookup on
+  // its process.env polyfill, the seam check cannot fold to false, and the seam code ships
+  // (caught by check:no-test-seams while building FQ-108 S0).
+  env: { NEXT_PUBLIC_TEST_SEAMS: process.env.NEXT_PUBLIC_TEST_SEAMS === "1" ? "1" : "" },
+
   /**
    * COOP/COEP headers — required for SharedArrayBuffer, which is used by
    * onnxruntime-web's threaded WASM backend (loaded by @ricky0123/vad-web).

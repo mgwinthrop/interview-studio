@@ -32,6 +32,9 @@ jobs:
         run: npm --prefix apps/frontend run lint
       - name: Frontend build
         run: npm --prefix apps/frontend run build
+      - name: No test seams in the production build
+        # Fails if NEXT_PUBLIC_TEST_SEAMS code reached .next (FQ-108 S0). The e2e build uses .next-e2e.
+        run: npm --prefix apps/frontend run check:no-test-seams
       - name: Install the Playwright browser
         run: npx playwright install --with-deps chromium
         working-directory: apps/frontend
