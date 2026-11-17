@@ -52,6 +52,4 @@ For real conversations, put `ANTHROPIC_API_KEY` and `ELEVENLABS_API_KEY` in `app
 
 [Getting started](docs/getting-started.md) · [How it works](docs/how-it-works.md) · [Interviewers](docs/interviewers.md) · [Reports](docs/reports.md) · [Operations](docs/operations.md) · [Settings](docs/settings.md) · [Usage](docs/usage.md) · [Calls and privacy](docs/calls-and-privacy.md) · [WebSocket protocol](docs/websocket-protocol.md) · [Contributing](docs/contributing.md)
 
-## Project background
-
-Based on the AI Interview Tool implementation at commit `ffb890a`, with an animated interviewer, playback feedback and local setup documentation. Released under the [MIT License](LICENSE).
+ Released under the [MIT License](LICENSE).
