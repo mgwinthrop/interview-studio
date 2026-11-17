@@ -295,3 +295,145 @@ Snapshot from triage run `2026-11-14T163251Z-triage-run`, which re-triaged #40, 
 - done_when: The DemoBadge doc comment no longer mentions the nav bar and describes current use; git diff shows only comment lines in that one file; grep for "nav bar" in the file finds nothing; gates.sh full GREEN
 - confidence: high
 - notes: Charter AUTOMATABLE: documentation and comment corrections. Proof is the textual check, not a failing test (charter gap, same as FQ-101). Out of scope: the now-unused style prop (exported props change, needs a spec).
+
+---
+
+Slices added by spec run `2026-11-17T220107Z-spec-108` (FQ-108 gate 4, owner-approved). Each issue's `factory-handoff:v1` comment carries the full `done_when` and `files_expected`; plan in `docs/factory/specs/FQ-108/04-slices.md`.
+
+## FQ-121: FQ-108 S0 - Speech test seam, separate e2e build output, seam guard in CI
+- disposition: wait-to-implement
+- source: https://github.com/mgwinthrop/interview-studio/issues/121
+- last_triaged: 2026-11-17
+- blocked_on: interactive session with the owner
+- load_bearing: true
+- gate_level: deep
+- done_when: see the issue's factory-handoff:v1 comment (spec §s0)
+- confidence: medium
+
+## FQ-122: FQ-108 S1 - Tracer: protocol proxy, silent MP3, probes, reply-audio e2e
+- disposition: wait-to-implement
+- source: https://github.com/mgwinthrop/interview-studio/issues/122
+- last_triaged: 2026-11-17
+- blocked_on: #121
+- load_bearing: false
+- gate_level: full
+- done_when: see the issue's factory-handoff:v1 comment (spec §s1)
+- confidence: medium
+
+## FQ-123: FQ-108 S2 - Unit tests for AudioQueue
+- disposition: ready-to-implement
+- source: https://github.com/mgwinthrop/interview-studio/issues/123
+- last_triaged: 2026-11-17
+- load_bearing: false
+- gate_level: full
+- done_when: see the issue's factory-handoff:v1 comment (spec §s2)
+- confidence: high
+
+## FQ-124: FQ-108 S3 - Unit tests for useWebSocket message handling
+- disposition: ready-to-implement
+- source: https://github.com/mgwinthrop/interview-studio/issues/124
+- last_triaged: 2026-11-17
+- load_bearing: false
+- gate_level: full
+- done_when: see the issue's factory-handoff:v1 comment (spec §s3)
+- confidence: high
+
+## FQ-125: FQ-108 S4 - Interrupt e2e
+- disposition: wait-to-implement
+- source: https://github.com/mgwinthrop/interview-studio/issues/125
+- last_triaged: 2026-11-17
+- blocked_on: #122
+- load_bearing: false
+- gate_level: full
+- done_when: see the issue's factory-handoff:v1 comment (spec §s4)
+- confidence: medium
+
+## FQ-126: FQ-108 S5 - Connection-lost and server-event e2e
+- disposition: wait-to-implement
+- source: https://github.com/mgwinthrop/interview-studio/issues/126
+- last_triaged: 2026-11-17
+- blocked_on: #122
+- load_bearing: false
+- gate_level: full
+- done_when: see the issue's factory-handoff:v1 comment (spec §s5)
+- confidence: medium
+
+## FQ-127: FQ-108 S6 - Design and Try it mode e2e
+- disposition: wait-to-implement
+- source: https://github.com/mgwinthrop/interview-studio/issues/127
+- last_triaged: 2026-11-17
+- blocked_on: #122
+- load_bearing: false
+- gate_level: full
+- done_when: see the issue's factory-handoff:v1 comment (spec §s6)
+- confidence: medium
+
+## FQ-128: FQ-108 S7 - Footer Pause during end-dialog settling e2e
+- disposition: wait-to-implement
+- source: https://github.com/mgwinthrop/interview-studio/issues/128
+- last_triaged: 2026-11-17
+- blocked_on: #122
+- load_bearing: false
+- gate_level: full
+- done_when: see the issue's factory-handoff:v1 comment (spec §s7)
+- confidence: medium
+
+## FQ-129: FQ-108 S8 - Realism smoke with a synthetic spoken phrase
+- disposition: wait-to-implement
+- source: https://github.com/mgwinthrop/interview-studio/issues/129
+- last_triaged: 2026-11-17
+- blocked_on: #121
+- load_bearing: false
+- gate_level: full
+- done_when: see the issue's factory-handoff:v1 comment (spec §s8)
+- confidence: medium-low
+
+## FQ-130: FQ-108 S9 - Region recorder and first three golden traces
+- disposition: wait-to-implement
+- source: https://github.com/mgwinthrop/interview-studio/issues/130
+- last_triaged: 2026-11-17
+- blocked_on: #122
+- load_bearing: false
+- gate_level: full
+- done_when: see the issue's factory-handoff:v1 comment (spec §s9)
+- confidence: medium
+
+## FQ-131: FQ-108 S10 - Golden traces for interrupt and connection-lost-start-over
+- disposition: wait-to-implement
+- source: https://github.com/mgwinthrop/interview-studio/issues/131
+- last_triaged: 2026-11-17
+- blocked_on: #125, #126, #130
+- load_bearing: false
+- gate_level: full
+- done_when: see the issue's factory-handoff:v1 comment (spec §s10)
+- confidence: medium
+
+## FQ-132: FQ-108 S11 - Session history core with the no-words privacy test
+- disposition: wait-to-implement
+- source: https://github.com/mgwinthrop/interview-studio/issues/132
+- last_triaged: 2026-11-17
+- blocked_on: interactive session with the owner
+- load_bearing: true
+- gate_level: deep
+- done_when: see the issue's factory-handoff:v1 comment (spec §s11)
+- confidence: high
+
+## FQ-133: FQ-108 S12 - Wire the session history and debug panel
+- disposition: wait-to-implement
+- source: https://github.com/mgwinthrop/interview-studio/issues/133
+- last_triaged: 2026-11-17
+- blocked_on: #132, #122
+- load_bearing: false
+- gate_level: full
+- done_when: see the issue's factory-handoff:v1 comment (spec §s12)
+- confidence: medium
+
+## FQ-134: FQ-108 S13 - Remount the session on Start over (D3, D4, D7 reset)
+- disposition: wait-to-implement
+- source: https://github.com/mgwinthrop/interview-studio/issues/134
+- last_triaged: 2026-11-17
+- blocked_on: #126, #131, then an interactive session
+- load_bearing: false
+- gate_level: full
+- done_when: see the issue's factory-handoff:v1 comment (spec §s13)
+- confidence: medium

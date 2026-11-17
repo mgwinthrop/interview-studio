@@ -55,7 +55,7 @@ export function registerVadSeam(seam: VadSeam | null): void;
 - **Separate e2e build output (gate 3 amendment A2).** Today the e2e web server runs
   `npm run build && npm run start` into the same `.next` as the normal build, so a seam
   build would overwrite it.
-  - `next.config.ts` sets `distDir` from `NEXT_DIST_DIR`, defaulting to `.next`.
+  - `next.config.mjs` sets `distDir` from `NEXT_DIST_DIR`, defaulting to `.next`.
   - The e2e build and `next start` both use `.next-e2e`, which is added to `.gitignore`.
   - A seam build therefore never lands in `.next`, whatever order the gates run in.
 - **Production guard:** a new frontend script `check:no-test-seams` scans `.next/static`
