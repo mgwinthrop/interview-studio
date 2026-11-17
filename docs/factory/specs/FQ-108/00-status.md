@@ -20,15 +20,14 @@ decisions:
   - Test policy - replace hook-internal assertions only after an equivalent test exists at the new boundary; draft + human read (owner, gate 2)
   - Charter - make the session core and session history load-bearing (owner, gate 2); the CHARTER.md edit itself waits for an explicit owner instruction with exact paths (gate 3)
   - Hand-written core, no XState (owner, gate 2)
+  - Charter change applied (owner, 2026-11-17; PR #111) - LOAD_BEARING gains app/session/core/**, runtime/**, history/**, adapters/mic* and adapters/socket*; DECISIONS.md entry added
+  - Q3 the runtime store is load-bearing too (owner, 2026-11-17; gate 3 §8 Q3; PR #111)
 candidate_absorbs: "#86, #48, #49"
 latent_defects_found_by_inventory:
   - "#110: after Start over, the next clean server close is swallowed (confirmed by reading useWebSocket.ts and page.tsx; every Start over is affected)"
   - reconnect ("Start over") resets only the WebSocket hook; page state, VAD/hearing and the audio queue are not reset [inference]
   - end dialog unmounted by a disconnect leaves confirmingEnd true, so End session does nothing after Start over [inference]
   - no tests for interrupt, turn_timing, AudioQueue, useWebSocket, disconnect/reconnect, session_failed, stt_error, design and try modes
-  - CLAUDE.md says Next.js 14; package.json is Next 16 / React 19 (owner to correct; agents do not edit CLAUDE.md)
-  - Apply the charter change now (owner, 2026-11-17); the agent's edit was refused by session permission settings, so the owner applies charter-change.md by hand
+  - CLAUDE.md said Next.js 14; package.json is Next 16 / React 19 (corrected by the owner, PR #111)
 open_questions:
-  - Owner to apply charter-change.md to CHARTER.md (and the DECISIONS.md entry)
-  - Add app/session/runtime/** to the charter change as well? (gate 3 §8 Q3; agent leans yes)
   - Wire check:no-test-seams into gates.conf build or a CI step (protected files; owner)
