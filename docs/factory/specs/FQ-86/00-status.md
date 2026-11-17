@@ -9,4 +9,5 @@ slices_completed: 0 / ?
 decisions:
   - Q1 option A - clear only the reopen the pause cancelled; a failure that already happened before the pause stays reported (owner, gate 1)
   - Gate 1 amendment option A - widen scope to the ordinary Pause/Resume flash (reproduced in a browser), not a separate issue (owner)
-open_questions: []
+open_questions:
+  - Hung reopen already reported, then Pause - restore and clear the warning (proposed) vs keep it through the pause (owner, gate 2)
