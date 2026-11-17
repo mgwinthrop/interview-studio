@@ -69,10 +69,12 @@ LOAD_BEARING:
   # FQ-108 (owner, 2026-11-17): the client session rebuild's core decides every session state
   # change; the session history is a privacy surface (must never record words); the mic and
   # socket adapters are the hardware and protocol boundaries once code moves into them.
+  # The runtime store holds the ordering guarantees (synchronous run, FIFO) that fixed FQ-47 and FQ-98.
   - "apps/frontend/app/session/core/**"
   - "apps/frontend/app/session/history/**"
   - "apps/frontend/app/session/adapters/mic*"
   - "apps/frontend/app/session/adapters/socket*"
+  - "apps/frontend/app/session/runtime/**"
   - "package.json"
   - ".github/workflows/**"
   - ".factory/**"
