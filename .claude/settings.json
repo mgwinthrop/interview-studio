@@ -14,13 +14,15 @@
       "Bash(git push -f:*)",
       "Bash(gh pr merge:*)",
       "Bash(git merge:*)",
-      "Edit(docs/factory/CHARTER.md)",
-      "Edit(.factory/gates.conf)",
-      "Edit(AGENTS.md)",
       "Edit(.claude/scripts/gates.sh)",
       "Edit(.claude/settings.json)",
       "Edit(.codex/hooks.json)"
-    ]
+],
+    "ask": [
+      "Edit(docs/factory/CHARTER.md)",
+      "Edit(.factory/gates.conf)",
+      "Edit(AGENTS.md)"
+]
   },
   "hooks": {
     "PreToolUse": [
