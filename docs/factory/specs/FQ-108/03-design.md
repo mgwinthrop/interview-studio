@@ -19,8 +19,8 @@ unless stated.
 | `app/session/core/regions/{mic,pause,endFlow,connection,conversation,playback,overlays}.ts` | One pure reducer per region | yes | 2-4 |
 | `app/session/history/labels.ts` | `eventLabel(event)`: allow-listed, word-free labels | yes | 1 |
 | `app/session/history/history.ts` | `SessionHistory` ring buffer, `toText()` | yes | 1 |
-| `app/session/runtime/store.ts` | `createSessionStore(adapters, config)`: synchronous, run-to-completion, FIFO | no (see §8 Q1) | 2 |
-| `app/session/runtime/useSession.ts` | `useSyncExternalStore` binding | no | 2 |
+| `app/session/runtime/store.ts` | `createSessionStore(adapters, config)`: synchronous, run-to-completion, FIFO | yes (charter `runtime/**`; §8 Q3 resolved) | 2 |
+| `app/session/runtime/useSession.ts` | `useSyncExternalStore` binding | yes (charter `runtime/**`) | 2 |
 | `app/session/adapters/micAdapter.ts` | Today's `useVAD.ts` I/O: VAD, devices, PCM16, generation guard | yes | 2 |
 | `app/session/adapters/socketAdapter.ts` | Connect, send, close, per-socket id, parse | yes | 3 |
 | `app/session/adapters/audioAdapter.ts` | Wraps `lib/audioQueue.ts`; timestamps events | no | 4 |
@@ -51,13 +51,21 @@ export function registerVadSeam(seam: VadSeam | null): void;
   stop or unmount, keyed by generation. Default `samples` is 0.5 s of silence at 16 kHz.
   No other change.
 - **`playwright.config.ts`**: the frontend web server's `env` gains
-  `NEXT_PUBLIC_TEST_SEAMS: "1"`.
+  `NEXT_PUBLIC_TEST_SEAMS: "1"` and `NEXT_DIST_DIR: ".next-e2e"`.
+- **Separate e2e build output (gate 3 amendment A2).** Today the e2e web server runs
+  `npm run build && npm run start` into the same `.next` as the normal build, so a seam
+  build would overwrite it.
+  - `next.config.mjs` sets `distDir` from `NEXT_DIST_DIR`, defaulting to `.next`.
+  - The e2e build and `next start` both use `.next-e2e`, which is added to `.gitignore`.
+  - A seam build therefore never lands in `.next`, whatever order the gates run in.
 - **Production guard:** a new frontend script `check:no-test-seams` scans `.next/static`
   after a normal build (flag unset) and fails if the string `__testSeams` appears.
-  - Wiring it into enforcement needs a change to a protected file, which is an **owner
-    decision**: either the `build` step in `.factory/gates.conf` or a CI step in
-    `.github/workflows/`.
-  - Until then it is a manual check listed in the phase 0 PR (see §8 Q1).
+  - The string may appear only inside the `TEST_SEAMS_ENABLED` branch, so dead-code removal
+    drops it.
+  - **Enforcement: a CI step** in `.github/workflows/ci.yml`, after the frontend build (owner,
+    gate 3, 2026-11-17). It is added in the same phase 0 slice that creates the script, not
+    before, because a step pointing at a missing script would fail every PR. That slice
+    touches a load-bearing path (`.github/workflows/**`), so it gets deep gates and a human read.
 
 ### 2.2 E2E support module (new, shared by the new specs)
 
@@ -105,7 +113,7 @@ export function expectGolden(name: string, trace: { frames: string[]; regions: R
 | # | File | Test | Proves |
 |---|---|---|---|
 | T1 | `tests/unit/audioQueue.test.ts` | enqueue/flushBuffer below and above 512 bytes; flush bumps the generation and discards in-flight decodes; suspend/resume report playing; dispose | Pins `AudioQueue` (fake AudioContext) |
-| T2 | `tests/unit/useWebSocket.test.ts` | Partial/final transcript merge; out-of-order final; `interrupt` resets streaming and refs; close codes → reasons; binary vs JSON send | Pins the socket hook (fake WebSocket). Reconnect cases come with #110's own test. |
+| T2 | `tests/unit/useWebSocket.test.ts` | Partial/final transcript merge; out-of-order final; `interrupt` resets streaming and refs; close codes → reasons; binary vs JSON send | Pins the socket hook (fake WebSocket). **No reconnect or close-suppression cases**: those shipped with #110 in `tests/unit/useWebSocketReconnect.test.ts` (PR #118). T2 may import that file's `FakeSocket` pattern but must not repeat its cases (amendment A4). |
 | T3 | `e2e/reply-audio.spec.ts` | Greeting plays (proxy MP3); answer via seam after playback ends → `turn_timing` then `audio`; answer with no playback before it → no `turn_timing` | O2 and O3 for 4.2 |
 | T4 | `e2e/interrupt.spec.ts` | Hold `tts_end`; seam speech while playing → panel "interrupted" immediately, `interrupt` frame before any later audio frame, playback stopped, no `turn_timing` for that answer | O2 for 4.3 and the CLAUDE.md interrupt contract |
 | T5 | `e2e/connection.spec.ts` | Inject close 1001 → Connection lost with timeout wording; Start over → new `session_start`; End from Connection lost → report route; live tracks recorded | O2 for 4.8. It records today's carried-over state as golden, which D3/D7 later change on purpose. |
@@ -282,6 +290,19 @@ Golden traces (`e2e/golden/*.json`) are treated as existing test files
 - Changed only in a slice that implements an owner-approved D item. The changed entries are
   listed in the PR body, and the PR is draft with a human read.
 - `UPDATE_GOLDEN=1` is never used in CI.
+- **Flake bar (amendment A3).**
+  - A new golden trace, or a new e2e spec that records one, is committed only after it
+    passes `npx playwright test <spec> --repeat-each=10` with no failures. The run's summary
+    line goes in the PR body.
+  - The same bar applies when a golden file is changed.
+  - Reason: e2e is a required gate, so one flaky golden test turns every factory run RED.
+
+**Existing hook tests replaced in phase 3 (amendment A4).** When the socket adapter replaces
+`app/hooks/useWebSocket.ts`, `tests/unit/useWebSocketReconnect.test.ts` (#110) and T2 fall
+under the gate 2 hook-test policy. An equivalent test must exist at the adapter or core
+boundary first, including the cases "Start over ignores old-socket events" and "a later
+socket's close is never suppressed". Only then are the hook tests removed, in a draft PR
+with a human read.
 
 ## 8. The three decisions I am least confident about
 
@@ -289,8 +310,9 @@ Golden traces (`e2e/golden/*.json`) are treated as existing test files
    production.**
    - E2E runs a build with `NEXT_PUBLIC_TEST_SEAMS=1`, so the oracle tests a build that
      has the seam compiled in.
-   - [Likely] Next inlines the constant and drops the dead branch, and the `build` gate's
-     bundle check catches a leak.
+   - [Likely] Next inlines the constant and drops the dead branch. The `check:no-test-seams`
+     CI step catches a leak, and the separate `.next-e2e` output (A2) keeps the seam build
+     out of `.next`.
    - Residual risk: a behaviour difference caused by the seam itself. It is mitigated by H3,
      which uses no seam, though H3 only covers the reply path.
    - The alternative is driving speech only through `phrase.wav`. That gives realism but
@@ -304,7 +326,9 @@ Golden traces (`e2e/golden/*.json`) are treated as existing test files
    - If a browser rejects it, the person sees "didn't start" and can type, which is no worse
      than today's carried-over state, but it is new.
    - P2 checks it in Chromium only.
-3. **The store is not load-bearing, though it executes every command.**
+3. **Resolved (owner, gate 2/3): the store is load-bearing.** `app/session/runtime/**` is in
+   CHARTER.md and DECISIONS.md (2026-11-17). The original reasoning is kept below for the record.
+   **The store is not load-bearing, though it executes every command.**
    - My reasoning: all decisions are in the core, and the store is a thin loop.
    - Against: the ordering guarantees (synchronous run, FIFO) are exactly what fixed FQ-47
      and FQ-98, and they live in the store.
