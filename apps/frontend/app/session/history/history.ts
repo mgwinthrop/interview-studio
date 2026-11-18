@@ -27,12 +27,13 @@ export interface HistoryEntry {
   screen: ScreenSnapshot;
 }
 
-const SCREEN_VALUES = {
-  connection: ["connecting", "connected", "disconnected", "error"],
-  turn: ["listening", "thinking", "speaking", "interrupted"],
-  mic: ["off", "starting", "ready", "failed"],
-  end: ["none", "confirming", "settling", "ending"],
-} as const satisfies { [K in Exclude<keyof ScreenSnapshot, "paused">]: readonly ScreenSnapshot[K][] };
+// Frozen, like the event allow-list, so it cannot be widened at run time.
+const SCREEN_VALUES = Object.freeze({
+  connection: Object.freeze(["connecting", "connected", "disconnected", "error"] as const),
+  turn: Object.freeze(["listening", "thinking", "speaking", "interrupted"] as const),
+  mic: Object.freeze(["off", "starting", "ready", "failed"] as const),
+  end: Object.freeze(["none", "confirming", "settling", "ending"] as const),
+} satisfies { [K in Exclude<keyof ScreenSnapshot, "paused">]: readonly ScreenSnapshot[K][] });
 
 const DEFAULT_CAPACITY = 500;
 
@@ -42,7 +43,8 @@ function pick<K extends keyof typeof SCREEN_VALUES>(key: K, value: unknown): Scr
 }
 
 /** A copy of the snapshot with only the allow-listed fields and values ("?" otherwise). */
-function cleanScreen(s: ScreenSnapshot): ScreenSnapshot {
+function cleanScreen(screen: ScreenSnapshot): ScreenSnapshot {
+  const s = (typeof screen === "object" && screen !== null ? screen : {}) as Partial<Record<keyof ScreenSnapshot, unknown>>;
   return {
     connection: pick("connection", s.connection),
     turn: pick("turn", s.turn),
@@ -53,28 +55,33 @@ function cleanScreen(s: ScreenSnapshot): ScreenSnapshot {
 }
 
 export class SessionHistory {
-  private readonly capacity: number;
-  private readonly items: HistoryEntry[] = [];
+  // True private fields (#): `private` alone only stops the type checker, and a caller with a
+  // cast could then write text straight into the history.
+  readonly #capacity: number;
+  readonly #items: HistoryEntry[] = [];
 
   /** Keeps the newest `capacity` entries (default 500; anything not a positive integer uses it). */
   constructor(capacity: number = DEFAULT_CAPACITY) {
-    this.capacity = Number.isInteger(capacity) && capacity > 0 ? capacity : DEFAULT_CAPACITY;
+    this.#capacity = Number.isInteger(capacity) && capacity > 0 ? capacity : DEFAULT_CAPACITY;
   }
 
-  /** `t` is a time in ms (e.g. performance.now()); anything not finite is recorded as 0. */
+  /**
+   * `t` is a time in ms (e.g. performance.now()); anything not a finite number is recorded as 0.
+   * Never throws: a debug recorder must not break a session.
+   */
   record(e: HistoryEventInput, screen: ScreenSnapshot, t: number): void {
-    this.items.push({ t: Number.isFinite(t) ? t : 0, label: eventLabel(e), screen: cleanScreen(screen) });
-    if (this.items.length > this.capacity) this.items.splice(0, this.items.length - this.capacity);
+    this.#items.push({ t: Number.isFinite(t) ? t : 0, label: eventLabel(e), screen: cleanScreen(screen) });
+    if (this.#items.length > this.#capacity) this.#items.splice(0, this.#items.length - this.#capacity);
   }
 
-  /** The entries, oldest first. A copy: changing it does not change the history. */
+  /** The entries, oldest first. A deep copy: changing it does not change the history. */
   entries(): readonly HistoryEntry[] {
-    return this.items.map((e) => ({ ...e, screen: { ...e.screen } }));
+    return this.#items.map((e) => ({ ...e, screen: { ...e.screen } }));
   }
 
   /** The copy format: one line per entry, "+<ms>ms <label> | <screen>". */
   toText(): string {
-    return this.items
+    return this.#items
       .map(({ t, label, screen: s }) =>
         `+${Math.round(t)}ms ${label} | connection=${s.connection} turn=${s.turn} mic=${s.mic} paused=${s.paused ? "yes" : "no"} end=${s.end}`,
       )

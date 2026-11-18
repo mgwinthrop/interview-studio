@@ -8,8 +8,17 @@
 
 import type { ClientMessage, ServerMessage } from "../../types";
 
-/** The only kinds and types the history accepts. Also the source of the input types below. */
-export const HISTORY_EVENT_TYPES = {
+/** Freezes the object and each of its arrays, so the allow-list cannot be widened at run time. */
+function deepFreeze<T extends Record<string, readonly string[]>>(lists: T): T {
+  for (const list of Object.values(lists)) Object.freeze(list);
+  return Object.freeze(lists);
+}
+
+/**
+ * The only kinds and types the history accepts. Also the source of the input types below.
+ * Frozen: `as const` only stops the type checker, and a widened list would let text through.
+ */
+export const HISTORY_EVENT_TYPES = deepFreeze({
   // Server frames by type, plus the socket's own open and close.
   ws: [
     "tts_start", "tts_end", "tts_chunk", "transcript", "phase_change", "session_started",
@@ -21,7 +30,7 @@ export const HISTORY_EVENT_TYPES = {
   ui: ["pause", "resume", "endClick", "endConfirm", "endDismiss", "startOver", "sendText", "toggleTyping"],
   audio: ["playing", "stopped", "flush", "suspend", "resume"],
   timer: ["hearingDeadline", "thinkingWatchdog", "interruptSettle"],
-} as const;
+} as const);
 
 type Types = typeof HISTORY_EVENT_TYPES;
 export type HistoryKind = keyof Types;
@@ -52,18 +61,17 @@ function isCloseCode(code: unknown): code is number {
 
 /**
  * A fixed label built only from the kind, the type and a numeric close code. Never reads any
- * other field. An unknown kind or type (only possible through a cast) becomes "?".
+ * other field, and reads each of these exactly once (a getter cannot pass the check with one
+ * value and then supply another). An unknown kind or type (only possible through a cast)
+ * becomes "?". Never throws.
  */
 export function eventLabel(e: HistoryEventInput): string {
-  const kind: unknown = e.kind;
-  const type: unknown = e.type;
+  if (typeof e !== "object" || e === null) return "?:?";
+  const { kind, type, code } = e as { kind?: unknown; type?: unknown; code?: unknown };
   if (!isKind(kind)) return "?:?";
-  const allowed = HISTORY_EVENT_TYPES[kind] as readonly string[];
+  const allowed: readonly string[] = HISTORY_EVENT_TYPES[kind];
   const typeLabel = typeof type === "string" && allowed.includes(type) ? type : "?";
   const label = `${kind}:${typeLabel}`;
-  if (kind === "ws" && typeLabel === "close") {
-    const code: unknown = (e as { code?: unknown }).code;
-    if (isCloseCode(code)) return `${label} ${code}`;
-  }
+  if (kind === "ws" && typeLabel === "close" && isCloseCode(code)) return `${label} ${code}`;
   return label;
 }

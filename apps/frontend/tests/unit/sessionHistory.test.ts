@@ -156,6 +156,86 @@ describe("privacy: nothing said or written ever reaches the history", () => {
     expect(h.toText()).toContain("connection=? turn=? mic=? paused=no end=?");
   });
 
+  it("cannot be widened at run time: the allow-lists are frozen", () => {
+    expect(Object.isFrozen(HISTORY_EVENT_TYPES)).toBe(true);
+    for (const list of Object.values(HISTORY_EVENT_TYPES)) expect(Object.isFrozen(list)).toBe(true);
+    expect(() => (HISTORY_EVENT_TYPES.ws as unknown as string[]).push(SENTINEL)).toThrow(TypeError);
+    expect(() => {
+      (HISTORY_EVENT_TYPES as unknown as Record<string, string[]>).words = [SENTINEL];
+    }).toThrow(TypeError);
+    const h = new SessionHistory();
+    h.record({ kind: "ws", type: SENTINEL } as unknown as HistoryEventInput, screen, 0);
+    expect(h.toText()).not.toContain("SENTINEL");
+  });
+
+  it("cannot be written through its internals: the entries are a true private field", () => {
+    const h = new SessionHistory();
+    h.record({ kind: "ws", type: "open" }, screen, 0);
+    const internals = h as unknown as Record<string, unknown>;
+    expect(Object.keys(internals)).toEqual([]);
+    expect(internals.items).toBeUndefined();
+    expect(h.toText()).not.toContain("SENTINEL");
+  });
+
+  it("cannot be written through what entries() returns: each entry and its screen are copies", () => {
+    const h = new SessionHistory();
+    h.record({ kind: "ws", type: "open" }, screen, 0);
+    const before = h.toText();
+    const [entry] = h.entries() as unknown as { label: string; screen: Record<string, unknown> }[];
+    entry.label = SENTINEL;
+    entry.screen.turn = SENTINEL;
+    expect(h.toText()).toBe(before);
+    expect(JSON.stringify(h.entries())).not.toContain("SENTINEL");
+  });
+
+  it("records a time that is not a finite number as 0, including text and Number objects", () => {
+    const h = new SessionHistory();
+    for (const t of [SENTINEL, new Number(5), { valueOf: () => 7 }, Number.NaN, Number.POSITIVE_INFINITY]) {
+      h.record({ kind: "ws", type: "open" }, screen, t as unknown as number);
+    }
+    expect(h.entries().map((e) => e.t)).toEqual([0, 0, 0, 0, 0]);
+    expect(h.toText()).not.toContain("SENTINEL");
+  });
+
+  it("reads kind, type and code once each, so a getter cannot pass the check and then swap in text", () => {
+    const reads = { kind: 0, type: 0, code: 0 };
+    const sneaky = {
+      get kind() { return reads.kind++ === 0 ? "ws" : SENTINEL; },
+      get type() { return reads.type++ === 0 ? "close" : SENTINEL; },
+      get code() { return reads.code++ === 0 ? 1001 : SENTINEL; },
+    };
+    const h = new SessionHistory();
+    h.record(sneaky as unknown as HistoryEventInput, screen, 0);
+    expect(h.entries()[0].label).toBe("ws:close 1001");
+    expect(reads).toEqual({ kind: 1, type: 1, code: 1 });
+    expect(h.toText()).not.toContain("SENTINEL");
+  });
+
+  it("never throws, even on a missing event or screen (a debug recorder must not break a session)", () => {
+    const h = new SessionHistory();
+    expect(() => h.record(null as unknown as HistoryEventInput, null as unknown as ScreenSnapshot, 0)).not.toThrow();
+    expect(() => h.record(undefined as unknown as HistoryEventInput, "words" as unknown as ScreenSnapshot, 1)).not.toThrow();
+    expect(h.toText()).toBe(
+      ["+0ms ?:? | connection=? turn=? mic=? paused=no end=?", "+1ms ?:? | connection=? turn=? mic=? paused=no end=?"].join("\n"),
+    );
+  });
+
+  it("is not fooled by kinds or types that are Object.prototype keys, or by text-like objects", () => {
+    const h = new SessionHistory();
+    for (const kind of ["__proto__", "constructor", "hasOwnProperty", "toString"]) {
+      h.record({ kind, type: "open" } as unknown as HistoryEventInput, screen, 0);
+    }
+    for (const type of ["__proto__", "constructor", "length", "includes"]) {
+      h.record({ kind: "ws", type } as unknown as HistoryEventInput, screen, 0);
+    }
+    const textLike = { toString: () => SENTINEL, valueOf: () => SENTINEL, [Symbol.toPrimitive]: () => SENTINEL };
+    h.record({ kind: "ws", type: textLike, code: textLike } as unknown as HistoryEventInput, screen, 0);
+    h.record({ kind: "ws", type: "close", code: new Number(1001) } as unknown as HistoryEventInput, screen, 0);
+    expect(h.entries().map((e) => e.label)).toEqual([
+      "?:?", "?:?", "?:?", "?:?", "ws:?", "ws:?", "ws:?", "ws:?", "ws:?", "ws:close",
+    ]);
+  });
+
   it("keeps only the allow-listed screen fields", () => {
     const h = new SessionHistory();
     h.record({ kind: "ws", type: "open" }, { ...screen, extra: "x" } as unknown as ScreenSnapshot, 0);
