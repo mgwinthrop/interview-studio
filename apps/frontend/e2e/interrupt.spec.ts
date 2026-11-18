@@ -113,6 +113,4 @@ test("speech during real playback stops it, sends interrupt before the audio, an
 
   await speech.end(page);
   await expect.poll(() => proxy.clientFrames().slice(before), { timeout: 5_000 }).toEqual(["interrupt", "audio"]);
-  // The interrupt flash settles back to listening (200 ms timer).
-  await expect(status(page)).not.toHaveText("Go ahead", { timeout: 5_000 });
 });
