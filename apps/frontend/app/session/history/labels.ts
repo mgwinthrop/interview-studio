@@ -63,7 +63,7 @@ function isCloseCode(code: unknown): code is number {
  * A fixed label built only from the kind, the type and a numeric close code. Never reads any
  * other field, and reads each of these exactly once (a getter cannot pass the check with one
  * value and then supply another). An unknown kind or type (only possible through a cast)
- * becomes "?". Never throws.
+ * becomes "?". Does not throw on a missing or malformed event (only a throwing getter can).
  */
 export function eventLabel(e: HistoryEventInput): string {
   if (typeof e !== "object" || e === null) return "?:?";

@@ -211,7 +211,7 @@ describe("privacy: nothing said or written ever reaches the history", () => {
     expect(h.toText()).not.toContain("SENTINEL");
   });
 
-  it("never throws, even on a missing event or screen (a debug recorder must not break a session)", () => {
+  it("does not throw on a missing or malformed event or screen, and records ? for them", () => {
     const h = new SessionHistory();
     expect(() => h.record(null as unknown as HistoryEventInput, null as unknown as ScreenSnapshot, 0)).not.toThrow();
     expect(() => h.record(undefined as unknown as HistoryEventInput, "words" as unknown as ScreenSnapshot, 1)).not.toThrow();

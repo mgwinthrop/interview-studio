@@ -67,7 +67,9 @@ export class SessionHistory {
 
   /**
    * `t` is a time in ms (e.g. performance.now()); anything not a finite number is recorded as 0.
-   * Never throws: a debug recorder must not break a session.
+   * Does not throw on a missing or malformed event or screen. It can still rethrow an error
+   * raised by the caller's own getter or Proxy, so callers that must never fail (the session
+   * page, S12) wrap it in try/catch: a debug recorder must not break a session.
    */
   record(e: HistoryEventInput, screen: ScreenSnapshot, t: number): void {
     this.#items.push({ t: Number.isFinite(t) ? t : 0, label: eventLabel(e), screen: cleanScreen(screen) });
