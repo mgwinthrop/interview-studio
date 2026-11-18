@@ -111,6 +111,13 @@ describe("AudioQueue buffering (enqueue / flushBuffer)", () => {
     expect(ctx.decodes[0].bytes.byteLength).toBe(512);
   });
 
+  it("drops a buffer of 511 bytes", async () => {
+    queue.enqueue(chunk(511));
+    queue.flushBuffer();
+    await settle();
+    expect(ctx.decodes).toHaveLength(0);
+  });
+
   it("decodes a buffer of exactly 512 bytes", async () => {
     queue.enqueue(chunk(512));
     queue.flushBuffer();
@@ -283,15 +290,40 @@ describe("AudioQueue flush (interrupt)", () => {
     expect(changes).toEqual([false]);
   });
 
-  it("plays new audio after a flush, starting from the current time", async () => {
-    queue.flush();
-    ctx.currentTime = 3;
+  it("plays new audio after a flush from the current time, not after the flushed audio", async () => {
+    // A long reply is scheduled until 5.1 s.
     queue.enqueue(chunk(600));
     queue.flushBuffer();
     await settle();
-    ctx.decodes[0].done.resolve({ duration: 1 });
+    ctx.decodes[0].done.resolve({ duration: 5 });
     await settle();
-    expect(ctx.sources[0].startedAt).toBeCloseTo(3.1);
+    expect(ctx.sources[0].startedAt).toBeCloseTo(0.1);
+
+    // Interrupted at 3 s: the next reply starts now, not at 5.1 s where the old one would end.
+    ctx.currentTime = 3;
+    queue.flush();
+    queue.enqueue(chunk(600));
+    queue.flushBuffer();
+    await settle();
+    ctx.decodes[1].done.resolve({ duration: 1 });
+    await settle();
+    expect(ctx.sources[1].startedAt).toBeCloseTo(3.1);
+  });
+
+  it("a decode that never finishes does not block audio after a flush (chain reset)", async () => {
+    queue.enqueue(chunk(600));
+    queue.flushBuffer();
+    await settle();
+    expect(ctx.decodes).toHaveLength(1); // left pending forever
+
+    queue.flush();
+    queue.enqueue(chunk(600));
+    queue.flushBuffer();
+    await settle();
+    expect(ctx.decodes).toHaveLength(2);
+    ctx.decodes[1].done.resolve({ duration: 1 });
+    await settle();
+    expect(ctx.sources).toHaveLength(1);
   });
 });
 
@@ -343,6 +375,16 @@ describe("AudioQueue dispose", () => {
 
     ctx.decodes[0].done.resolve({ duration: 1 });
     await settle();
+    expect(ctx.sources).toHaveLength(0);
+  });
+
+  it("decodes and plays nothing that arrives after dispose (the disposed flag)", async () => {
+    queue.dispose();
+    // flush() inside dispose reset the generation and chain, so only the disposed flag stops this.
+    queue.enqueue(chunk(600));
+    queue.flushBuffer();
+    await settle();
+    expect(ctx.decodes).toHaveLength(0);
     expect(ctx.sources).toHaveLength(0);
   });
 });
