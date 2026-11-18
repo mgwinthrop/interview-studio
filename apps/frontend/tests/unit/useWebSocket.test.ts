@@ -204,7 +204,7 @@ describe("useWebSocket interrupt", () => {
     expect(contents()).toEqual(["assistant:I was say", "assistant:New reply"]);
   });
 
-  it("after an interrupt, a final with no partials starts a new entry too", () => {
+  it("after a final with no partials and then an interrupt, the next partial starts a new entry", () => {
     server(final("Old."));
     act(() => api.sendMessage({ type: "interrupt" }));
     server(partial("New"));
