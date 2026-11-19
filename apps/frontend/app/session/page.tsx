@@ -33,6 +33,9 @@ import { THINKING_WATCHDOG_MS } from "./timing";
 import { micFallbackMessage } from "../lib/micDevice";
 import { isDebug } from "../lib/debug";
 import { HEARING_DEADLINE_MS, displayedOrbState, hearingUnavailable, panelState } from "../lib/sessionDisplay";
+import { SessionHistory, type ScreenSnapshot } from "./history/history";
+import type { HistoryEventInput } from "./history/labels";
+import { SessionHistoryPanel } from "./SessionHistoryPanel";
 
 // The live conversation. Mounted only after the interviewer has loaded.
 function SessionView({ interviewer, demo, mode = null, start, returnTo }: SessionViewProps) {
@@ -43,6 +46,25 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
   // Design and try sessions store nothing: they never lead to a report page.
   const leaveTo = mode === "try" ? returnTo ?? DEFAULT_RETURN_TO : "/interviewers";
 
+  // FQ-108 S12: the session history, an operator tool (gate 1 Q1). It exists only with ?debug=1,
+  // lives in memory for this view, and is never sent. Events are fixed literals (kind, type, a
+  // close code); the history itself drops anything else (app/session/history/). The screen
+  // snapshot is the last committed render. A debug recorder must never break a session, so
+  // recording never throws here.
+  const [history] = useState(() => (debug ? new SessionHistory() : null));
+  const screenRef = useRef<ScreenSnapshot>({ connection: "connecting", turn: "listening", mic: "off", paused: false, end: "none" });
+  const recordEvent = useCallback(
+    (e: HistoryEventInput) => {
+      if (!history) return;
+      try {
+        history.record(e, screenRef.current, performance.now());
+      } catch {
+        // Ignored: the history is a diagnostic aid, never part of the session.
+      }
+    },
+    [history],
+  );
+
   // Track actual playback, including buffered speech after tts_end.
   const [audioPlaying, setAudioPlaying] = useState(false);
   const audioQueueRef = useRef<AudioQueue | null>(null);
@@ -51,12 +73,13 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
   const lastPlaybackEndedAtRef = useRef<number | null>(null);
   const audioPlayingRef = useRef(false);
   const handlePlaybackChange = useCallback((playing: boolean) => {
+    if (audioPlayingRef.current !== playing) recordEvent({ kind: "audio", type: playing ? "playing" : "stopped" });
     if (audioPlayingRef.current && !playing) {
       lastPlaybackEndedAtRef.current = performance.now();
     }
     audioPlayingRef.current = playing;
     setAudioPlaying(playing);
-  }, []);
+  }, [recordEvent]);
   useEffect(() => {
     const queue = new AudioQueue(handlePlaybackChange);
     audioQueueRef.current = queue;
@@ -68,21 +91,24 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
   const makingDraftRef = useRef(false);
 
   const handleAudioChunk = useCallback((chunk: ArrayBuffer) => {
+    recordEvent({ kind: "ws", type: "tts_chunk" });
     if (makingDraftRef.current) return;
     audioQueueRef.current?.enqueue(chunk);
-  }, []);
+  }, [recordEvent]);
 
   const handleTtsEnd = useCallback(() => {
+    recordEvent({ kind: "ws", type: "tts_end" });
     audioQueueRef.current?.flushBuffer();
-  }, []);
+  }, [recordEvent]);
 
   // STT error — non-blocking toast, auto-dismisses after 3s; resets orb to listening
   const [sttError, setSttError] = useState(false);
   const handleSttError = useCallback(() => {
+    recordEvent({ kind: "ws", type: "stt_error" });
     setSttError(true);
     setOrbState("listening");
     setTimeout(() => setSttError(false), 3000);
-  }, []);
+  }, [recordEvent]);
 
   const {
     connectionState,
@@ -130,40 +156,46 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
   }, [aiSpeaking]);
 
   const handleSpeechSent = useCallback(() => {
+    recordEvent({ kind: "mic", type: "speechEnd" });
     setOrbState("thinking");
     // Watchdog: if server drops the turn and tts_start never fires, reset after 10s
     if (watchdogRef.current !== null) clearTimeout(watchdogRef.current);
     watchdogRef.current = setTimeout(() => {
+      recordEvent({ kind: "timer", type: "thinkingWatchdog" });
       setOrbState((prev) => (prev === "thinking" ? "listening" : prev));
       watchdogRef.current = null;
     }, THINKING_WATCHDOG_MS);
-  }, []);
+  }, [recordEvent]);
 
   const handleInterrupt = useCallback(() => {
+    recordEvent({ kind: "mic", type: "speechStart" });
     // Clear any pending post-interrupt reset before starting a new one
     if (interruptTimerRef.current !== null) {
       clearTimeout(interruptTimerRef.current);
     }
     setOrbState("interrupted");
     interruptTimerRef.current = setTimeout(() => {
+      recordEvent({ kind: "timer", type: "interruptSettle" });
       setOrbState("listening");
       interruptTimerRef.current = null;
     }, 200);
-  }, []);
+  }, [recordEvent]);
 
   // Also flush audio queue on interrupt (spec §5.9 step 3)
   // Wrap sendMessage so interrupt also flushes locally
   const sendMessageWithFlush = useCallback(
     (msg: Parameters<typeof sendMessage>[0]) => {
+      recordEvent({ kind: "send", type: msg.type });
       sendMessage(msg);
       if (msg.type === "interrupt") {
+        recordEvent({ kind: "audio", type: "flush" });
         audioQueueRef.current?.flush();
         // flush() reports playing=false, which stamps an end time; an interrupted reply
         // never finished, so discard it (must come after the flush).
         lastPlaybackEndedAtRef.current = null;
       }
     },
-    [sendMessage]
+    [sendMessage, recordEvent]
   );
 
   // Ms from the end of the interviewer's playback to the given speech start, or null when
@@ -224,18 +256,20 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
   }, [isPaused]);
 
   const handlePause = useCallback(async () => {
+    recordEvent({ kind: "ui", type: "pause" });
     pauseMic();
     await audioQueueRef.current?.suspend();
     // The pause is not thinking time: an answer after it has no measured gap before answering.
     lastPlaybackEndedAtRef.current = null;
     setIsPaused(true);
-  }, [pauseMic]);
+  }, [pauseMic, recordEvent]);
 
   const handleResume = useCallback(async () => {
+    recordEvent({ kind: "ui", type: "resume" });
     await audioQueueRef.current?.resume();
     resumeMic();
     setIsPaused(false);
-  }, [resumeMic]);
+  }, [resumeMic, recordEvent]);
 
   // FQ-47: confirm before ending a normal interview. Opening the dialog pauses the session with
   // the existing Pause (unless it is already paused), so nothing said reaches the interviewer.
@@ -292,9 +326,12 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
   useEffect(() => {
     setHearingDeadlinePassed(false);
     if (hearingReady) return;
-    const t = setTimeout(() => setHearingDeadlinePassed(true), HEARING_DEADLINE_MS);
+    const t = setTimeout(() => {
+      recordEvent({ kind: "timer", type: "hearingDeadline" });
+      setHearingDeadlinePassed(true);
+    }, HEARING_DEADLINE_MS);
     return () => clearTimeout(t);
-  }, [hearingEpoch, hearingReady]);
+  }, [hearingEpoch, hearingReady, recordEvent]);
   const cannotHear = hearingUnavailable(hearing, hearingDeadlinePassed);
   useEffect(() => {
     if (cannotHear) setShowTextInput(true);
@@ -304,9 +341,60 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
   const handleTextSend = useCallback(() => {
     const content = textInput.trim();
     if (!content) return;
+    recordEvent({ kind: "ui", type: "sendText" });
     sendMessageWithFlush({ type: "text_input", content });
     setTextInput("");
-  }, [textInput, sendMessageWithFlush]);
+  }, [textInput, sendMessageWithFlush, recordEvent]);
+
+  // FQ-108 S12: what the screen shows, for the session history. State names only. The end flow
+  // is "settling" while closing waits for its pause (dialog closed, flow open). This effect is
+  // declared before the recording effects below, so events they record carry the screen of the
+  // render that caused them; events from handlers carry the screen the person acted on.
+  useEffect(() => {
+    screenRef.current = {
+      connection: connectionState,
+      turn: orbState,
+      mic: hearing,
+      paused: isPaused,
+      end: !confirmingEnd ? "none" : endConfirmedRef.current ? "ending" : endDialogRef.current?.open ? "confirming" : "settling",
+    };
+  });
+
+  // FQ-108 S12: session history for what has no handler on this page (socket open and close,
+  // tts_start, server state, the microphone). Each records a fixed label on a change; no
+  // payload is read. These follow React state, not each frame: ws:tts_start is recorded when
+  // aiSpeaking becomes true, so a reply whose tts_start and tts_end land in one render has no
+  // tts_start line (its tts_end and audio are still recorded from their handlers).
+  useEffect(() => { if (aiSpeaking) recordEvent({ kind: "ws", type: "tts_start" }); }, [aiSpeaking, recordEvent]);
+  const prevConnectionRef = useRef(connectionState);
+  useEffect(() => {
+    const prev = prevConnectionRef.current;
+    prevConnectionRef.current = connectionState;
+    if (prev === connectionState) return;
+    if (connectionState === "connected") recordEvent({ kind: "ws", type: "open" });
+    else if (connectionState === "disconnected" || connectionState === "error") {
+      recordEvent({ kind: "ws", type: "close", code: closeInfo?.code });
+    }
+  }, [connectionState, closeInfo, recordEvent]);
+  useEffect(() => { if (sessionId) recordEvent({ kind: "ws", type: "session_started" }); }, [sessionId, recordEvent]);
+  useEffect(() => { if (phase) recordEvent({ kind: "ws", type: "phase_change" }); }, [phase, recordEvent]);
+  const transcriptCount = transcript.length;
+  useEffect(() => { if (transcriptCount > 0) recordEvent({ kind: "ws", type: "transcript" }); }, [transcriptCount, recordEvent]);
+  useEffect(() => { if (lastLatencyMs !== null) recordEvent({ kind: "ws", type: "latency_metric" }); }, [lastLatencyMs, recordEvent]);
+  useEffect(() => { if (sessionComplete) recordEvent({ kind: "ws", type: "session_complete" }); }, [sessionComplete, recordEvent]);
+  useEffect(() => { if (sessionFailed) recordEvent({ kind: "ws", type: "session_failed" }); }, [sessionFailed, recordEvent]);
+  useEffect(() => { if (draft) recordEvent({ kind: "ws", type: "draft" }); }, [draft, recordEvent]);
+  const prevHearingRef = useRef(hearing);
+  useEffect(() => {
+    const prev = prevHearingRef.current;
+    prevHearingRef.current = hearing;
+    if (prev === hearing) return;
+    const reopen = hearingAttempt === "resume";
+    if (hearing === "starting") recordEvent({ kind: "mic", type: reopen ? "resume" : "start" });
+    else if (hearing === "ready") recordEvent({ kind: "mic", type: reopen ? "reopened" : "ready" });
+    else if (hearing === "failed") recordEvent({ kind: "mic", type: reopen ? "reopenFailed" : "failed" });
+    else recordEvent({ kind: "mic", type: "stop" });
+  }, [hearing, hearingAttempt, recordEvent]);
 
   // Session failed: stop listening and drop any queued speech; the failure state renders below.
   useEffect(() => {
@@ -392,6 +480,7 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
     if (mode === "design") {
       if (designNotReady) return;
       // No navigation yet: the server makes the draft, then sends it (or session_failed).
+      recordEvent({ kind: "send", type: "session_end" });
       sendMessage({ type: "session_end" });
       stopMic();
       audioQueueRef.current?.flush();
@@ -400,12 +489,14 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
       return;
     }
     audioQueueRef.current?.flush();
+    recordEvent({ kind: "send", type: "session_end" });
     sendMessage({ type: "session_end" });
     goToReportOrHome();
   }
 
   // End Session: design and try modes end straight away as before; a normal interview asks first.
   function handleEndClick() {
+    recordEvent({ kind: "ui", type: "endClick" });
     if (mode !== null) {
       handleEndSession();
       return;
@@ -424,6 +515,7 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
   async function handleEndDialogClose() {
     // Confirmed: the page is leaving; stay in the end flow so the pause screen never returns.
     if (endConfirmedRef.current) return;
+    recordEvent({ kind: "ui", type: "endDismiss" });
     try {
       if (pausedByEndDialogRef.current) {
         pausedByEndDialogRef.current = false;
@@ -440,6 +532,7 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
   }
 
   function handleEndConfirmed() {
+    recordEvent({ kind: "ui", type: "endConfirm" });
     endConfirmedRef.current = true;
     endDialogRef.current?.close();
     handleEndSession();
@@ -512,7 +605,11 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
       <ConnectionLostOverlay
         closeReason={closeReason}
         // design mode also clears "Making your draft…" and restarts the mic it stopped
-        onStartOver={mode === "design" ? handleDesignRetry : reconnect}
+        onStartOver={() => {
+          recordEvent({ kind: "ui", type: "startOver" });
+          if (mode === "design") handleDesignRetry();
+          else reconnect();
+        }}
         onEnd={goToReportOrHome}
       />
     );
@@ -583,6 +680,8 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
             background: "#102B33",
           }}
         >
+          {/* At the top: the fixed typing bar covers the bottom of this column. */}
+          {history && <SessionHistoryPanel history={history} />}
           <AgentPanel
             orbState={panelState(shownOrbState, hearing, hearingDeadlinePassed)}
             hearing={hearing}
@@ -638,7 +737,10 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
       <SessionFooter
         mode={mode}
         showTextInput={showTextInput}
-        onToggleText={() => setShowTextInput((v) => !v)}
+        onToggleText={() => {
+          recordEvent({ kind: "ui", type: "toggleTyping" });
+          setShowTextInput((v) => !v);
+        }}
         isPaused={isPaused}
         onPause={handlePause}
         onResume={handleResume}
