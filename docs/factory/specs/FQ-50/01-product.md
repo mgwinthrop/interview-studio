@@ -42,7 +42,7 @@ from before this change renders without errors.
 `mockups/report-transcript.html` shows the Transcript tab as a conversation, an "Answer by
 answer" card with its question and a link, and a strength quote that links to its answer.
 
-## Decisions for the owner
+## Decisions for the owner (both approved as recommended, 2026-11-19)
 
 1. **How each answer is shown in the Transcript tab.** Recommended: the full text, always
    shown. Answers are short by design (the interviewer keeps its own turns brief, and spoken
