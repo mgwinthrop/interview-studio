@@ -72,6 +72,40 @@ invisible to ordinary automated checks because everything passes.
 
 **Revisit if:** Never, while the gates depend on the tests being trustworthy.
 
+### 2026-11-19 - Work mix: kind labels, a reserved user-facing review slot
+
+**Change:**
+- Every issue now carries one `kind:*` label (user-facing, enabling or factory), set at
+  triage.
+- Charter §4a reserves one of the 3 review-queue slots for user-facing work, and an
+  implementation run takes a ready user-facing item first.
+- `/factory` leads with user-facing changes shipped per week.
+- Factory PRs say `Closes #<n>`, so merging closes the source issue.
+
+Before this, there were no kinds, selection took any ready item, and PRs only linked their
+issue.
+
+**Evidence:**
+- Nov 12-17: 15 user-facing outcomes shipped.
+- Nov 17-19: 0 user-facing outcomes. All 9 merged items were FQ-108 phase 0 test slices or
+  factory and spec work.
+- The open issue count stayed near 23 across that period, so it hid the shift. Slicing
+  FQ-108 opened 14 issues on Nov 17, and 3 issues stayed open after their PRs merged,
+  because PR bodies linked their issues instead of closing them.
+- The user-value backlog (#48-#55, #58, #60, #61) had not moved since Nov 14.
+- Cause: the factory drifts toward work it can do without the owner (well-specified
+  enabling slices), because user-facing items wait on owner spec time.
+
+**Risk accepted:** The FQ-108 rebuild slows. With no user-facing item ready, the reserved
+slot sits empty rather than being filled with enabling work. That is intended: it makes the
+spec bottleneck visible instead of hiding it behind throughput.
+
+**Revisit if:**
+- The reserved slot sits empty for 2 weeks while ready user-facing items exist. That would
+  mean selection is broken.
+- The owner decides a rebuild phase must go faster and lifts the reservation for a named
+  period.
+
 ### 2026-11-17 - Session core, runtime, history and adapters are load-bearing
 
 **Change:** LOAD_BEARING gains `apps/frontend/app/session/core/**`,

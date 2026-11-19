@@ -18,7 +18,10 @@ Batching items is how a single wrong assumption becomes a wide diff nobody can r
    missing, duplicated, malformed, or inconsistent with the charter, move the issue to
    `factory:needs-info` and stop. If running locally without GitHub access, stop unless a
    human explicitly selects an item for an interactive run.
-3. Select one item and win the deterministic remote-branch claim described below. Only
+3. Select one item by the charter's `MIX` rules: a ready `kind:user-facing` item first.
+   If none is ready and the review queue already holds 2 enabling or factory items, do not
+   claim one. Stop and record that the remaining slot is reserved for user-facing work.
+   Then win the deterministic remote-branch claim described below. Only
    after that push succeeds, replace `factory:ready-to-implement` with
    `factory:in-progress`. Re-read the issue after the write. If either step failed, stop.
 4. Re-read `done_when`. This is your stopping condition. You are done when it is true and
@@ -120,7 +123,7 @@ PR body template. Fill every field. Empty fields are how unreviewed work gets me
 <one sentence>
 
 ## Queue item
-FQ-<n> - <link to issue>
+Closes #<n> (FQ-<n>)
 done_when: <copied verbatim from the queue>
 
 ## Why this is safe
