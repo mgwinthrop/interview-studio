@@ -29,6 +29,7 @@ decisions:
   - "Load-bearing slices S0 (#121) and S11 (#132), and the test-changing S13 (#134), are interactive only and labelled wait-to-implement so unattended runs do not claim them (owner, gate 4; FQ-40/FQ-41 precedent)"
   - "Characterization slices (S2-S10) pass on main by design; verifiers prove them by mutation, not by failing on main (gate 4)"
   - "The S9 goldens pin the gap after tts_end in O4 (PR #142, verifier reservation 2). It is recorded as D10 (candidate) in 02-architecture.md §6 rather than accepted as a deliberate pin, so a later slice that removes the gap is an expected golden change (owner, 2026-11-19, post-merge review)"
+  - "D5 restated (owner, 2026-11-19, review of PR #144): the defect is a Paused screen over a listening detector, not just a session left paused. 02-architecture.md §6 now states the invariant that screen and mic agree. An interim page-only fix ahead of phase 2 is #148 (ready-to-spec; #107 precedent)"
 candidate_absorbs: "#86, #48, #49"
 latent_defects_found_by_inventory:
   - "#110: after Start over, the next clean server close is swallowed - fixed by PR #118"
