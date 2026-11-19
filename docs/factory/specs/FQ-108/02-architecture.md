@@ -48,6 +48,8 @@ Evidence: `evidence/state-inventory.md` (cited as "inv §n").
   those needs owner approval and its own test.
 - Known timing races (the gap after `tts_end`, inv §4.2; frames arriving after an
   interrupt, inv §4.3) are pinned by deterministic unit tests on the core, not by O4.
+  Exception: the S9 goldens record the `tts_end` gap in O4 today. It is listed in §6 as
+  D10 (candidate), so removing it is an allowed O4 difference (owner, 2026-11-19).
 
 **Limits:**
 - Real microphones and real providers stay outside automation, as today.
@@ -180,10 +182,11 @@ Each needs owner approval at gate 3 and its own test.
 | D2 | Resume > 10 s flash | Fixed by #107; kept fixed by construction | #107 |
 | D3 | Start over keeps paused, thinking, end-dialog and queued-audio state from the dead session | Start over begins a clean session. **Visible: the microphone goes through "Getting ready…" again, with "didn't start" wording if it fails, not the after-pause wording.** | inv §4.8 |
 | D4 | A disconnect while the end dialog is open leaves End session dead after Start over | Resets with the session | inv §5.2 |
-| D5 | Footer Pause during end-dialog settling can leave the session paused | Ordered by the pause region | inv §5.2 |
+| D5 | Footer Pause during end-dialog settling leaves the screen Paused while the voice detector is listening with a live microphone track: the close's `resumeMic` runs after the footer's `pauseMic`. Speech in that state is very probably sent (`onSpeechEnd` does not check pause) | Ordered by the pause region. **Invariant, whatever the end state: screen and mic agree.** Paused means 0 live tracks and no audio frames; Listening means the detector is live. A fix that only changes which state the screen ends in does not close D5 | inv §5.2; S7 `e2e/end-settling-pause.spec.ts` (PR #144); interim fix #148 (owner, 2026-11-19) |
 | D6 | The interrupt timer and `stt_error` can overwrite "speaking" or "thinking" with "listening" | Accepted only in the state that started them | inv §5.3 |
 | D7 | The microphone keeps listening while "Connection lost" shows | It is **stopped** (not paused) on connection loss, and Start over starts it fresh (D3 wording) | inv §4.8 |
 | D9 | #110 | Fixed before migration; per-socket identity keeps it fixed | #110 |
+| D10 (candidate) | Each reply's panel trace is `speaking, listening, speaking, listening`: the middle `listening` is the gap after `tts_end` (inv §4.2). The S9 goldens (`e2e/golden/*.json`, PR #142) pin it | Decided at gate 3 after the H1 measurement (see below). If the gap goes, the middle `listening` leaves every golden's `panelStatus` in the slice that removes it, and that golden change is expected, not a regression | PR #142 verifier reservation 2; owner, 2026-11-19 |
 
 Explicitly **not** changing (revision 1 implied changes here):
 - **The thinking watchdog** still returns to "Listening" after 10 s with today's wording,
@@ -197,6 +200,7 @@ Explicitly **not** changing (revision 1 implied changes here):
   `end-confirm-settling.spec.ts` depends on this.
 - **The gap of at least 100 ms after `tts_end`** (inv §4.2) is under investigation, not
   changed. It touches the interrupt contract, so gate 3 decides after a measurement under H1.
+  Until then it is D10 (candidate) in the table above.
 
 ## 7. #48 and #49 fit
 
