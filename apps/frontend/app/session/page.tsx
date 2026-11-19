@@ -286,6 +286,10 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
   // the pause has finished (which would leave the session Paused with the mic live).
   const endDialogPauseRef = useRef<Promise<void> | null>(null);
   const endConfirmedRef = useRef(false);
+  // FQ-148: set when the footer Pause is pressed while the end flow is settling. The close then
+  // keeps the session paused instead of resuming it: the last press wins, and Paused means the
+  // mic stays off. Cleared by the close and by handleEndClick.
+  const keepPausedAfterEndFlowRef = useRef(false);
   useEffect(() => {
     const dialog = endDialogRef.current;
     if (confirmingEnd && dialog && !dialog.open) dialog.showModal();
@@ -505,6 +509,7 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
     // Session does nothing; starting another pause here would outlive the close.
     if (confirmingEnd) return;
     endConfirmedRef.current = false;
+    keepPausedAfterEndFlowRef.current = false;
     endFlowOwnsFocusRef.current = true;
     pausedByEndDialogRef.current = !isPaused;
     // A pause that fails (the audio already shut down) is treated as no pause: it never rejects.
@@ -521,14 +526,25 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
         pausedByEndDialogRef.current = false;
         await endDialogPauseRef.current;
         endDialogPauseRef.current = null;
+        // FQ-148: a footer Pause pressed while closing wins; resuming would reopen the mic
+        // behind the pause screen.
+        const keepPaused = keepPausedAfterEndFlowRef.current;
+        keepPausedAfterEndFlowRef.current = false;
         // Even if the pause failed, the mic was paused first, so resuming is still right.
-        await handleResume();
+        if (!keepPaused) await handleResume();
       }
     } catch {
       // A resume that fails must not leave the end flow stuck; the session controls stay usable.
     } finally {
       setConfirmingEnd(false);
     }
+  }
+
+  // FQ-148: the footer's Pause. Outside the end flow it is exactly handlePause. While the flow is
+  // settling (dialog closed, its pause not finished), it also asks the close not to resume.
+  function handleFooterPause() {
+    if (confirmingEnd) keepPausedAfterEndFlowRef.current = true;
+    return handlePause();
   }
 
   function handleEndConfirmed() {
@@ -742,7 +758,7 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
           setShowTextInput((v) => !v);
         }}
         isPaused={isPaused}
-        onPause={handlePause}
+        onPause={handleFooterPause}
         onResume={handleResume}
         designNotReady={designNotReady}
         onEnd={handleEndClick}
