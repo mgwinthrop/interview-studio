@@ -78,10 +78,15 @@ test("with ?debug=1 the history shows and copies, and holds none of the session'
   const text = copied[0];
 
   // It recorded the session: connection, sends, mic, audio and UI events with screen state.
-  for (const label of ["ws:open", "ws:tts_start", "ws:transcript", "send:audio", "send:text_input", "mic:speechEnd", "audio:playing", "ui:sendText"]) {
+  // (Not ws:tts_start: it follows the rendered aiSpeaking, so it is absent when the mock's
+  // tts_start and tts_end land in one render. See the comment in page.tsx.)
+  for (const label of ["ws:open", "ws:tts_end", "ws:transcript", "send:audio", "send:text_input", "mic:speechEnd", "audio:playing", "ui:sendText"]) {
     expect(text).toContain(label);
   }
   expect(text).toMatch(/\| connection=connected turn=\w+ mic=ready paused=no end=none/);
+  // Events recorded from state changes carry the screen of the render that caused them.
+  expect(text).toMatch(/ws:open \| connection=connected /);
+  expect(text).toMatch(/mic:ready \| connection=\w+ turn=\w+ mic=ready /);
 
   // And none of what was said or typed.
   for (const word of SESSION_WORDS) expect(text.toLowerCase()).not.toContain(word);

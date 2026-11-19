@@ -141,7 +141,6 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
   // Functional update: only reset to "listening" if we were "speaking" — never clobbers "interrupted"
   useEffect(() => {
     if (aiSpeaking) {
-      recordEvent({ kind: "ws", type: "tts_start" });
       // The interviewer is speaking again: an earlier end-of-playback can no longer
       // describe the gap before the next answer (that end is recorded when this reply finishes).
       lastPlaybackEndedAtRef.current = null;
@@ -154,7 +153,7 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
     } else {
       setOrbState((prev) => (prev === "speaking" ? "listening" : prev));
     }
-  }, [aiSpeaking, recordEvent]);
+  }, [aiSpeaking]);
 
   const handleSpeechSent = useCallback(() => {
     recordEvent({ kind: "mic", type: "speechEnd" });
@@ -347,8 +346,26 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
     setTextInput("");
   }, [textInput, sendMessageWithFlush, recordEvent]);
 
+  // FQ-108 S12: what the screen shows, for the session history. State names only. The end flow
+  // is "settling" while closing waits for its pause (dialog closed, flow open). This effect is
+  // declared before the recording effects below, so events they record carry the screen of the
+  // render that caused them; events from handlers carry the screen the person acted on.
+  useEffect(() => {
+    screenRef.current = {
+      connection: connectionState,
+      turn: orbState,
+      mic: hearing,
+      paused: isPaused,
+      end: !confirmingEnd ? "none" : endConfirmedRef.current ? "ending" : endDialogRef.current?.open ? "confirming" : "settling",
+    };
+  });
+
   // FQ-108 S12: session history for what has no handler on this page (socket open and close,
-  // server state, the microphone). Each records a fixed label on a change; no payload is read.
+  // tts_start, server state, the microphone). Each records a fixed label on a change; no
+  // payload is read. These follow React state, not each frame: ws:tts_start is recorded when
+  // aiSpeaking becomes true, so a reply whose tts_start and tts_end land in one render has no
+  // tts_start line (its tts_end and audio are still recorded from their handlers).
+  useEffect(() => { if (aiSpeaking) recordEvent({ kind: "ws", type: "tts_start" }); }, [aiSpeaking, recordEvent]);
   const prevConnectionRef = useRef(connectionState);
   useEffect(() => {
     const prev = prevConnectionRef.current;
@@ -557,18 +574,6 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
 
   const minutes = String(Math.floor(elapsed / 60)).padStart(2, "0");
   const seconds = String(elapsed % 60).padStart(2, "0");
-
-  // FQ-108 S12: what the screen showed at the last commit, for the session history. State names
-  // only. The end flow is "settling" while closing waits for its pause (dialog closed, flow open).
-  useEffect(() => {
-    screenRef.current = {
-      connection: connectionState,
-      turn: orbState,
-      mic: hearing,
-      paused: isPaused,
-      end: !confirmingEnd ? "none" : endConfirmedRef.current ? "ending" : endDialogRef.current?.open ? "confirming" : "settling",
-    };
-  });
 
   // ── Error overlays (all hooks must be above this) ─────────────────────────
   // Design mode: the server could not make a valid draft (nothing said, or the draft call failed).
