@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FQ-148 sequence</title>
+<style>
+  :root { --bg: #fff; --fg: #1a1a1a; --muted: #666; --line: #ddd; --bad: #b03e14; --good: #1f7a4d; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #161616; --fg: #eee; --muted: #aaa; --line: #333; --bad: #ff8a5c; --good: #5fd39a; } }
+  body { margin: 0; padding: 16px; font: 15px/1.5 system-ui, sans-serif; background: var(--bg); color: var(--fg); }
+  h1 { font-size: 20px; } h2 { font-size: 16px; margin-top: 28px; }
+  ol { padding-left: 20px; }
+  .row { display: flex; flex-wrap: wrap; gap: 12px; }
+  .card { flex: 1 1 220px; border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+  .label { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  .screen { font-weight: 600; margin: 6px 0; }
+  .mic.on { color: var(--bad); } .mic.off { color: var(--good); }
+  .footer { display: flex; gap: 8px; margin-top: 8px; }
+  .footer span { border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>Pause while the end dialog is closing</h1>
+<p>No new screens. This shows the sequence, and the state the person ends in before and after the change.</p>
+
+<h2>The sequence</h2>
+<ol>
+  <li>The person clicks <b>End Session</b>. The "End this interview?" dialog opens and the session pauses.</li>
+  <li>They press <b>Escape</b>. The dialog closes and the session starts to resume.</li>
+  <li>In that moment, before it has resumed, they click <b>⏸ Pause</b> in the footer.</li>
+</ol>
+
+<h2>Where they end up</h2>
+<div class="row">
+  <div class="card">
+    <div class="label">Today</div>
+    <div class="screen">Screen: Paused (pause screen shown)</div>
+    <div class="mic on">Microphone: ON and listening</div>
+    <div class="footer"><span>↩ Type instead</span><span>▶ Resume</span><span>End Session</span></div>
+    <p>The screen and the microphone disagree.</p>
+  </div>
+  <div class="card">
+    <div class="label">After (option A, recommended)</div>
+    <div class="screen">Screen: Paused (pause screen shown)</div>
+    <div class="mic off">Microphone: off, nothing sent</div>
+    <div class="footer"><span>↩ Type instead</span><span>▶ Resume</span><span>End Session</span></div>
+    <p>The last press (Pause) wins, and the screen tells the truth.</p>
+  </div>
+</div>
+</body>
+</html>
