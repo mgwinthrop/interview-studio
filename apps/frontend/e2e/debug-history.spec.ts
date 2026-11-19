@@ -53,7 +53,7 @@ async function talk(page: Page, url: string, probes: Probes): Promise<void> {
   await playbackSettled(probes, 2);
 
   // Written: typed text is sent as text_input and shown as the user's turn.
-  await page.getByRole("button", { name: "Type message instead of speaking" }).click();
+  await page.getByRole("button", { name: "Type message instead of speaking" }).click({ timeout: 5_000 });
   await page.getByLabel("Type your message").fill("my secret typed words");
   await page.getByLabel("Type your message").press("Enter");
   await expect(page.getByText("my secret typed words")).toBeVisible({ timeout: 10_000 });
@@ -64,13 +64,14 @@ async function talk(page: Page, url: string, probes: Probes): Promise<void> {
 const SESSION_WORDS = ["hello", "there", "secret", "typed", "words", "mock", "reply"];
 
 test("with ?debug=1 the history shows and copies, and holds none of the session's words", async ({ page }) => {
+  test.setTimeout(60_000); // three full turns
   await captureClipboard(page);
   await proxySession(page);
   const probes = await installProbes(page);
   await talk(page, "/session?interviewerId=tell-a-story&demo=true&debug=1", probes);
 
   await expect(history(page)).toBeVisible();
-  await history(page).getByRole("button", { name: "Copy history" }).click();
+  await history(page).getByRole("button", { name: "Copy history" }).click({ timeout: 5_000 });
   await expect(history(page).getByRole("status")).toHaveText("Copied");
   const copied = await page.evaluate(() => (window as unknown as CopyWindow).__copied);
   expect(copied).toHaveLength(1);
@@ -86,13 +87,14 @@ test("with ?debug=1 the history shows and copies, and holds none of the session'
   for (const word of SESSION_WORDS) expect(text.toLowerCase()).not.toContain(word);
 
   // Show history displays the same text.
-  await history(page).getByRole("button", { name: "Show history" }).click();
+  await history(page).getByRole("button", { name: "Show history" }).click({ timeout: 5_000 });
   const shown = await history(page).locator("pre").textContent();
   for (const word of SESSION_WORDS) expect((shown ?? "").toLowerCase()).not.toContain(word);
   expect(shown).toContain("ws:open");
 });
 
 test("without ?debug=1 there is no history panel", async ({ page }) => {
+  test.setTimeout(60_000); // three full turns
   await captureClipboard(page);
   await proxySession(page);
   const probes = await installProbes(page);

@@ -675,6 +675,8 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
             background: "#102B33",
           }}
         >
+          {/* At the top: the fixed typing bar covers the bottom of this column. */}
+          {history && <SessionHistoryPanel history={history} />}
           <AgentPanel
             orbState={panelState(shownOrbState, hearing, hearingDeadlinePassed)}
             hearing={hearing}
@@ -685,7 +687,6 @@ function SessionView({ interviewer, demo, mode = null, start, returnTo }: Sessio
             lastLatencyMs={debug ? lastLatencyMs : null}
             sessionId={debug ? sessionId : ""}
           />
-          {history && <SessionHistoryPanel history={history} />}
         </aside>
 
         {/* Right column — Live Transcript */}

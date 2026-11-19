@@ -38,7 +38,7 @@ export function SessionHistoryPanel({ history }: { history: SessionHistory }) {
   );
 }
 
-const panelStyle = { padding: "8px 12px", borderTop: "1px solid #23464D", color: "#C9D6DA", fontSize: 11 } as const;
+const panelStyle = { padding: "8px 12px", borderBottom: "1px solid #23464D", color: "#C9D6DA", fontSize: 11 } as const;
 const buttonStyle = { fontSize: 11, padding: "3px 8px", background: "transparent", color: "#C9D6DA", border: "1px solid #3E6670", borderRadius: 4, cursor: "pointer" } as const;
 const statusStyle = { margin: "4px 0 0", minHeight: 14 } as const;
 const preStyle = { margin: "6px 0 0", maxHeight: 220, overflow: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all", fontSize: 10 } as const;
