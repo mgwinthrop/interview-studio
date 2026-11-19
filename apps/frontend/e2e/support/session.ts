@@ -22,6 +22,11 @@ export interface ProxyControl {
    *  release(). Held frames are delivered to the socket they came from, never to a later one. */
   hold(type: HeldType): void;
   release(): void;
+  /** Delivers held frames up to and including the next held frame of this type, and keeps
+   *  holding the rest (and anything that arrives later) until the next release step. Lets a
+   *  test render each server frame before the next one arrives (FQ-108 S9). Returns whether a
+   *  frame of that type was found; if not, every held frame was delivered. */
+  releaseThrough(type: HeldType): boolean;
   /** Sends a frame the mock never produces, or closes the page's socket with a code. */
   inject(frame: object | { close: number; reason?: string }): void;
   /** Ordered client→server frame types seen so far: JSON `type`, or "audio" for binary. */
@@ -95,6 +100,14 @@ export async function proxySession(page: Page, options: ProxyOptions = {}): Prom
     release() {
       holding.clear();
       for (const { ws, message } of held.splice(0)) ws.send(message);
+    },
+    releaseThrough(type) {
+      while (held.length > 0) {
+        const { ws, message } = held.shift()!;
+        ws.send(message);
+        if (frameType(message) === type) return true;
+      }
+      return false;
     },
     inject(frame) {
       if (!current) throw new Error("inject: no socket is open yet");
