@@ -45,7 +45,7 @@ the reviewer.
 
 | Option | What the person sees | Verdict |
 |---|---|---|
-| **A. Honour the Pause** (recommended) | They end up Paused, microphone off, as they asked | Matches intent; the safe outcome when in doubt is "off" |
+| **A. Honour the Pause** (approved by the owner, 2026-11-19) | They end up Paused, microphone off, as they asked | Matches intent; the safe outcome when in doubt is "off" |
 | B. Ignore the Pause during that moment (as End Session already does) | They end up Listening; the Pause they pressed did nothing | Honest screen, but it silently drops a "stop listening" request |
 | C. Disable Pause during that moment | Pause is greyed out for a fraction of a second | Honest, but adds a visible state for a tiny window; most people never see it, and the ones who do are confused |
 
