@@ -138,6 +138,31 @@ The last line matters. Silence in this file means stop, not proceed.
 
 ---
 
+## 4a. Work mix
+
+Every issue carries exactly one `kind:*` label, set at triage. The factory reports and
+selects work by kind, because a queue that closes items safely can still ship nothing a user
+notices.
+
+```
+WORK_KIND:
+  user-facing: changes something a person using the app can see, hear or rely on
+  enabling:    tests, refactors, rebuild slices, tooling; no user-visible change
+  factory:     changes to the factory itself (charter, skills, gates, queue)
+
+MIX:
+  - At most 2 of the review-queue slots may hold enabling or factory work.
+    The remaining slot is reserved for user-facing work.
+  - An implementation run takes a ready user-facing item before any other kind.
+  - When no user-facing item is ready-to-implement, the bottleneck is spec work,
+    which needs the owner. /factory says so instead of filling the queue.
+```
+
+The headline measure of progress is user-facing changes shipped per week, not the open
+issue count. Slicing work raises the issue count without adding value.
+
+---
+
 ## 5. Definition of done
 
 An item may only move to `verified` when all of these hold. The verify skill checks each

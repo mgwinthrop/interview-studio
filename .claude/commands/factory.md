@@ -30,10 +30,16 @@ NEEDS YOU (<n>)
            <why it needs you: load-bearing / tests modified / gate skipped / verifier reservations>
   FQ-<n>   needs-info: <the actual question>
 
-REVIEW QUEUE: <n> / <charter limit>
+SHIPPED (last 7 days, merged PRs by the source issue's kind:* label)
+  user-facing <n>   enabling <n>   factory <n>
+  <if user-facing is 0, say so plainly: nothing a user would notice shipped this week>
+
+REVIEW QUEUE: <n> / <charter limit>   (user-facing <n>, other <n>)
   <if at or over the limit, say plainly: the factory should stop taking new work
    until this drains. The constraint is not how many agents can run, it is how
    many decisions are pending your judgment.>
+  <if no user-facing item is ready-to-implement, say: the bottleneck is spec work,
+   and name the highest-value ready-to-spec user-facing item>
 
 RUNNING
   <issues labeled factory:in-progress and visible routine runs, with links>

@@ -89,6 +89,11 @@ Apply exactly one GitHub state label matching the disposition, prefixed `factory
 example `factory:ready-to-implement`. Remove any other factory state label first, but
 preserve the `factory:monitor` provenance label when present.
 
+Also apply exactly one `kind:*` label (`kind:user-facing`, `kind:enabling` or
+`kind:factory`), as the charter's `WORK_KIND` defines them. It is a classification, not a
+state, so it coexists with the state label. When unsure, ask whether a person using the app
+would notice the change: if yes, it is user-facing.
+
 The label plus the handoff comment are the operational handoff. If labels are missing, stop
 and ask a human to run `./.factory/scripts/bootstrap-github.sh --apply`. Never claim triage
 succeeded when only the Markdown snapshot changed.
