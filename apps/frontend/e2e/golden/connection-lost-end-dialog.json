@@ -1,0 +1,56 @@
+{
+  "frames": [
+    "session_start",
+    "session_start"
+  ],
+  "regions": {
+    "panelStatus": [
+      "none",
+      "connecting",
+      "starting",
+      "listening",
+      "speaking",
+      "listening",
+      "speaking",
+      "listening",
+      "paused",
+      "none",
+      "paused"
+    ],
+    "hearing": [
+      "none",
+      "off",
+      "starting",
+      "ready",
+      "none",
+      "ready"
+    ],
+    "paused": [
+      "hidden"
+    ],
+    "endDialog": [
+      "closed",
+      "open",
+      "closed"
+    ],
+    "warning": [
+      "none"
+    ],
+    "typing": [
+      "closed"
+    ],
+    "overlay": [
+      "none",
+      "Connection lost",
+      "none"
+    ],
+    "focus": [
+      "body",
+      "button:End Session",
+      "button:Keep talking",
+      "body",
+      "button:Start over",
+      "body"
+    ]
+  }
+}

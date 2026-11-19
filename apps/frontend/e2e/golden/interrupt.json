@@ -1,0 +1,54 @@
+{
+  "frames": [
+    "session_start",
+    "turn_timing",
+    "audio",
+    "interrupt",
+    "audio"
+  ],
+  "regions": {
+    "panelStatus": [
+      "none",
+      "connecting",
+      "starting",
+      "listening",
+      "speaking",
+      "listening",
+      "speaking",
+      "listening",
+      "thinking",
+      "speaking",
+      "interrupted",
+      "listening",
+      "thinking",
+      "speaking",
+      "listening",
+      "speaking",
+      "listening"
+    ],
+    "hearing": [
+      "none",
+      "off",
+      "starting",
+      "ready"
+    ],
+    "paused": [
+      "hidden"
+    ],
+    "endDialog": [
+      "closed"
+    ],
+    "warning": [
+      "none"
+    ],
+    "typing": [
+      "closed"
+    ],
+    "overlay": [
+      "none"
+    ],
+    "focus": [
+      "body"
+    ]
+  }
+}
