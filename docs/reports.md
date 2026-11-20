@@ -14,6 +14,12 @@ After a conversation ends, Interview Studio writes a reflective report. It has n
 
 Which parts appear depends on the interviewer's `contentFeedback` and `deliveryFeedback` switches. If delivery is on but nothing spoken was measured (for example you only typed), the report says delivery was not measured.
 
+## The transcript
+
+The report's **Transcript** tab shows the whole conversation on the page, in order, with each of your answers in full and labelled "Answer N". The download (a `.txt` file) is still there. If the conversation cannot be loaded, the tab offers only the download and the rest of the report is unchanged.
+
+For contributors: the page reads `GET /api/session/:sessionId/turns`, which is owner-scoped and returns 404 exactly like the text download at `/api/session/:sessionId/transcript`. It returns `{ turns: [{ role, content, phase, answer? }] }` and nothing else (no ids, timestamps or metrics). `answer` is set on your turns only. It counts every one of your turns in order, typed or spoken, which is the same rule as the report's "Answer by answer" (`summarizeDelivery`), so "Answer 3" means the same turn in both places (`apps/backend/src/transcriptTurns.ts`).
+
 ## How a report is made
 
 ```mermaid

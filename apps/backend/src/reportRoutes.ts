@@ -6,6 +6,7 @@ import { ID_SHAPE, type InterviewerDefinition } from "./interviewer/schema";
 import type * as persistence from "./persistence";
 import type { Providers } from "./providers/types";
 import { generateReport } from "./reportGenerator";
+import { toTranscriptTurns } from "./transcriptTurns";
 import * as registry from "./sessionRegistry";
 import { staticSettings, type SettingsSource } from "./settingsService";
 import type { AnyReport, ConversationTurn, ReportV2 } from "./types";
@@ -58,6 +59,20 @@ export function createSessionRouter(deps: SessionRoutesDeps): express.Router {
       res.setHeader("Content-Type", "text/plain; charset=utf-8");
       res.setHeader("Content-Disposition", `attachment; filename="transcript-${sessionId}.txt"`);
       res.send(text);
+    }),
+  );
+
+  // FQ-50: the same turns as JSON, for the report page's Transcript tab. Same owner scope and
+  // 404 as the download; only role, content, phase and the answer number leave the server.
+  router.get(
+    "/api/session/:sessionId/turns",
+    route("turns", async (req, res) => {
+      const turns = await persist.readTurnsFromDb(req.params.sessionId, ownerOf(res));
+      if (!turns) {
+        res.status(404).json({ error: "Session not found or has no turns" });
+        return;
+      }
+      res.json({ turns: toTranscriptTurns(turns) });
     }),
   );
 
