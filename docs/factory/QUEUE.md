@@ -437,3 +437,36 @@ Slices added by spec run `2026-11-17T220107Z-spec-108` (FQ-108 gate 4, owner-app
 - gate_level: full
 - done_when: see the issue's factory-handoff:v1 comment (spec §s13)
 - confidence: medium
+
+---
+
+Slices added by spec run `2026-11-19T213000Z-spec-50` (FQ-50, owner-approved at all four gates). Each issue's `factory-handoff:v1` comment carries the full `done_when` and `files_expected`; plan in `docs/factory/specs/FQ-50/04-slices.md`. All `kind:user-facing`.
+
+## FQ-151: FQ-50 S0 - The conversation on the Transcript tab (tracer)
+- disposition: ready-to-implement
+- source: https://github.com/mgwinthrop/interview-studio/issues/151
+- last_triaged: 2026-11-19
+- load_bearing: false
+- gate_level: full
+- done_when: see the issue's factory-handoff:v1 comment (spec §S0)
+- confidence: medium
+
+## FQ-152: FQ-50 S1 - Answer cards show their question and open the answer
+- disposition: wait-to-implement
+- source: https://github.com/mgwinthrop/interview-studio/issues/152
+- last_triaged: 2026-11-19
+- blocked_on: #151
+- load_bearing: false
+- gate_level: full
+- done_when: see the issue's factory-handoff:v1 comment (spec §S1)
+- confidence: medium
+
+## FQ-153: FQ-50 S2 - Strength quotes link to their answer
+- disposition: wait-to-implement
+- source: https://github.com/mgwinthrop/interview-studio/issues/153
+- last_triaged: 2026-11-19
+- blocked_on: #152
+- load_bearing: false
+- gate_level: full
+- done_when: see the issue's factory-handoff:v1 comment (spec §S2)
+- confidence: high

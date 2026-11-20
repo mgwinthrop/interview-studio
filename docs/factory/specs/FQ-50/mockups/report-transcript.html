@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FQ-50 report mockup</title>
+<style>
+  :root { --bg:#f6f8f9; --card:#fff; --fg:#102b33; --muted:#566475; --line:#dde3e7; --accent:#087e8b; --hl:#e6f4f5; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f1618; --card:#172024; --fg:#e8eef0; --muted:#9fb0b8; --line:#2a363b; --accent:#3cc3cf; --hl:#123236; } }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:16px; font:15px/1.55 system-ui, sans-serif; background:var(--bg); color:var(--fg); }
+  .wrap { max-width:720px; margin:0 auto; }
+  h1 { font-size:20px; margin:0 0 4px; } h2 { font-size:16px; margin:28px 0 10px; } h3 { font-size:14px; margin:0 0 6px; }
+  .note { color:var(--muted); font-size:13px; }
+  .tabs { display:flex; gap:6px; margin:16px 0; }
+  .tab { padding:6px 14px; border-radius:6px; border:1px solid var(--line); font-size:14px; }
+  .tab.on { background:var(--fg); color:var(--bg); border-color:var(--fg); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin-bottom:10px; }
+  .q { color:var(--muted); font-size:13px; margin-bottom:6px; }
+  .who { font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); }
+  .nums { font-size:13px; color:var(--muted); margin-top:8px; }
+  a { color:var(--accent); }
+  .hl { background:var(--hl); border-color:var(--accent); box-shadow:0 0 0 2px var(--accent) inset; }
+  blockquote { margin:0; padding:8px 12px; border-left:4px solid var(--accent); background:var(--card); border-radius:6px; }
+  .row { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Report</h1>
+  <p class="note">Mockup for gate 1. Layout and wording only; colours follow the existing report.</p>
+
+  <h2>1. Report tab: a strength quote links to its answer</h2>
+  <div class="card">
+    <h3>Clear framing</h3>
+    <blockquote>"I'd start by asking who the customer is." <a href="#a3">See answer 3 →</a></blockquote>
+  </div>
+  <div class="card">
+    <h3>Concrete example</h3>
+    <blockquote>"something like a pilot with two teams" <span class="note">(not linked: no exact match found)</span></blockquote>
+  </div>
+
+  <h2>2. Report tab: "Answer by answer" shows the question</h2>
+  <div class="card">
+    <div class="row"><strong>Answer 3</strong><a href="#a3">Read answer →</a></div>
+    <div class="q">Q: How would you approach a product nobody is using?</div>
+    <div class="nums">142 words · pace 128 wpm · longest pause 4.1 s · gap before answering 6.0 s</div>
+  </div>
+
+  <div class="tabs"><span class="tab">Report</span><span class="tab on">Transcript</span></div>
+
+  <h2>3. Transcript tab: the conversation on the page</h2>
+  <div class="row"><span class="note">12 turns · 18 min</span><a href="#">Download transcript (.txt)</a></div>
+  <div class="card" style="margin-top:10px">
+    <div class="who">Interviewer</div>
+    <div>How would you approach a product nobody is using?</div>
+  </div>
+  <div class="card hl" id="a3">
+    <div class="who">You · Answer 3</div>
+    <div>I'd start by asking who the customer is. Before any change I'd talk to the five people who did sign up and find out what they hoped it would do, then compare that with what we built…</div>
+    <div class="nums">142 words · pace 128 wpm · longest pause 4.1 s · gap 6.0 s</div>
+  </div>
+  <div class="card">
+    <div class="who">You · Answer 4 · typed</div>
+    <div>I'd measure activation in the first week.</div>
+    <div class="nums">Typed answer: no delivery numbers</div>
+  </div>
+  <p class="note">Highlighted card = where "See answer 3" and "Read answer" land.</p>
+</div>
+</body>
+</html>
