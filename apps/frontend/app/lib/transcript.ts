@@ -36,6 +36,19 @@ export function parseTurns(json: unknown): TranscriptTurn[] | null {
   return out;
 }
 
+/**
+ * The question for "Answer N": the interviewer's turns after answer N-1 and before answer N,
+ * joined with a blank line. Null when there are none (an interrupted reply is never stored, so
+ * after a barge-in two answers are adjacent) or answer N does not exist.
+ */
+export function questionFor(turns: readonly TranscriptTurn[], answer: number): string | null {
+  const at = turns.findIndex((t) => t.answer === answer);
+  if (at < 0) return null;
+  const asked: string[] = [];
+  for (let i = at - 1; i >= 0 && turns[i].role === "assistant"; i--) asked.unshift(turns[i].content);
+  return asked.length > 0 ? asked.join("\n\n") : null;
+}
+
 /** The session's turns, or null on a network error, a 404 or a bad shape. Never throws. */
 export async function fetchTurns(sessionId: string, signal?: AbortSignal): Promise<TranscriptTurn[] | null> {
   try {

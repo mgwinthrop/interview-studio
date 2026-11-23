@@ -3,12 +3,34 @@ import type { DeliverySummaryView, ReportV2View } from "../../lib/report";
 import { MainSection, SubSection } from "./reportParts";
 import { cardStyle, itemTextStyle, itemTitleStyle, panelStyle, plainListStyle, visuallyHidden } from "./reportStyles";
 
+type PerTurn = DeliverySummaryView["perTurn"][number];
+
+/** One answer's numbers, as "Answer by answer" and the transcript both show them. */
+export function AnswerNumbers({ t }: { t: PerTurn }) {
+  return (
+    <>
+      <Value value={t.wordCount} format={(n) => `${n} ${n === 1 ? "word" : "words"}`} />
+      {" · pace "}
+      <Value value={t.wordsPerMinute} format={formatPace} />
+      {" · longest pause "}
+      <Value value={t.longestPauseSec} format={formatSeconds} />
+      {" · gap before answering "}
+      <Value value={t.responseGapMs} format={(ms) => formatSeconds(ms / 1000)} />
+    </>
+  );
+}
+
 export function DeliverySection({
   delivery,
   unavailable,
+  questionOf,
+  onShowAnswer,
 }: {
   delivery?: ReportV2View["delivery"];
   unavailable?: boolean;
+  /** FQ-50: the question for an answer, once the transcript has loaded; absent otherwise. */
+  questionOf?: (answer: number) => string | null;
+  onShowAnswer?: (answer: number) => void;
 }) {
   return (
     delivery ? (
@@ -17,23 +39,34 @@ export function DeliverySection({
         {delivery.summary.perTurn.length > 0 && (
           <SubSection title="Answer by answer">
             <ol role="list" style={plainListStyle}>
-              {delivery.summary.perTurn.map((t) => (
-                <li key={t.turn} style={{ ...cardStyle, padding: "10px 14px" }}>
-                  <div style={{ ...itemTitleStyle, fontSize: 13, marginBottom: 2 }}>Answer {t.turn}</div>
-                  <p style={{ ...itemTextStyle, fontSize: 13, color: "#33424F" }}>
-                    <Value value={t.wordCount} format={(n) => `${n} ${n === 1 ? "word" : "words"}`} />
-                    {" · pace "}
-                    <Value value={t.wordsPerMinute} format={formatPace} />
-                    {" · longest pause "}
-                    <Value value={t.longestPauseSec} format={formatSeconds} />
-                    {" · gap before answering "}
-                    <Value
-                      value={t.responseGapMs}
-                      format={(ms) => formatSeconds(ms / 1000)}
-                    />
-                  </p>
-                </li>
-              ))}
+              {delivery.summary.perTurn.map((t) => {
+                const question = questionOf?.(t.turn) ?? null;
+                return (
+                  <li key={t.turn} style={{ ...cardStyle, padding: "10px 14px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginBottom: 2 }}>
+                      <div style={{ ...itemTitleStyle, fontSize: 13 }}>Answer {t.turn}</div>
+                      {questionOf && onShowAnswer && (
+                        <button
+                          type="button"
+                          aria-label={`Read answer ${t.turn}`}
+                          onClick={() => onShowAnswer(t.turn)}
+                          style={{ border: "none", background: "none", padding: 0, color: "#087E8B", fontSize: 13, fontWeight: 600, cursor: "pointer" }}
+                        >
+                          Read answer →
+                        </button>
+                      )}
+                    </div>
+                    {question && (
+                      <p dir="auto" style={{ ...itemTextStyle, fontSize: 13, color: "#566475", marginBottom: 4 }}>
+                        Q: {question}
+                      </p>
+                    )}
+                    <p style={{ ...itemTextStyle, fontSize: 13, color: "#33424F" }}>
+                      <AnswerNumbers t={t} />
+                    </p>
+                  </li>
+                );
+              })}
             </ol>
           </SubSection>
         )}
