@@ -66,22 +66,28 @@ export function ReportView({ report, interviewerName, sessionId, onNewSession, f
   const turns = loaded?.sessionId === sessionId ? loaded.turns : null;
 
   // FQ-50 S1: "Read answer" opens the Transcript tab on that answer, scrolled to, highlighted
-  // and focused. No smooth scroll for people who asked for reduced motion.
+  // and focused. No smooth scroll under reduced motion or the app's own "pause animations".
   // Kept with its session, so switching sessions in the Dashboard never carries a target over.
-  const [target, setTarget] = useState<{ sessionId: string; answer: number } | null>(null);
-  const targetAnswer = target?.sessionId === sessionId ? target.answer : null;
+  // Scroll and focus happen once per request (`seq`): coming back to the tab later keeps the
+  // highlight but leaves focus on the tab, as the tabs keyboard pattern expects.
+  const [target, setTarget] = useState<{ sessionId: string; answer: number; seq: number } | null>(null);
+  const handledSeq = useRef(0);
+  const current = target?.sessionId === sessionId ? target : null;
+  const targetAnswer = current?.answer ?? null;
   function showAnswer(n: number) {
     setActiveTab("transcript");
-    setTarget({ sessionId, answer: n });
+    setTarget({ sessionId, answer: n, seq: (target?.seq ?? 0) + 1 });
   }
   useEffect(() => {
-    if (activeTab !== "transcript" || targetAnswer === null || !turns) return;
-    const el = document.getElementById(`answer-${targetAnswer}`);
+    if (activeTab !== "transcript" || !current || current.seq === handledSeq.current || !turns) return;
+    const el = document.getElementById(`answer-${current.answer}`);
     if (!el) return;
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    el.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "center" });
+    handledSeq.current = current.seq;
+    const still =
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches || document.documentElement.dataset.motion === "paused";
+    el.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "center" });
     el.focus({ preventScroll: true });
-  }, [activeTab, targetAnswer, turns]);
+  }, [activeTab, current, turns]);
   const perTurn = report.format === 2 ? report.delivery?.summary.perTurn : undefined;
 
   const generatedDate = new Date(report.generatedAt);

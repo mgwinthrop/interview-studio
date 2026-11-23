@@ -50,7 +50,8 @@ export function TranscriptView({
             </p>
             {t.answer !== undefined && perTurn && (
               <p style={{ ...itemTextStyle, fontSize: 13, color: "#566475", marginTop: 6 }}>
-                {numbers ? <AnswerNumbers t={numbers} /> : "No delivery numbers for this answer (typed, or not measured)."}
+                {/* Every stored spoken turn is measured (sessionController), so a missing entry is a typed answer. */}
+                {numbers ? <AnswerNumbers t={numbers} /> : "Typed answer: no delivery numbers"}
               </p>
             )}
           </li>

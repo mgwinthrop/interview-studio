@@ -25,6 +25,12 @@ test("an answer card shows its question and Read answer lands on that answer", a
   await speech.end(page);
   await expect(page.getByText("hello there")).toBeVisible({ timeout: 10_000 });
   await expect(status).toHaveText("Listening", { timeout: 20_000 });
+  // A typed second answer: it has no delivery numbers.
+  await page.getByRole("button", { name: "Type message instead of speaking" }).click();
+  await page.getByRole("textbox", { name: "Type your message" }).fill("a typed answer here");
+  await page.keyboard.press("Enter");
+  await expect(page.getByText("a typed answer here")).toBeVisible({ timeout: 10_000 });
+  await expect(status).toHaveText("Listening", { timeout: 20_000 });
 
   await page.getByRole("button", { name: "End Session", exact: true }).click();
   await page.getByRole("dialog", { name: "End this interview?" }).getByRole("button", { name: "End and see report" }).click();
@@ -41,4 +47,12 @@ test("an answer card shows its question and Read answer lands on that answer", a
   await expect(answer).toHaveAttribute("aria-current", "true");
   await expect(answer).toContainText("hello there");
   await expect(answer).toContainText(/\d+ words? · pace/);
+  await expect(page.locator("#answer-2")).toContainText("Typed answer: no delivery numbers");
+
+  // Coming back to the tab later keeps the highlight but leaves focus on the tab (tabs pattern).
+  const transcriptTab = page.getByRole("tab", { name: "Transcript" });
+  await page.getByRole("tab", { name: "Report" }).click();
+  await transcriptTab.click();
+  await expect(transcriptTab).toBeFocused();
+  await expect(page.locator("#answer-1")).toHaveAttribute("aria-current", "true");
 });
