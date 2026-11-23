@@ -4,8 +4,10 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { apiUrl } from "../lib/config";
 import type { ReportView as ReportData } from "../lib/report";
 import { EARLIER_INTERVIEW_LABEL } from "../lib/interviewers";
+import { fetchTurns, type TranscriptTurn } from "../lib/transcript";
 import { ReportV1Body } from "./report/ReportV1Body";
 import { ReportV2Body } from "./report/ReportV2Body";
+import { TranscriptView } from "./report/TranscriptView";
 
 type Tab = "report" | "transcript";
 const TABS: readonly Tab[] = ["report", "transcript"];
@@ -49,6 +51,19 @@ export function ReportView({ report, interviewerName, sessionId, onNewSession, f
   useEffect(() => {
     if (focusHeading) headingRef.current?.focus();
   }, [focusHeading]);
+
+  // FQ-50: the conversation for the Transcript tab. Keyed on the session and aborted on change,
+  // so the Dashboard never shows the previous session's turns. Null (not loaded, or failed)
+  // leaves the tab with the download only.
+  const [loaded, setLoaded] = useState<{ sessionId: string; turns: TranscriptTurn[] | null } | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchTurns(sessionId, controller.signal).then((t) => {
+      if (!controller.signal.aborted) setLoaded({ sessionId, turns: t });
+    });
+    return () => controller.abort();
+  }, [sessionId]);
+  const turns = loaded?.sessionId === sessionId ? loaded.turns : null;
 
   const generatedDate = new Date(report.generatedAt);
   const hasDate = !Number.isNaN(generatedDate.getTime());
@@ -289,6 +304,7 @@ export function ReportView({ report, interviewerName, sessionId, onNewSession, f
             {/* ── Transcript tab ── */}
             {activeTab === "transcript" && (
               <div style={{ maxWidth: 680 }}>
+                {turns && turns.length > 0 && <TranscriptView turns={turns} />}
                 <p style={{ fontSize: 15, color: "#566475", fontWeight: 400, margin: "0 0 20px" }}>
                   Download the full session transcript as a text file.
                 </p>
