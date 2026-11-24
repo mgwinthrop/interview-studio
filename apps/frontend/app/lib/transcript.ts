@@ -49,12 +49,19 @@ export function questionFor(turns: readonly TranscriptTurn[], answer: number): s
   return asked.length > 0 ? asked.join("\n\n") : null;
 }
 
-/** Lower-cased words: curly quotes and apostrophes made plain, split on anything but letters, digits and '. */
+/**
+ * Lower-cased words: curly quotes and apostrophes made plain; a word is letters (with their
+ * combining marks, so "कमा" stays apart from "कम"), digits and ', and a "." or "," between
+ * digits stays inside the number ("1.5" and "10,000" are one word each).
+ */
 function words(s: string): string[] {
-  return s
-    .toLowerCase()
-    .replace(/[‘’ʼ]/g, "'")
-    .split(/[^\p{L}\p{N}']+/u)
+  return (
+    s
+      .normalize("NFC")
+      .toLowerCase()
+      .replace(/[‘’ʼ]/g, "'")
+      .match(/(?:\p{N}+(?:[.,]\p{N}+)*|[\p{L}\p{M}'])+/gu) ?? []
+  )
     .map((w) => w.replace(/^'+|'+$/g, ""))
     .filter(Boolean);
 }

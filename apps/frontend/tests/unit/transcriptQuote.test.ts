@@ -31,9 +31,22 @@ describe("matchQuote", () => {
     expect(matchQuote("that’s always step one", TURNS)).toBe(2);
   });
 
-  it("matches whole words only: 'yes' is not inside 'yesterday'", () => {
+  it("matches whole words only: 'yes' is not inside 'yesterday', at either end of the quote", () => {
     expect(matchQuote("yes I ran the planning meeting", TURNS)).toBeNull();
+    expect(matchQuote("terday I ran the planning", TURNS)).toBeNull();
+    expect(matchQuote("ran the planning meet", TURNS)).toBeNull();
     expect(matchQuote("yesterday I ran the planning meeting", TURNS)).toBe(1);
+  });
+
+  it("keeps numbers and marked letters whole, so a near-miss never links", () => {
+    const t = [you(1, "We reached 1.5 million users and 10,000 teams."), you(2, "वह कम रहा")];
+    expect(matchQuote("5 million users", t)).toBeNull();
+    expect(matchQuote("000 teams", t)).toBeNull();
+    expect(matchQuote("1.5 million users", t)).toBe(1);
+    expect(matchQuote("वह कमा रहा", t)).toBeNull();
+    expect(matchQuote("वह कम रहा", t)).toBe(2);
+    expect(matchQuote("café au lait", [you(1, "a café au lait please")])).toBe(1);
+    expect(matchQuote("cafe au lait", [you(1, "a café au lait please")])).toBeNull();
   });
 
   it("gives null when two answers contain the quote", () => {
