@@ -63,10 +63,15 @@ Turn = {
 
 ## Quote matching rule
 
-`normalise(s)`: lower-case, curly quotes and dashes mapped to plain ones, punctuation
-removed, whitespace collapsed. A quote is linked to answer N only if `normalise(quote)` is
-non-empty, at least 3 words long, and a substring of `normalise(content)` for exactly one user
-turn. Two matches or none means no link: **never the wrong answer** (gate 1, criterion 3).
+Text is split into lower-cased words, with curly quotes and apostrophes made plain and
+punctuation dropped. A quote is linked to answer N only if it has at least 2 words, and its
+words appear in order, as a contiguous run of whole words, in exactly one user turn. Two
+matches or none means no link: **never the wrong answer** (gate 1, criterion 3).
+
+> Corrected 2026-11-24 (owner). This section first said "at least 3 words" and a substring
+> match. Gate 3 (`03-design.md`) and the S2 `done_when` set 2 words and whole-word runs, and
+> that is what shipped in `matchQuote` (`apps/frontend/app/lib/transcript.ts`). Numbers stay
+> whole ("1.5", "10,000") and combining marks stay with their letter (PR #172).
 The prompt already requires quotes "copied word for word from the participant's own lines"
 (`reportGenerator.ts` `CONTENT_INSTRUCTIONS`), so exact matching after normalisation is the
 expected case, not a hope. Format 1 reports have `evidence`, not quotes, and are not linked.

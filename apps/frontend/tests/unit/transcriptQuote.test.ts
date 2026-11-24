@@ -58,6 +58,17 @@ describe("matchQuote", () => {
     expect(matchQuote("how did it go", TURNS)).toBeNull();
   });
 
+  it("needs the quote's words in order and next to each other", () => {
+    // All the words are in answer 2, but out of order, or with words between them.
+    expect(matchQuote("the customer is who", TURNS)).toBeNull();
+    expect(matchQuote("I'd start asking who", TURNS)).toBeNull();
+    expect(matchQuote("start asking customer", TURNS)).toBeNull();
+  });
+
+  it("links a 2-word quote found in exactly one answer", () => {
+    expect(matchQuote("planning meeting", TURNS)).toBe(1);
+  });
+
   it("gives null for a quote of fewer than 2 words", () => {
     expect(matchQuote("Yesterday", TURNS)).toBeNull();
     expect(matchQuote("  “!” ", TURNS)).toBeNull();
