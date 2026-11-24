@@ -49,6 +49,35 @@ export function questionFor(turns: readonly TranscriptTurn[], answer: number): s
   return asked.length > 0 ? asked.join("\n\n") : null;
 }
 
+/** Lower-cased words: curly quotes and apostrophes made plain, split on anything but letters, digits and '. */
+function words(s: string): string[] {
+  return s
+    .toLowerCase()
+    .replace(/[‘’ʼ]/g, "'")
+    .split(/[^\p{L}\p{N}']+/u)
+    .map((w) => w.replace(/^'+|'+$/g, ""))
+    .filter(Boolean);
+}
+
+function containsRun(haystack: readonly string[], needle: readonly string[]): boolean {
+  for (let i = 0; i + needle.length <= haystack.length; i++) {
+    if (needle.every((w, j) => haystack[i + j] === w)) return true;
+  }
+  return false;
+}
+
+/**
+ * The answer a strength quote came from: its words, in order and as whole words, appear in
+ * exactly one answer. Null for a quote under 2 words, no match or more than one match, so a
+ * quote is never linked to the wrong answer (FQ-50 gate 1). The interviewer's turns never match.
+ */
+export function matchQuote(quote: string, turns: readonly TranscriptTurn[]): number | null {
+  const q = words(quote);
+  if (q.length < 2) return null;
+  const hits = turns.filter((t) => t.answer !== undefined && containsRun(words(t.content), q));
+  return hits.length === 1 ? hits[0].answer! : null;
+}
+
 /** The session's turns, or null on a network error, a 404 or a bad shape. Never throws. */
 export async function fetchTurns(sessionId: string, signal?: AbortSignal): Promise<TranscriptTurn[] | null> {
   try {
