@@ -72,6 +72,7 @@ matches or none means no link: **never the wrong answer** (gate 1, criterion 3).
 > match. Gate 3 (`03-design.md`) and the S2 `done_when` set 2 words and whole-word runs, and
 > that is what shipped in `matchQuote` (`apps/frontend/app/lib/transcript.ts`). Numbers stay
 > whole ("1.5", "10,000") and combining marks stay with their letter (PR #172).
+
 The prompt already requires quotes "copied word for word from the participant's own lines"
 (`reportGenerator.ts` `CONTENT_INSTRUCTIONS`), so exact matching after normalisation is the
 expected case, not a hope. Format 1 reports have `evidence`, not quotes, and are not linked.
