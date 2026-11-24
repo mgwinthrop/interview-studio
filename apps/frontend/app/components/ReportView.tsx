@@ -65,6 +65,31 @@ export function ReportView({ report, interviewerName, sessionId, onNewSession, f
   }, [sessionId]);
   const turns = loaded?.sessionId === sessionId ? loaded.turns : null;
 
+  // FQ-50 S1: "Read answer" opens the Transcript tab on that answer, scrolled to, highlighted
+  // and focused. No smooth scroll under reduced motion or the app's own "pause animations".
+  // Kept with its session, so switching sessions in the Dashboard never carries a target over.
+  // Scroll and focus happen once per request (`seq`): coming back to the tab later keeps the
+  // highlight but leaves focus on the tab, as the tabs keyboard pattern expects.
+  const [target, setTarget] = useState<{ sessionId: string; answer: number; seq: number } | null>(null);
+  const handledSeq = useRef(0);
+  const current = target?.sessionId === sessionId ? target : null;
+  const targetAnswer = current?.answer ?? null;
+  function showAnswer(n: number) {
+    setActiveTab("transcript");
+    setTarget({ sessionId, answer: n, seq: (target?.seq ?? 0) + 1 });
+  }
+  useEffect(() => {
+    if (activeTab !== "transcript" || !current || current.seq === handledSeq.current || !turns) return;
+    const el = document.getElementById(`answer-${current.answer}`);
+    if (!el) return;
+    handledSeq.current = current.seq;
+    const still =
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches || document.documentElement.dataset.motion === "paused";
+    el.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "center" });
+    el.focus({ preventScroll: true });
+  }, [activeTab, current, turns]);
+  const perTurn = report.format === 2 ? report.delivery?.summary.perTurn : undefined;
+
   const generatedDate = new Date(report.generatedAt);
   const hasDate = !Number.isNaN(generatedDate.getTime());
   const headerDate = hasDate
@@ -297,14 +322,14 @@ export function ReportView({ report, interviewerName, sessionId, onNewSession, f
 
           <div role="tabpanel" id="report-tabpanel" aria-labelledby={`report-tab-${activeTab}`} tabIndex={0}>
             {/* ── Report tab ── */}
-            {activeTab === "report" && report.format === 2 && <ReportV2Body report={report} />}
+            {activeTab === "report" && report.format === 2 && <ReportV2Body report={report} turns={turns} onShowAnswer={showAnswer} />}
             {activeTab === "report" && report.format === 1 && <ReportV1Body report={report} />}
             {activeTab === "report" && embedded && highlights}
 
             {/* ── Transcript tab ── */}
             {activeTab === "transcript" && (
               <div style={{ maxWidth: 680 }}>
-                {turns && turns.length > 0 && <TranscriptView turns={turns} />}
+                {turns && turns.length > 0 && <TranscriptView turns={turns} perTurn={perTurn} target={targetAnswer} />}
                 <p style={{ fontSize: 15, color: "#566475", fontWeight: 400, margin: "0 0 20px" }}>
                   Download the full session transcript as a text file.
                 </p>
