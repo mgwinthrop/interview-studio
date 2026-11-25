@@ -1,13 +1,32 @@
 version: 2
+# Patch and minor updates arrive as one grouped PR per app per week. Major updates stay as
+# separate PRs, because each is a migration decision for the owner (charter: dependency
+# choices are never automated). @types/node tracks the Node runtime (22), so its majors are
+# ignored.
 updates:
   - package-ecosystem: npm
     directory: /apps/backend
     schedule: { interval: weekly }
     open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: npm
     directory: /apps/frontend
     schedule: { interval: weekly }
     open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
+    groups:
+      actions:
+        patterns: ["*"]
