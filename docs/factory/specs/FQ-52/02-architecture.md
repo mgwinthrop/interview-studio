@@ -1,6 +1,10 @@
 # FQ-52 - Gate 2: architecture
 
-## Decisions needed at this gate
+## Decisions at this gate
+
+> Decided 2026-11-25 (owner): **Q1 option B** (the median of the per-answer figures for
+> all four numbers), **Q2 yes** (read the stored report summary). The gate 1 success
+> measure was reworded to match (`01-product.md`).
 
 ### Q1. What one session's point means for pace and longest pause (revisits gate 1 D2)
 

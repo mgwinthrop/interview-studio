@@ -25,10 +25,17 @@ stored, session by session, and never put side by side.
 4. **Honest about thin data.** With fewer than two measured sessions there is nothing to
    compare, and the page says so plainly instead of drawing a one-point line.
 
-**How we measure it:** with three or more stored mock sessions, the History page shows a
-line per number across those sessions. Narrowing to one interviewer shows only its
-sessions. With one session, it shows the "not enough yet" message. Every number equals
-the matching figure in that session's own report.
+**How we measure it:** with three or more stored sessions, the History page shows one
+point per session for every number those sessions measured. Narrowing to one interviewer
+shows only its sessions. With one session, it shows the "not enough yet" message. Every
+number equals the median of the matching per-answer figures in that session's own report.
+
+> Reworded 2026-11-25 (owner, at gate 2). This first said "a line per number across three
+> mock sessions" and "equals the matching figure in that session's own report". Pace and
+> longest pause in the report are a time-weighted average and a maximum, not medians, so
+> the measure now follows D2 (gate 2, Q1 option B). Mock sessions cannot measure pace (every
+> mock answer is two words), so the measure no longer requires a line for every number in
+> mock.
 
 ## Announcement
 
