@@ -2,8 +2,8 @@ item: FQ-52
 scope: delivery numbers across sessions on the History page, filterable by interviewer, with no scores, targets or AI commentary
 kind: user-facing
 gate_1_product: approved 2026-11-25
-gate_2_architecture: pending
-gate_3_design: not-started
+gate_2_architecture: approved 2026-11-25
+gate_3_design: pending
 gate_4_slices: not-started
 slices_completed: 0 / ?
 decisions:
