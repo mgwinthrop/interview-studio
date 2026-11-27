@@ -1,10 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// FQ-52 S0 (#180): the Progress page skeleton. It is not linked from anywhere yet (S3 adds
-// the Dashboard line), so tests open /progress directly. The trend route is stubbed with
-// page.route for each state; the last test checks the real mock backend's route. Later
-// slices fill `sessions` on the shared e2e backend, so nothing here depends on how many
-// sessions the real backend returns.
+// FQ-52 S0 (#180): /progress is not linked yet, so tests open it directly. States are stubbed;
+// the real-backend checks never depend on how many sessions the shared backend holds.
 
 const NOT_ENOUGH = /Not enough yet/;
 const LOAD_FAILED = "Your delivery numbers could not be loaded.";

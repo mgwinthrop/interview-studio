@@ -1,9 +1,7 @@
 "use client";
 
-// Progress (FQ-52): your own delivery numbers across sessions. Numbers measured in code only,
-// with no scores, targets or commentary. Not linked from anywhere until the Dashboard line
-// ships (docs/factory/specs/FQ-52/04-slices.md). This slice renders the states only; the
-// cards come in a later slice.
+// Progress (FQ-52): your delivery numbers across sessions, with no scores or targets. Not linked
+// until the Dashboard line ships (docs/factory/specs/FQ-52/04-slices.md); cards come later.
 import Link from "next/link";
 import { useEffect, useState, type CSSProperties } from "react";
 import { Shell } from "../interviewers/edit/EditorParts";

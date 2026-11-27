@@ -1,6 +1,5 @@
-// Delivery numbers across sessions, for the Progress page (FQ-52). Numbers measured in code
-// only: no scores, targets or commentary. The response is shape-checked whole; anything
-// unexpected is treated as unavailable, never partly shown.
+// Delivery numbers across sessions for the Progress page (FQ-52). The response is checked
+// whole: anything unexpected is treated as unavailable, never partly shown.
 import { apiUrl } from "./config";
 
 /** Fewer sessions than this leaves nothing to compare, so the page says "Not enough yet". */

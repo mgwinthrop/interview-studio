@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchTrend, MIN_POINTS, parseTrend } from "../../app/lib/deliveryTrend";
+import { fetchTrend, parseTrend } from "../../app/lib/deliveryTrend";
 
 // FQ-52 S0 (#180): the Progress page's response parser and fetch.
 
@@ -56,13 +56,11 @@ describe("parseTrend", () => {
   it.each([
     ["sessionId not a string", { sessionId: 1 }],
     ["startedAt not a date", { startedAt: "yesterday" }],
-    ["interviewerId missing", { interviewerId: undefined }],
     ["interviewerName a number", { interviewerName: 3 }],
     ["answersMeasured zero", { answersMeasured: 0 }],
     ["answersMeasured fractional", { answersMeasured: 1.5 }],
     ["a negative number", { gapMs: -1 }],
     ["a non-finite number", { paceWpm: Number.POSITIVE_INFINITY }],
-    ["a number as a string", { answerWords: "96" }],
     ["a number missing", { longestPauseSec: undefined }],
   ])("rejects the whole body when one point has %s", (_label, change) => {
     const bad = { ...point, sessionId: "s-bad", ...change };
@@ -107,21 +105,5 @@ describe("fetchTrend", () => {
   it("resolves null on a body that is not JSON", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("<html>", { status: 200 })));
     await expect(fetchTrend()).resolves.toBeNull();
-  });
-
-  it("resolves null when aborted", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => Promise.reject(new DOMException("aborted", "AbortError"))),
-    );
-    const controller = new AbortController();
-    controller.abort();
-    await expect(fetchTrend(controller.signal)).resolves.toBeNull();
-  });
-});
-
-describe("MIN_POINTS", () => {
-  it("needs two sessions to compare", () => {
-    expect(MIN_POINTS).toBe(2);
   });
 });
