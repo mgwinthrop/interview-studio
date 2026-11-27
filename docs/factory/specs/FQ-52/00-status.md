@@ -4,7 +4,7 @@ kind: user-facing
 gate_1_product: approved 2026-11-25
 gate_2_architecture: approved 2026-11-25
 gate_3_design: approved 2026-11-27
-gate_4_slices: pending
+gate_4_slices: approved 2026-11-27
 slices_completed: 0 / 4
 decisions:
   - "Gate 1 D1 (owner, 2026-11-25): four numbers - pace, typical gap before answering, longest pause, typical answer length. Filler counts appear only when REPORT_FILLER_COUNTS is on, as in reports."
@@ -16,5 +16,5 @@ decisions:
   - "Gate 3 (owner, 2026-11-27): the trend is its own /progress page, linked from a one-line summary on the Dashboard (the Usage pattern); gate 1 wording amended"
   - "Gate 3 (owner, 2026-11-27): fillers are shown per 100 words spoken (report fillerCount / totalWords), not as a session total"
   - "Gate 3 (owner, 2026-11-27): even-count medians use stored unrounded values, with an explanatory line under the cards"
-open_questions:
-  - "Gate 4 approval of 04-slices.md, including the queue plan and the parent #52 label change; owner"
+  - "Gate 4 (owner, 2026-11-27): four slices approved; issues #180 (S0, ready-to-implement), #181 (S1), #182 (S2), #183 (S3) created as sub-issues of #52; #52 moved from ready-to-spec to wait-to-implement"
+open_questions: []
