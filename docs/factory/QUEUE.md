@@ -141,16 +141,15 @@ Snapshot from triage run `2026-11-14T163251Z-triage-run`, which re-triaged #40, 
 - notes: Charter NEEDS_SPEC: user-visible feature and a REST route change. #51 depends on its answer cards.
 
 ## FQ-52: Show delivery progress across sessions, without scores
-- disposition: ready-to-spec
+- disposition: wait-to-implement
 - source: https://github.com/mgwinthrop/interview-studio/issues/52
-- last_triaged: 2026-11-14
-- repro: not-attempted (feature request)
-- files_expected: dashboard/page.tsx, new backend route
-- load_bearing: false
-- gate_level: full
-- done_when: Decided in spec
-- confidence: high
-- notes: Charter NEEDS_SPEC: user-visible feature and a new REST route.
+- last_triaged: 2026-11-27
+- blocked_on: slices #180, #181, #182, #183 (closed when #183 merges)
+- load_bearing: true (S1 only: persistence.ts)
+- gate_level: per slice
+- done_when: all four slices merged
+- confidence: medium
+- notes: Spec approved at all four gates (docs/factory/specs/FQ-52/). Charter NEEDS_SPEC was satisfied by that spec.
 
 ## FQ-55: Make the mic check a one-time step, not a gate
 - disposition: ready-to-spec
@@ -470,3 +469,47 @@ Slices added by spec run `2026-11-19T213000Z-spec-50` (FQ-50, owner-approved at 
 - gate_level: full
 - done_when: see the issue's factory-handoff:v1 comment (spec §S2)
 - confidence: high
+
+---
+
+Slices added by spec run `2026-11-27T083620Z-spec-52` (FQ-52, owner-approved at all four gates). Each issue's `factory-handoff:v1` comment carries the full `done_when` and `files_expected`; plan in `docs/factory/specs/FQ-52/04-slices.md`. S0-S2 are `kind:enabling` (nothing links to `/progress` until S3); S3 is `kind:user-facing`.
+
+## FQ-180: FQ-52 S0 - Delivery trend route and /progress page skeleton, unlinked (tracer)
+- disposition: ready-to-implement
+- source: https://github.com/mgwinthrop/interview-studio/issues/180
+- last_triaged: 2026-11-27
+- load_bearing: false
+- gate_level: full
+- done_when: see the issue's factory-handoff:v1 comment (spec §S0)
+- confidence: high
+
+## FQ-181: FQ-52 S1 - Delivery trend numbers from stored reports (load-bearing)
+- disposition: wait-to-implement
+- source: https://github.com/mgwinthrop/interview-studio/issues/181
+- last_triaged: 2026-11-27
+- blocked_on: #180
+- load_bearing: true
+- gate_level: deep
+- done_when: see the issue's factory-handoff:v1 comment (spec §S1)
+- confidence: medium
+- notes: Interactive only, with a human read of the diff (charter §2).
+
+## FQ-182: FQ-52 S2 - Delivery cards, lines and interviewer filter on /progress
+- disposition: wait-to-implement
+- source: https://github.com/mgwinthrop/interview-studio/issues/182
+- last_triaged: 2026-11-27
+- blocked_on: #181
+- load_bearing: false
+- gate_level: full
+- done_when: see the issue's factory-handoff:v1 comment (spec §S2)
+- confidence: medium
+
+## FQ-183: FQ-52 S3 - Dashboard line linking to /progress (release)
+- disposition: wait-to-implement
+- source: https://github.com/mgwinthrop/interview-studio/issues/183
+- last_triaged: 2026-11-27
+- blocked_on: #182
+- load_bearing: false
+- gate_level: full
+- done_when: see the issue's factory-handoff:v1 comment (spec §S3)
+- confidence: medium-high
