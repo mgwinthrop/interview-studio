@@ -13,5 +13,8 @@ decisions:
   - "Gate 2 Q1 (owner, 2026-11-25): option B - each session's point is the median of its per-answer figures, for all four numbers"
   - "Gate 2 Q2 (owner, 2026-11-25): source the trend from each report's stored delivery.summary, not a recomputation from turns"
   - "Gate 1 success measure reworded (owner, 2026-11-25) to match Q1 and the mock's unmeasurable pace"
+  - "Gate 3 (owner, 2026-11-27): the trend is its own /progress page, linked from a one-line summary on the Dashboard (the Usage pattern); gate 1 wording amended"
+  - "Gate 3 (owner, 2026-11-27): fillers are shown per 100 words spoken (report fillerCount / totalWords), not as a session total"
+  - "Gate 3 (owner, 2026-11-27): even-count medians use stored unrounded values, with an explanatory line under the cards"
 open_questions:
-  - "Gate 2 approval of 02-architecture.md as revised; owner"
+  - "Gate 3 approval of 03-design.md as revised; owner"

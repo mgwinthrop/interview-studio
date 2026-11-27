@@ -6,6 +6,13 @@
 > all four numbers), **Q2 yes** (read the stored report summary). The gate 1 success
 > measure was reworded to match (`01-product.md`).
 
+> Amended 2026-11-27 (owner, at gate 3). Two changes supersede parts of this document:
+> - The trend is a `/progress` page reached from a one-line summary on the Dashboard, not a
+>   section inside the Dashboard. The route, the data source and the medians are unchanged.
+> - `fillers` is the report's `fillerCount` per 100 `totalWords`, not the session total.
+>
+> `03-design.md` is the current detail for both.
+
 ### Q1. What one session's point means for pace and longest pause (revisits gate 1 D2)
 
 Gate 1 approved two things that cannot both hold for two of the four numbers:
