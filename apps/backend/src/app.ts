@@ -6,6 +6,7 @@ import { createCallsRouter, type CallsDraftMaker } from "./callsRoutes";
 import { callsEnabled, type Config } from "./config";
 import prisma from "./db";
 import { withDeadline } from "./deadline";
+import { createDeliveryTrendRouter } from "./deliveryTrend";
 import { errName } from "./errors";
 import { ownerOf, route } from "./httpUtil";
 import { createInterviewerRouter, type InterviewerRouterDeps } from "./interviewerRoutes";
@@ -181,6 +182,9 @@ export function createApp(deps: AppDeps): App {
   app.use("/api/usage", createUsageRouter({ usage }));
 
   app.use("/api/settings", createSettingsRouter({ service: settings, ownerOf }));
+
+  // FQ-52: delivery numbers across sessions for the Progress page.
+  app.use(createDeliveryTrendRouter({ config }));
 
   // Transcript, report, regenerate, delete and the session list (absolute paths).
   app.use(createSessionRouter({ config, llm: providers.llm, persist, settings }));
